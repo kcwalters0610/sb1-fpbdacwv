@@ -245,6 +245,15 @@ export default function WorkOrders() {
     if (!confirm('Are you sure you want to delete this work order?')) return
 
     try {
+     // First delete associated time entries to avoid foreign key constraint violation
+     const { error: timeEntriesError } = await supabase
+       .from('time_entries')
+       .delete()
+       .eq('work_order_id', id)
+     
+     if (timeEntriesError) throw timeEntriesError
+     
+     // Now delete the work order
       const { error } = await supabase
         .from('work_orders')
         .delete()
