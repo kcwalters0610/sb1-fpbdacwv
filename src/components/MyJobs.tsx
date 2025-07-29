@@ -337,6 +337,26 @@ export default function MyJobs() {
       const { error: uploadError } = await supabase.storage
         .from('work-order-photos')
         .upload(fileName, file)
+
+      if (uploadError) throw uploadError
+
+      // Get public URL
+      const { data: { publicUrl } } = supabase.storage
+        .from('work-order-photos')
+        .getPublicUrl(fileName)
+
+      // Save photo record to database
+      const { error: dbError } = await supabase
+        .from('work_order_photos')
+        .insert([{
+          work_order_id: selectedWorkOrder.id,
+          company_id: profile.company_id,
+          photo_url: publicUrl,
+          caption: photoCaption,
+          uploaded_by: user.id
+        }])
+
+      if (dbError) throw dbError
         status: 'pending' as const,
         duration_minutes: null,
         end_time: null
