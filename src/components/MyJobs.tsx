@@ -436,450 +436,147 @@ export default function MyJobs() {
   return (
     <div className="space-y-6">
       {/* Header */}
-      <div>
-        <h1 className="text-2xl font-bold text-gray-900">My Jobs</h1>
-        <p className="text-gray-600">Manage your assigned work orders</p>
+      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
+        <div>
+          <h1 className="text-2xl font-bold text-gray-900">My Jobs</h1>
+          <p className="text-gray-600">Manage your assigned work orders</p>
+        </div>
       </div>
 
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-        {/* Work Orders List */}
-        <div className="lg:col-span-1">
-          <div className="bg-white rounded-xl shadow-sm border border-gray-200">
-            <div className="p-4 border-b border-gray-200">
-              <h3 className="text-lg font-semibold text-gray-900">Active Jobs ({workOrders.length})</h3>
+      {/* Stats */}
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+        <div className="bg-white rounded-lg border border-gray-200 p-6">
+          <div className="flex items-center">
+            <CheckCircle className="w-8 h-8 text-blue-600" />
+            <div className="ml-4">
+              <p className="text-sm font-medium text-gray-600">Active Jobs</p>
+              <p className="text-2xl font-bold text-gray-900">{workOrders.length}</p>
             </div>
-            <div className="divide-y divide-gray-200 max-h-96 overflow-y-auto">
-              {workOrders.map((workOrder) => (
-                <div
-                  key={workOrder.id}
-                  onClick={() => setSelectedWorkOrder(workOrder)}
-                  className={`p-4 cursor-pointer hover:bg-gray-50 transition-colors ${
-                    selectedWorkOrder?.id === workOrder.id ? 'bg-blue-50 border-r-4 border-blue-500' : ''
-                  }`}
-                >
-                  <div className="flex items-start justify-between">
-                    <div className="flex-1">
-                      <h4 className="font-medium text-gray-900">{workOrder.wo_number}</h4>
-                      <p className="text-sm text-gray-600 mt-1">{workOrder.title}</p>
-                      <div className="flex items-center mt-2">
-                        <span className={`inline-flex px-2 py-1 text-xs font-medium rounded-full ${getStatusColor(workOrder.status)}`}>
-                          {workOrder.status.replace('_', ' ')}
+          </div>
+        </div>
+        <div className="bg-white rounded-lg border border-gray-200 p-6">
+          <div className="flex items-center">
+            <Clock className="w-8 h-8 text-green-600" />
+            <div className="ml-4">
+              <p className="text-sm font-medium text-gray-600">In Progress</p>
+              <p className="text-2xl font-bold text-gray-900">{workOrders.filter(wo => wo.status === 'in_progress').length}</p>
+            </div>
+          </div>
+        </div>
+        <div className="bg-white rounded-lg border border-gray-200 p-6">
+          <div className="flex items-center">
+            <Calendar className="w-8 h-8 text-purple-600" />
+            <div className="ml-4">
+              <p className="text-sm font-medium text-gray-600">Scheduled</p>
+              <p className="text-2xl font-bold text-gray-900">{workOrders.filter(wo => wo.status === 'scheduled').length}</p>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      {/* Work Orders Content */}
+      <div className="bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden">
+        <div className="p-6">
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+            {workOrders.map((workOrder) => (
+              <div key={workOrder.id} className="border border-gray-200 rounded-lg p-6 hover:shadow-md transition-shadow">
+                <div className="flex items-start justify-between mb-4">
+                  <div className="flex-1">
+                    <h3 className="text-lg font-semibold text-gray-900 mb-1">{workOrder.wo_number}</h3>
+                    <p className="text-sm text-gray-600 mb-2">{workOrder.title}</p>
+                    <div className="flex space-x-2 mb-3">
+                      <span className={`inline-flex px-2 py-1 text-xs font-medium rounded-full ${getStatusColor(workOrder.status)}`}>
+                        {workOrder.status.replace('_', ' ')}
+                      </span>
+                      {workOrder.priority && (
+                        <span className={`inline-flex px-2 py-1 text-xs font-medium rounded-full ${
+                          workOrder.priority === 'urgent' ? 'text-red-700 bg-red-100' :
+                          workOrder.priority === 'high' ? 'text-orange-700 bg-orange-100' :
+                          workOrder.priority === 'medium' ? 'text-yellow-700 bg-yellow-100' :
+                          'text-green-700 bg-green-100'
+                        }`}>
+                          {workOrder.priority}
                         </span>
-                      </div>
+                      )}
                     </div>
                   </div>
-                  
-                  <div className="mt-3 space-y-1">
-                    <div className="flex items-center text-sm text-gray-600">
-                      <User className="w-4 h-4 mr-2" />
+                </div>
+                
+                <div className="space-y-2 mb-4">
+                  <div className="flex items-center text-sm text-gray-600">
+                    <User className="w-4 h-4 mr-3" />
+                    <span>
                       {workOrder.customer?.customer_type === 'residential' 
                         ? `${workOrder.customer?.first_name} ${workOrder.customer?.last_name}`
                         : workOrder.customer?.company_name
                       }
-                    </div>
-                    
-                    {workOrder.scheduled_date && (
-                      <div className="flex items-center text-sm text-gray-600">
-                        <Calendar className="w-4 h-4 mr-2" />
-                        {new Date(workOrder.scheduled_date).toLocaleDateString()}
-                      </div>
-                    )}
-                  </div>
-                </div>
-              ))}
-            </div>
-          </div>
-        </div>
-
-        {/* Work Order Details */}
-        <div className="lg:col-span-2">
-          {selectedWorkOrder ? (
-            <div className="bg-white rounded-xl shadow-sm border border-gray-200">
-              {/* Header */}
-              <div className="p-6 border-b border-gray-200">
-                <div className="flex items-start justify-between">
-                  <div>
-                    <h2 className="text-xl font-bold text-gray-900">{selectedWorkOrder.wo_number}</h2>
-                    <p className="text-gray-600 mt-1">{selectedWorkOrder.title}</p>
-                    <div className="flex items-center mt-3 space-x-4">
-                      <span className={`inline-flex px-3 py-1 text-sm font-medium rounded-full ${getStatusColor(selectedWorkOrder.status)}`}>
-                        {selectedWorkOrder.status.replace('_', ' ')}
-                      </span>
-                      {selectedWorkOrder.priority && (
-                        <span className={`inline-flex px-3 py-1 text-sm font-medium rounded-full ${
-                          selectedWorkOrder.priority === 'urgent' ? 'text-red-700 bg-red-100' :
-                          selectedWorkOrder.priority === 'high' ? 'text-orange-700 bg-orange-100' :
-                          selectedWorkOrder.priority === 'medium' ? 'text-yellow-700 bg-yellow-100' :
-                          'text-green-700 bg-green-100'
-                        }`}>
-                          {selectedWorkOrder.priority} priority
-                        </span>
-                      )}
-                    </div>
+                    </span>
                   </div>
                   
-                  {/* Status Update Buttons */}
+                  {workOrder.customer?.email && (
+                    <div className="flex items-center text-sm text-gray-600">
+                      <Mail className="w-4 h-4 mr-3" />
+                      <a href={`mailto:${workOrder.customer.email}`} className="text-blue-600 hover:text-blue-800">
+                        {workOrder.customer.email}
+                      </a>
+                    </div>
+                  )}
+                  
+                  {workOrder.customer?.phone && (
+                    <div className="flex items-center text-sm text-gray-600">
+                      <Phone className="w-4 h-4 mr-3" />
+                      <a href={`tel:${workOrder.customer.phone}`} className="text-blue-600 hover:text-blue-800">
+                        {workOrder.customer.phone}
+                      </a>
+                    </div>
+                  )}
+                  
+                  {workOrder.scheduled_date && (
+                    <div className="flex items-center text-sm text-gray-600">
+                      <Calendar className="w-4 h-4 mr-3" />
+                      <span>{new Date(workOrder.scheduled_date).toLocaleDateString()}</span>
+                    </div>
+                  )}
+                  
+                  {(workOrder.customer?.address || workOrder.customer_site?.address) && (
+                    <div className="flex items-center text-sm text-gray-600">
+                      <MapPin className="w-4 h-4 mr-3" />
+                      <span>{workOrder.customer_site?.address || workOrder.customer?.address}</span>
+                    </div>
+                  )}
+                </div>
+                
+                <div className="flex justify-between items-center pt-4 border-t border-gray-200">
                   <div className="flex space-x-2">
-                    {selectedWorkOrder.status === 'scheduled' && (
+                    {workOrder.status === 'scheduled' && (
                       <button
                         onClick={() => updateWorkOrderStatus('in_progress')}
-                        className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors"
+                        className="inline-flex items-center px-3 py-1 bg-blue-100 text-blue-700 rounded-md hover:bg-blue-200 transition-colors text-sm"
                       >
-                        Start Job
+                        <Play className="w-4 h-4 mr-1" />
+                        Start
                       </button>
                     )}
-                    {selectedWorkOrder.status === 'in_progress' && (
+                    {workOrder.status === 'in_progress' && (
                       <button
                         onClick={() => updateWorkOrderStatus('completed')}
-                        className="px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 transition-colors"
+                        className="inline-flex items-center px-3 py-1 bg-green-100 text-green-700 rounded-md hover:bg-green-200 transition-colors text-sm"
                       >
-                        Complete Job
+                        <CheckCircle className="w-4 h-4 mr-1" />
+                        Complete
                       </button>
                     )}
                   </div>
+                  <button
+                    onClick={() => setSelectedWorkOrder(workOrder)}
+                    className="text-blue-600 hover:text-blue-800 text-sm font-medium"
+                  >
+                    View Details →
+                  </button>
                 </div>
               </div>
-
-              {/* Tabs */}
-              <div className="border-b border-gray-200">
-                <nav className="flex space-x-8 px-6">
-                  {[
-                    { id: 'details', name: 'Job Details', icon: FileText },
-                    { id: 'time', name: 'Time Tracking', icon: Timer },
-                    { id: 'photos', name: 'Photos', icon: Camera },
-                    { id: 'purchase-orders', name: 'Purchase Orders', icon: ShoppingCart }
-                  ].map((tab) => {
-                    const Icon = tab.icon
-                    return (
-                      <button
-                        key={tab.id}
-                        onClick={() => setActiveTab(tab.id)}
-                        className={`flex items-center space-x-2 py-4 border-b-2 font-medium text-sm ${
-                          activeTab === tab.id
-                            ? 'border-blue-500 text-blue-600'
-                            : 'border-transparent text-gray-500 hover:text-gray-700'
-                        }`}
-                      >
-                        <Icon className="w-4 h-4" />
-                        <span>{tab.name}</span>
-                      </button>
-                    )
-                  })}
-                </nav>
-              </div>
-
-              {/* Tab Content */}
-              <div className="p-6">
-                {/* Job Details Tab */}
-                {activeTab === 'details' && (
-                  <div className="space-y-6">
-                    <div>
-                      <h3 className="text-lg font-medium text-gray-900 mb-4">Job Information</h3>
-                      <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                        <div>
-                          <h4 className="text-sm font-medium text-gray-700 mb-3">Customer Details</h4>
-                          <div className="space-y-2">
-                            <div className="flex items-center text-sm text-gray-600">
-                              <User className="w-4 h-4 mr-3" />
-                              {selectedWorkOrder.customer?.customer_type === 'residential' 
-                                ? `${selectedWorkOrder.customer?.first_name} ${selectedWorkOrder.customer?.last_name}`
-                                : selectedWorkOrder.customer?.company_name
-                              }
-                            </div>
-                            {selectedWorkOrder.customer?.email && (
-                              <div className="flex items-center text-sm text-gray-600">
-                                <Mail className="w-4 h-4 mr-3" />
-                                <a href={`mailto:${selectedWorkOrder.customer.email}`} className="text-blue-600 hover:text-blue-800">
-                                  {selectedWorkOrder.customer.email}
-                                </a>
-                              </div>
-                            )}
-                            {selectedWorkOrder.customer?.phone && (
-                              <div className="flex items-center text-sm text-gray-600">
-                                <Phone className="w-4 h-4 mr-3" />
-                                <a href={`tel:${selectedWorkOrder.customer.phone}`} className="text-blue-600 hover:text-blue-800">
-                                  {selectedWorkOrder.customer.phone}
-                                </a>
-                              </div>
-                            )}
-                            {(selectedWorkOrder.customer?.address || selectedWorkOrder.customer_site?.address) && (
-                              <div className="flex items-center text-sm text-gray-600">
-                                <MapPin className="w-4 h-4 mr-3" />
-                                <div>
-                                  {selectedWorkOrder.customer_site?.address || selectedWorkOrder.customer?.address}
-                                  {selectedWorkOrder.customer_site?.city && selectedWorkOrder.customer_site?.state && (
-                                    <div className="text-gray-500">
-                                      {selectedWorkOrder.customer_site.city}, {selectedWorkOrder.customer_site.state}
-                                    </div>
-                                  )}
-                                </div>
-                              </div>
-                            )}
-                          </div>
-                        </div>
-
-                        <div>
-                          <h4 className="text-sm font-medium text-gray-700 mb-3">Schedule</h4>
-                          <div className="space-y-2">
-                            {selectedWorkOrder.scheduled_date && (
-                              <div className="flex items-center text-sm text-gray-600">
-                                <Calendar className="w-4 h-4 mr-3" />
-                                <div>
-                                  <div>Scheduled: {new Date(selectedWorkOrder.scheduled_date).toLocaleDateString()}</div>
-                                  <div className="text-gray-500">
-                                    {new Date(selectedWorkOrder.scheduled_date).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
-                                  </div>
-                                </div>
-                              </div>
-                            )}
-                            {selectedWorkOrder.completed_date && (
-                              <div className="flex items-center text-sm text-gray-600">
-                                <CheckCircle className="w-4 h-4 mr-3" />
-                                Completed: {new Date(selectedWorkOrder.completed_date).toLocaleDateString()}
-                              </div>
-                            )}
-                          </div>
-                        </div>
-                      </div>
-                    </div>
-
-                    {selectedWorkOrder.description && (
-                      <div>
-                        <h4 className="text-sm font-medium text-gray-700 mb-3">Description</h4>
-                        <div className="bg-gray-50 rounded-lg p-4">
-                          <p className="text-sm text-gray-700">{selectedWorkOrder.description}</p>
-                        </div>
-                      </div>
-                    )}
-
-                    {selectedWorkOrder.notes && (
-                      <div>
-                        <h4 className="text-sm font-medium text-gray-700 mb-3">Notes</h4>
-                        <div className="bg-gray-50 rounded-lg p-4">
-                          <p className="text-sm text-gray-700">{selectedWorkOrder.notes}</p>
-                        </div>
-                      </div>
-                    )}
-                  </div>
-                )}
-
-                {/* Time Tracking Tab */}
-                {activeTab === 'time' && (
-                  <div className="space-y-6">
-                    {/* Timer Controls */}
-                    <div className="bg-gray-50 rounded-lg p-6">
-                      <div className="flex items-center justify-between">
-                        <div>
-                          <h3 className="text-lg font-medium text-gray-900">Time Tracker</h3>
-                          <div className="text-3xl font-mono font-bold text-blue-600 mt-2">
-                            {formatTime(elapsedTime)}
-                          </div>
-                        </div>
-                        <div className="flex space-x-3">
-                          {!isTimerRunning ? (
-                            <button
-                              onClick={startTimer}
-                              className="inline-flex items-center px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 transition-colors"
-                            >
-                              <Play className="w-4 h-4 mr-2" />
-                              Start Timer
-                            </button>
-                          ) : (
-                            <button
-                              onClick={stopTimer}
-                              className="inline-flex items-center px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700 transition-colors"
-                            >
-                              <Square className="w-4 h-4 mr-2" />
-                              Stop Timer
-                            </button>
-                          )}
-                        </div>
-                      </div>
-                    </div>
-
-                    {/* Time Entries List */}
-                    <div>
-                      <h3 className="text-lg font-medium text-gray-900 mb-4">Time Entries</h3>
-                      {timeEntries.length > 0 ? (
-                        <div className="space-y-3">
-                          {timeEntries.map((entry) => (
-                            <div key={entry.id} className="border border-gray-200 rounded-lg p-4">
-                              <div className="flex items-center justify-between">
-                                <div>
-                                  <div className="text-sm font-medium text-gray-900">
-                                    {formatDuration(entry.duration_minutes)}
-                                  </div>
-                                  <div className="text-sm text-gray-600">
-                                    {new Date(entry.start_time).toLocaleDateString()} - {entry.description}
-                                  </div>
-                                </div>
-                                <span className={`inline-flex px-2 py-1 text-xs font-medium rounded-full ${
-                                  entry.status === 'approved' ? 'text-green-700 bg-green-100' :
-                                  entry.status === 'rejected' ? 'text-red-700 bg-red-100' :
-                                  'text-yellow-700 bg-yellow-100'
-                                }`}>
-                                  {entry.status}
-                                </span>
-                              </div>
-                            </div>
-                          ))}
-                        </div>
-                      ) : (
-                        <div className="text-center py-8 text-gray-500">
-                          <Clock className="w-12 h-12 mx-auto mb-4 text-gray-300" />
-                          <p>No time entries recorded yet</p>
-                        </div>
-                      )}
-                    </div>
-                  </div>
-                )}
-
-                {/* Photos Tab */}
-                {activeTab === 'photos' && (
-                  <div className="space-y-6">
-                    <div className="flex items-center justify-between">
-                      <h3 className="text-lg font-medium text-gray-900">Job Photos</h3>
-                      <button
-                        onClick={() => setShowPhotoModal(true)}
-                        className="inline-flex items-center px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors"
-                      >
-                        <Camera className="w-4 h-4 mr-2" />
-                        Add Photo
-                      </button>
-                    </div>
-
-                    {photos.length > 0 ? (
-                      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-                        {photos.map((photo) => (
-                          <div key={photo.id} className="relative group">
-                            <img
-                              src={photo.photo_url}
-                              alt={photo.caption || 'Work order photo'}
-                              className="w-full h-48 object-cover rounded-lg border border-gray-200"
-                            />
-                            <div className="absolute inset-0 bg-black bg-opacity-0 group-hover:bg-opacity-50 transition-opacity rounded-lg flex items-center justify-center">
-                              <button
-                                onClick={() => deletePhoto(photo.id)}
-                                className="opacity-0 group-hover:opacity-100 text-white bg-red-600 rounded-full p-2 hover:bg-red-700 transition-all"
-                              >
-                                <Trash2 className="w-4 h-4" />
-                              </button>
-                            </div>
-                            {photo.caption && (
-                              <div className="mt-2">
-                                <p className="text-sm text-gray-600">{photo.caption}</p>
-                              </div>
-                            )}
-                          </div>
-                        ))}
-                      </div>
-                    ) : (
-                      <div className="text-center py-12 text-gray-500">
-                        <Camera className="w-16 h-16 mx-auto mb-4 text-gray-300" />
-                        <h3 className="text-lg font-medium text-gray-900 mb-2">No Photos</h3>
-                        <p className="text-gray-600 mb-4">Add photos to document your work progress</p>
-                        <button
-                          onClick={() => setShowPhotoModal(true)}
-                          className="inline-flex items-center px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors"
-                        >
-                          <Camera className="w-4 h-4 mr-2" />
-                          Add First Photo
-                        </button>
-                      </div>
-                    )}
-                  </div>
-                )}
-
-                {/* Purchase Orders Tab */}
-                {activeTab === 'purchase-orders' && (
-                  <div className="space-y-6">
-                    <div className="flex items-center justify-between">
-                      <h3 className="text-lg font-medium text-gray-900">Purchase Orders for this Job</h3>
-                      <button
-                        onClick={createPurchaseOrder}
-                        className="inline-flex items-center px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors"
-                      >
-                        <ShoppingCart className="w-4 h-4 mr-2" />
-                        Create Purchase Order
-                      </button>
-                    </div>
-
-                    {purchaseOrders.length > 0 ? (
-                      <div className="space-y-4">
-                        {purchaseOrders.map((po) => (
-                          <div key={po.id} className="border border-gray-200 rounded-lg p-4 hover:shadow-md transition-shadow">
-                            <div className="flex items-center justify-between">
-                              <div className="flex-1">
-                                <div className="flex items-center space-x-4">
-                                  <h4 className="text-lg font-semibold text-gray-900">{po.po_number}</h4>
-                                  <span className={`inline-flex px-2 py-1 text-xs font-medium rounded-full ${getPOStatusColor(po.status)}`}>
-                                    {po.status}
-                                  </span>
-                                </div>
-                                <div className="mt-2 grid grid-cols-1 md:grid-cols-3 gap-4">
-                                  <div>
-                                    <span className="text-sm font-medium text-gray-700">Vendor:</span>
-                                    <p className="text-sm text-gray-900">{po.vendor.name}</p>
-                                  </div>
-                                  <div>
-                                    <span className="text-sm font-medium text-gray-700">Amount:</span>
-                                    <p className="text-sm text-gray-900">${po.total_amount.toFixed(2)}</p>
-                                  </div>
-                                  <div>
-                                    <span className="text-sm font-medium text-gray-700">Order Date:</span>
-                                    <p className="text-sm text-gray-900">{new Date(po.order_date).toLocaleDateString()}</p>
-                                  </div>
-                                </div>
-                                {po.expected_delivery && (
-                                  <div className="mt-2">
-                                    <span className="text-sm font-medium text-gray-700">Expected Delivery:</span>
-                                    <p className="text-sm text-gray-900">{new Date(po.expected_delivery).toLocaleDateString()}</p>
-                                  </div>
-                                )}
-                              </div>
-                              <div className="flex space-x-2">
-                                <button
-                                  onClick={() => {
-                                    // Navigate to purchase orders page and show this PO
-                                    localStorage.setItem('selected_purchase_order', po.id)
-                                    window.dispatchEvent(new CustomEvent('navigate', { detail: 'purchase-orders' }))
-                                  }}
-                                  className="text-blue-600 hover:text-blue-800 p-2 transition-colors"
-                                  title="View Purchase Order"
-                                >
-                                  <Eye className="w-4 h-4" />
-                                </button>
-                              </div>
-                            </div>
-                          </div>
-                        ))}
-                      </div>
-                    ) : (
-                      <div className="text-center py-12 text-gray-500">
-                        <ShoppingCart className="w-16 h-16 mx-auto mb-4 text-gray-300" />
-                        <h3 className="text-lg font-medium text-gray-900 mb-2">No Purchase Orders</h3>
-                        <p className="text-gray-600 mb-4">No purchase orders have been created for this work order yet.</p>
-                        <p className="text-gray-600 mb-4">Create a purchase order to order parts and materials needed for this job.</p>
-                        <button
-                          onClick={createPurchaseOrder}
-                          className="inline-flex items-center px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors"
-                        >
-                          <ShoppingCart className="w-4 h-4 mr-2" />
-                          Create Purchase Order
-                        </button>
-                      </div>
-                    )}
-                  </div>
-                )}
-              </div>
-            </div>
-          ) : (
-            <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-12 text-center">
-              <AlertTriangle className="w-16 h-16 text-gray-300 mx-auto mb-4" />
-              <h3 className="text-lg font-medium text-gray-900 mb-2">Select a Job</h3>
-              <p className="text-gray-600">Choose a work order from the list to view details</p>
-            </div>
-          )}
+            ))}
+          </div>
         </div>
       </div>
 
