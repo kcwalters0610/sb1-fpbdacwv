@@ -19,9 +19,12 @@ import {
   ShoppingCart,
   Eye,
   Edit,
-  Trash2
+  Trash2,
+  Search
 } from 'lucide-react'
 import { supabase, WorkOrder, Profile } from '../lib/supabase'
+import { useViewPreference } from '../hooks/useViewPreference'
+import ViewToggle from './ViewToggle'
 
 interface TimeEntry {
   id: string
@@ -53,8 +56,10 @@ interface PurchaseOrder {
 }
 
 export default function MyJobs() {
+  const { viewType, setViewType } = useViewPreference('myJobs')
   const [workOrders, setWorkOrders] = useState<WorkOrder[]>([])
   const [selectedWorkOrder, setSelectedWorkOrder] = useState<WorkOrder | null>(null)
+  const [showDetailModal, setShowDetailModal] = useState(false)
   const [activeTab, setActiveTab] = useState('details')
   const [loading, setLoading] = useState(true)
   const [currentUser, setCurrentUser] = useState<Profile | null>(null)
@@ -65,6 +70,7 @@ export default function MyJobs() {
   const [showPhotoModal, setShowPhotoModal] = useState(false)
   const [selectedPhoto, setSelectedPhoto] = useState<WorkOrderPhoto | null>(null)
   const [photoCaption, setPhotoCaption] = useState('')
+  const [searchTerm, setSearchTerm] = useState('')
   
   // Timer state
   const [isTimerRunning, setIsTimerRunning] = useState(false)
@@ -77,12 +83,12 @@ export default function MyJobs() {
   }, [])
 
   useEffect(() => {
-    if (selectedWorkOrder) {
+    if (selectedWorkOrder && showDetailModal) {
       loadTimeEntries()
       loadPhotos()
       loadPurchaseOrders()
     }
-  }, [selectedWorkOrder])
+  }, [selectedWorkOrder, showDetailModal])
 
   // Timer effect
   useEffect(() => {
@@ -133,11 +139,6 @@ export default function MyJobs() {
 
       if (error) throw error
       setWorkOrders(data || [])
-      
-      // Auto-select first work order if none selected
-      if (data && data.length > 0 && !selectedWorkOrder) {
-        setSelectedWorkOrder(data[0])
-      }
     } catch (error) {
       console.error('Error loading work orders:', error)
     } finally {
@@ -275,6 +276,18 @@ export default function MyJobs() {
     }
   }
 
+  const openDetailModal = (workOrder: WorkOrder) => {
+    setSelectedWorkOrder(workOrder)
+    setShowDetailModal(true)
+    setActiveTab('details')
+  }
+
+  const closeDetailModal = () => {
+    setShowDetailModal(false)
+    setSelectedWorkOrder(null)
+    setActiveTab('details')
+  }
+
   const updateWorkOrderStatus = async (status: string) => {
     if (!selectedWorkOrder) return
 
@@ -404,6 +417,16 @@ export default function MyJobs() {
     }
   }
 
+  const getPriorityColor = (priority: string) => {
+    switch (priority) {
+      case 'urgent': return 'text-red-700 bg-red-100'
+      case 'high': return 'text-orange-700 bg-orange-100'
+      case 'medium': return 'text-yellow-700 bg-yellow-100'
+      case 'low': return 'text-green-700 bg-green-100'
+      default: return 'text-gray-700 bg-gray-100'
+    }
+  }
+
   const getPOStatusColor = (status: string) => {
     switch (status) {
       case 'received': return 'text-green-700 bg-green-100'
@@ -414,6 +437,15 @@ export default function MyJobs() {
       default: return 'text-gray-700 bg-gray-100'
     }
   }
+
+  const filteredWorkOrders = workOrders.filter(workOrder =>
+    workOrder.wo_number.toLowerCase().includes(searchTerm.toLowerCase()) ||
+    workOrder.title.toLowerCase().includes(searchTerm.toLowerCase()) ||
+    (workOrder.customer?.customer_type === 'residential' 
+      ? `${workOrder.customer?.first_name} ${workOrder.customer?.last_name}`.toLowerCase().includes(searchTerm.toLowerCase())
+      : workOrder.customer?.company_name?.toLowerCase().includes(searchTerm.toLowerCase())
+    )
+  )
 
   if (loading) {
     return (
@@ -474,111 +506,600 @@ export default function MyJobs() {
         </div>
       </div>
 
+      {/* Search and View Toggle */}
+      <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-6">
+        <div className="flex items-center justify-between gap-4">
+          <div className="relative flex-1">
+            <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400 w-5 h-5" />
+            <input
+              type="text"
+              placeholder="Search my jobs..."
+              value={searchTerm}
+              onChange={(e) => setSearchTerm(e.target.value)}
+              className="w-full pl-10 pr-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+            />
+          </div>
+          <ViewToggle viewType={viewType} onViewChange={setViewType} />
+        </div>
+      </div>
+
       {/* Work Orders Content */}
       <div className="bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden">
-        <div className="p-6">
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-            {workOrders.map((workOrder) => (
-              <div key={workOrder.id} className="border border-gray-200 rounded-lg p-6 hover:shadow-md transition-shadow">
-                <div className="flex items-start justify-between mb-4">
-                  <div className="flex-1">
-                    <h3 className="text-lg font-semibold text-gray-900 mb-1">{workOrder.wo_number}</h3>
-                    <p className="text-sm text-gray-600 mb-2">{workOrder.title}</p>
-                    <div className="flex space-x-2 mb-3">
-                      <span className={`inline-flex px-2 py-1 text-xs font-medium rounded-full ${getStatusColor(workOrder.status)}`}>
-                        {workOrder.status.replace('_', ' ')}
-                      </span>
+        {viewType === 'table' ? (
+          <div className="overflow-x-auto">
+            <table className="w-full">
+              <thead className="bg-gray-50">
+                <tr>
+                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                    Work Order
+                  </th>
+                  <th className="hidden md:table-cell px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                    Customer
+                  </th>
+                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                    Status
+                  </th>
+                  <th className="hidden md:table-cell px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                    Scheduled
+                  </th>
+                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                    Actions
+                  </th>
+                </tr>
+              </thead>
+              <tbody className="bg-white divide-y divide-gray-200">
+                {filteredWorkOrders.map((workOrder) => (
+                  <tr key={workOrder.id} className="hover:bg-gray-50">
+                    <td className="px-6 py-4 whitespace-nowrap">
+                      <div className="text-sm font-medium text-gray-900">{workOrder.wo_number}</div>
+                      <div className="text-sm text-gray-500">{workOrder.title}</div>
                       {workOrder.priority && (
-                        <span className={`inline-flex px-2 py-1 text-xs font-medium rounded-full ${
-                          workOrder.priority === 'urgent' ? 'text-red-700 bg-red-100' :
-                          workOrder.priority === 'high' ? 'text-orange-700 bg-orange-100' :
-                          workOrder.priority === 'medium' ? 'text-yellow-700 bg-yellow-100' :
-                          'text-green-700 bg-green-100'
-                        }`}>
+                        <span className={`inline-flex px-2 py-1 text-xs font-medium rounded-full mt-1 ${getPriorityColor(workOrder.priority)}`}>
                           {workOrder.priority}
                         </span>
                       )}
+                    </td>
+                    <td className="hidden md:table-cell px-6 py-4 whitespace-nowrap">
+                      <div className="text-sm text-gray-900">
+                        {workOrder.customer?.customer_type === 'residential' 
+                          ? `${workOrder.customer?.first_name} ${workOrder.customer?.last_name}`
+                          : workOrder.customer?.company_name
+                        }
+                      </div>
+                      {workOrder.customer?.phone && (
+                        <div className="text-sm text-gray-500">{workOrder.customer.phone}</div>
+                      )}
+                    </td>
+                    <td className="px-6 py-4 whitespace-nowrap">
+                      <span className={`inline-flex px-2 py-1 text-xs font-medium rounded-full ${getStatusColor(workOrder.status)}`}>
+                        {workOrder.status.replace('_', ' ')}
+                      </span>
+                    </td>
+                    <td className="hidden md:table-cell px-6 py-4 whitespace-nowrap text-sm text-gray-900">
+                      {workOrder.scheduled_date ? new Date(workOrder.scheduled_date).toLocaleDateString() : 'Not scheduled'}
+                    </td>
+                    <td className="px-6 py-4 whitespace-nowrap text-sm font-medium">
+                      <div className="flex space-x-2">
+                        <button
+                          onClick={() => openDetailModal(workOrder)}
+                          className="text-blue-600 hover:text-blue-800 p-1.5 transition-all duration-200 hover:bg-blue-100 rounded-full hover:shadow-sm transform hover:scale-110"
+                        >
+                          <Eye className="w-4 h-4" />
+                        </button>
+                        {workOrder.status === 'scheduled' && (
+                          <button
+                            onClick={() => {
+                              setSelectedWorkOrder(workOrder)
+                              updateWorkOrderStatus('in_progress')
+                            }}
+                            className="inline-flex items-center px-2 py-1 bg-blue-100 text-blue-700 rounded-md hover:bg-blue-200 transition-colors text-xs"
+                          >
+                            <Play className="w-3 h-3 mr-1" />
+                            Start
+                          </button>
+                        )}
+                        {workOrder.status === 'in_progress' && (
+                          <button
+                            onClick={() => {
+                              setSelectedWorkOrder(workOrder)
+                              updateWorkOrderStatus('completed')
+                            }}
+                            className="inline-flex items-center px-2 py-1 bg-green-100 text-green-700 rounded-md hover:bg-green-200 transition-colors text-xs"
+                          >
+                            <CheckCircle className="w-3 h-3 mr-1" />
+                            Complete
+                          </button>
+                        )}
+                      </div>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        ) : (
+          <div className="p-6">
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+              {filteredWorkOrders.map((workOrder) => (
+                <div key={workOrder.id} className="border border-gray-200 rounded-lg p-6 hover:shadow-md transition-shadow">
+                  <div className="flex items-start justify-between mb-4">
+                    <div className="flex-1">
+                      <h3 className="text-lg font-semibold text-gray-900 mb-1">{workOrder.wo_number}</h3>
+                      <p className="text-sm text-gray-600 mb-2">{workOrder.title}</p>
+                      <div className="flex space-x-2 mb-3">
+                        <span className={`inline-flex px-2 py-1 text-xs font-medium rounded-full ${getStatusColor(workOrder.status)}`}>
+                          {workOrder.status.replace('_', ' ')}
+                        </span>
+                        {workOrder.priority && (
+                          <span className={`inline-flex px-2 py-1 text-xs font-medium rounded-full ${getPriorityColor(workOrder.priority)}`}>
+                            {workOrder.priority}
+                          </span>
+                        )}
+                      </div>
                     </div>
                   </div>
-                </div>
-                
-                <div className="space-y-2 mb-4">
-                  <div className="flex items-center text-sm text-gray-600">
-                    <User className="w-4 h-4 mr-3" />
-                    <span>
-                      {workOrder.customer?.customer_type === 'residential' 
-                        ? `${workOrder.customer?.first_name} ${workOrder.customer?.last_name}`
-                        : workOrder.customer?.company_name
-                      }
-                    </span>
-                  </div>
                   
-                  {workOrder.customer?.email && (
+                  <div className="space-y-2 mb-4">
                     <div className="flex items-center text-sm text-gray-600">
-                      <Mail className="w-4 h-4 mr-3" />
-                      <a href={`mailto:${workOrder.customer.email}`} className="text-blue-600 hover:text-blue-800">
-                        {workOrder.customer.email}
-                      </a>
+                      <User className="w-4 h-4 mr-3" />
+                      <span>
+                        {workOrder.customer?.customer_type === 'residential' 
+                          ? `${workOrder.customer?.first_name} ${workOrder.customer?.last_name}`
+                          : workOrder.customer?.company_name
+                        }
+                      </span>
                     </div>
-                  )}
-                  
-                  {workOrder.customer?.phone && (
-                    <div className="flex items-center text-sm text-gray-600">
-                      <Phone className="w-4 h-4 mr-3" />
-                      <a href={`tel:${workOrder.customer.phone}`} className="text-blue-600 hover:text-blue-800">
-                        {workOrder.customer.phone}
-                      </a>
-                    </div>
-                  )}
-                  
-                  {workOrder.scheduled_date && (
-                    <div className="flex items-center text-sm text-gray-600">
-                      <Calendar className="w-4 h-4 mr-3" />
-                      <span>{new Date(workOrder.scheduled_date).toLocaleDateString()}</span>
-                    </div>
-                  )}
-                  
-                  {(workOrder.customer?.address || workOrder.customer_site?.address) && (
-                    <div className="flex items-center text-sm text-gray-600">
-                      <MapPin className="w-4 h-4 mr-3" />
-                      <span>{workOrder.customer_site?.address || workOrder.customer?.address}</span>
-                    </div>
-                  )}
-                </div>
-                
-                <div className="flex justify-between items-center pt-4 border-t border-gray-200">
-                  <div className="flex space-x-2">
-                    {workOrder.status === 'scheduled' && (
-                      <button
-                        onClick={() => updateWorkOrderStatus('in_progress')}
-                        className="inline-flex items-center px-3 py-1 bg-blue-100 text-blue-700 rounded-md hover:bg-blue-200 transition-colors text-sm"
-                      >
-                        <Play className="w-4 h-4 mr-1" />
-                        Start
-                      </button>
+                    
+                    {workOrder.customer?.email && (
+                      <div className="flex items-center text-sm text-gray-600">
+                        <Mail className="w-4 h-4 mr-3" />
+                        <a href={`mailto:${workOrder.customer.email}`} className="text-blue-600 hover:text-blue-800">
+                          {workOrder.customer.email}
+                        </a>
+                      </div>
                     )}
-                    {workOrder.status === 'in_progress' && (
-                      <button
-                        onClick={() => updateWorkOrderStatus('completed')}
-                        className="inline-flex items-center px-3 py-1 bg-green-100 text-green-700 rounded-md hover:bg-green-200 transition-colors text-sm"
-                      >
-                        <CheckCircle className="w-4 h-4 mr-1" />
-                        Complete
-                      </button>
+                    
+                    {workOrder.customer?.phone && (
+                      <div className="flex items-center text-sm text-gray-600">
+                        <Phone className="w-4 h-4 mr-3" />
+                        <a href={`tel:${workOrder.customer.phone}`} className="text-blue-600 hover:text-blue-800">
+                          {workOrder.customer.phone}
+                        </a>
+                      </div>
+                    )}
+                    
+                    {workOrder.scheduled_date && (
+                      <div className="flex items-center text-sm text-gray-600">
+                        <Calendar className="w-4 h-4 mr-3" />
+                        <span>{new Date(workOrder.scheduled_date).toLocaleDateString()}</span>
+                      </div>
+                    )}
+                    
+                    {(workOrder.customer?.address || workOrder.customer_site?.address) && (
+                      <div className="flex items-center text-sm text-gray-600">
+                        <MapPin className="w-4 h-4 mr-3" />
+                        <span>{workOrder.customer_site?.address || workOrder.customer?.address}</span>
+                      </div>
                     )}
                   </div>
-                  <button
-                    onClick={() => setSelectedWorkOrder(workOrder)}
-                    className="text-blue-600 hover:text-blue-800 text-sm font-medium"
-                  >
-                    View Details →
-                  </button>
+                  
+                  <div className="flex justify-between items-center pt-4 border-t border-gray-200">
+                    <div className="flex space-x-2">
+                      {workOrder.status === 'scheduled' && (
+                        <button
+                          onClick={() => {
+                            setSelectedWorkOrder(workOrder)
+                            updateWorkOrderStatus('in_progress')
+                          }}
+                          className="inline-flex items-center px-3 py-1 bg-blue-100 text-blue-700 rounded-md hover:bg-blue-200 transition-colors text-sm"
+                        >
+                          <Play className="w-4 h-4 mr-1" />
+                          Start
+                        </button>
+                      )}
+                      {workOrder.status === 'in_progress' && (
+                        <button
+                          onClick={() => {
+                            setSelectedWorkOrder(workOrder)
+                            updateWorkOrderStatus('completed')
+                          }}
+                          className="inline-flex items-center px-3 py-1 bg-green-100 text-green-700 rounded-md hover:bg-green-200 transition-colors text-sm"
+                        >
+                          <CheckCircle className="w-4 h-4 mr-1" />
+                          Complete
+                        </button>
+                      )}
+                    </div>
+                    <button
+                      onClick={() => openDetailModal(workOrder)}
+                      className="text-blue-600 hover:text-blue-800 text-sm font-medium"
+                    >
+                      View Details →
+                    </button>
+                  </div>
                 </div>
+              ))}
+            </div>
+          </div>
+        )}
+      </div>
+
+      {/* Detail Modal */}
+      {showDetailModal && selectedWorkOrder && (
+        <div className="fixed inset-0 bg-gray-600 bg-opacity-50 flex items-center justify-center p-4 z-50">
+          <div className="bg-white rounded-xl shadow-xl max-w-6xl w-full max-h-screen overflow-y-auto">
+            <div className="p-6 border-b border-gray-200">
+              <div className="flex items-center justify-between">
+                <div>
+                  <h3 className="text-xl font-semibold text-gray-900">
+                    {selectedWorkOrder.wo_number} - {selectedWorkOrder.title}
+                  </h3>
+                  <p className="text-sm text-gray-600">
+                    {selectedWorkOrder.customer?.customer_type === 'residential' 
+                      ? `${selectedWorkOrder.customer?.first_name} ${selectedWorkOrder.customer?.last_name}`
+                      : selectedWorkOrder.customer?.company_name
+                    }
+                  </p>
+                </div>
+                <button
+                  onClick={closeDetailModal}
+                  className="text-gray-400 hover:text-gray-600"
+                >
+                  <X className="w-6 h-6" />
+                </button>
               </div>
-            ))}
+              
+              {/* Tabs */}
+              <div className="mt-6">
+                <nav className="flex space-x-8">
+                  {[
+                    { id: 'details', name: 'Job Details', icon: FileText },
+                    { id: 'time', name: 'Time Tracking', icon: Clock },
+                    { id: 'photos', name: 'Photos', icon: Camera },
+                    { id: 'purchase-orders', name: 'Purchase Orders', icon: ShoppingCart }
+                  ].map((tab) => {
+                    const Icon = tab.icon
+                    return (
+                      <button
+                        key={tab.id}
+                        onClick={() => setActiveTab(tab.id)}
+                        className={`flex items-center space-x-2 py-2 border-b-2 font-medium text-sm ${
+                          activeTab === tab.id
+                            ? 'border-blue-500 text-blue-600'
+                            : 'border-transparent text-gray-500 hover:text-gray-700'
+                        }`}
+                      >
+                        <Icon className="w-4 h-4" />
+                        <span>{tab.name}</span>
+                      </button>
+                    )
+                  })}
+                </nav>
+              </div>
+            </div>
+
+            <div className="p-6">
+              {/* Job Details Tab */}
+              {activeTab === 'details' && (
+                <div className="space-y-6">
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
+                    <div>
+                      <h4 className="text-lg font-medium text-gray-900 mb-4">Work Order Information</h4>
+                      <div className="space-y-3">
+                        <div className="flex justify-between">
+                          <span className="text-sm font-medium text-gray-700">Status:</span>
+                          <div className="flex space-x-2">
+                            <span className={`inline-flex px-2 py-1 text-xs font-medium rounded-full ${getStatusColor(selectedWorkOrder.status)}`}>
+                              {selectedWorkOrder.status.replace('_', ' ')}
+                            </span>
+                            {selectedWorkOrder.status === 'scheduled' && (
+                              <button
+                                onClick={() => updateWorkOrderStatus('in_progress')}
+                                className="inline-flex items-center px-2 py-1 bg-blue-100 text-blue-700 rounded-md hover:bg-blue-200 transition-colors text-xs"
+                              >
+                                <Play className="w-3 h-3 mr-1" />
+                                Start
+                              </button>
+                            )}
+                            {selectedWorkOrder.status === 'in_progress' && (
+                              <button
+                                onClick={() => updateWorkOrderStatus('completed')}
+                                className="inline-flex items-center px-2 py-1 bg-green-100 text-green-700 rounded-md hover:bg-green-200 transition-colors text-xs"
+                              >
+                                <CheckCircle className="w-3 h-3 mr-1" />
+                                Complete
+                              </button>
+                            )}
+                          </div>
+                        </div>
+                        {selectedWorkOrder.priority && (
+                          <div className="flex justify-between">
+                            <span className="text-sm font-medium text-gray-700">Priority:</span>
+                            <span className={`inline-flex px-2 py-1 text-xs font-medium rounded-full ${getPriorityColor(selectedWorkOrder.priority)}`}>
+                              {selectedWorkOrder.priority}
+                            </span>
+                          </div>
+                        )}
+                        {selectedWorkOrder.scheduled_date && (
+                          <div className="flex justify-between">
+                            <span className="text-sm font-medium text-gray-700">Scheduled:</span>
+                            <span className="text-sm text-gray-900">
+                              {new Date(selectedWorkOrder.scheduled_date).toLocaleDateString()}
+                            </span>
+                          </div>
+                        )}
+                        {selectedWorkOrder.completed_date && (
+                          <div className="flex justify-between">
+                            <span className="text-sm font-medium text-gray-700">Completed:</span>
+                            <span className="text-sm text-gray-900">
+                              {new Date(selectedWorkOrder.completed_date).toLocaleDateString()}
+                            </span>
+                          </div>
+                        )}
+                      </div>
+
+                      {selectedWorkOrder.description && (
+                        <div className="mt-6">
+                          <h5 className="text-md font-medium text-gray-900 mb-3">Description</h5>
+                          <div className="bg-gray-50 rounded-lg p-4">
+                            <p className="text-sm text-gray-700">{selectedWorkOrder.description}</p>
+                          </div>
+                        </div>
+                      )}
+                    </div>
+
+                    <div>
+                      <h4 className="text-lg font-medium text-gray-900 mb-4">Customer Information</h4>
+                      <div className="space-y-3">
+                        <div className="flex justify-between">
+                          <span className="text-sm font-medium text-gray-700">Customer:</span>
+                          <span className="text-sm text-gray-900">
+                            {selectedWorkOrder.customer?.customer_type === 'residential' 
+                              ? `${selectedWorkOrder.customer?.first_name} ${selectedWorkOrder.customer?.last_name}`
+                              : selectedWorkOrder.customer?.company_name
+                            }
+                          </span>
+                        </div>
+                        {selectedWorkOrder.customer?.email && (
+                          <div className="flex justify-between">
+                            <span className="text-sm font-medium text-gray-700">Email:</span>
+                            <a href={`mailto:${selectedWorkOrder.customer.email}`} className="text-sm text-blue-600 hover:text-blue-800">
+                              {selectedWorkOrder.customer.email}
+                            </a>
+                          </div>
+                        )}
+                        {selectedWorkOrder.customer?.phone && (
+                          <div className="flex justify-between">
+                            <span className="text-sm font-medium text-gray-700">Phone:</span>
+                            <a href={`tel:${selectedWorkOrder.customer.phone}`} className="text-sm text-blue-600 hover:text-blue-800">
+                              {selectedWorkOrder.customer.phone}
+                            </a>
+                          </div>
+                        )}
+                        {(selectedWorkOrder.customer?.address || selectedWorkOrder.customer_site?.address) && (
+                          <div className="flex justify-between">
+                            <span className="text-sm font-medium text-gray-700">Address:</span>
+                            <span className="text-sm text-gray-900">
+                              {selectedWorkOrder.customer_site?.address || selectedWorkOrder.customer?.address}
+                            </span>
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                  </div>
+
+                  {selectedWorkOrder.notes && (
+                    <div className="mt-8">
+                      <h5 className="text-md font-medium text-gray-900 mb-3">Notes</h5>
+                      <div className="bg-gray-50 rounded-lg p-4">
+                        <p className="text-sm text-gray-700">{selectedWorkOrder.notes}</p>
+                      </div>
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {/* Time Tracking Tab */}
+              {activeTab === 'time' && (
+                <div className="space-y-6">
+                  {/* Timer Section */}
+                  <div className="bg-gray-50 rounded-lg p-6">
+                    <div className="flex items-center justify-between">
+                      <div>
+                        <h4 className="text-lg font-medium text-gray-900">Time Tracker</h4>
+                        <p className="text-sm text-gray-600">Track time spent on this job</p>
+                      </div>
+                      <div className="flex items-center space-x-4">
+                        {isTimerRunning && (
+                          <div className="text-2xl font-mono font-bold text-blue-600">
+                            {formatTime(elapsedTime)}
+                          </div>
+                        )}
+                        {!isTimerRunning ? (
+                          <button
+                            onClick={startTimer}
+                            className="inline-flex items-center px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 transition-colors"
+                          >
+                            <Play className="w-4 h-4 mr-2" />
+                            Start Timer
+                          </button>
+                        ) : (
+                          <button
+                            onClick={stopTimer}
+                            className="inline-flex items-center px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700 transition-colors"
+                          >
+                            <Square className="w-4 h-4 mr-2" />
+                            Stop Timer
+                          </button>
+                        )}
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Time Entries */}
+                  <div>
+                    <h4 className="text-lg font-medium text-gray-900 mb-4">Time Entries</h4>
+                    {timeEntries.length > 0 ? (
+                      <div className="space-y-3">
+                        {timeEntries.map((entry) => (
+                          <div key={entry.id} className="border border-gray-200 rounded-lg p-4">
+                            <div className="flex items-center justify-between">
+                              <div>
+                                <p className="text-sm font-medium text-gray-900">
+                                  {formatDuration(entry.duration_minutes)}
+                                </p>
+                                <p className="text-sm text-gray-600">{entry.description}</p>
+                                <p className="text-xs text-gray-500">
+                                  {new Date(entry.start_time).toLocaleDateString()} - 
+                                  {new Date(entry.start_time).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                                  {entry.end_time && ` to ${new Date(entry.end_time).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}`}
+                                </p>
+                              </div>
+                              <span className={`inline-flex px-2 py-1 text-xs font-medium rounded-full ${
+                                entry.status === 'approved' ? 'text-green-700 bg-green-100' :
+                                entry.status === 'rejected' ? 'text-red-700 bg-red-100' :
+                                'text-yellow-700 bg-yellow-100'
+                              }`}>
+                                {entry.status}
+                              </span>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    ) : (
+                      <div className="text-center py-8 text-gray-500">
+                        <Timer className="w-12 h-12 mx-auto mb-4 text-gray-300" />
+                        <p>No time entries recorded yet</p>
+                      </div>
+                    )}
+                  </div>
+                </div>
+              )}
+
+              {/* Photos Tab */}
+              {activeTab === 'photos' && (
+                <div className="space-y-6">
+                  <div className="flex items-center justify-between">
+                    <h4 className="text-lg font-medium text-gray-900">Job Photos</h4>
+                    <button
+                      onClick={() => setShowPhotoModal(true)}
+                      className="inline-flex items-center px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors"
+                    >
+                      <Camera className="w-4 h-4 mr-2" />
+                      Add Photo
+                    </button>
+                  </div>
+
+                  {photos.length > 0 ? (
+                    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+                      {photos.map((photo) => (
+                        <div key={photo.id} className="border border-gray-200 rounded-lg overflow-hidden">
+                          <img
+                            src={photo.photo_url}
+                            alt={photo.caption || 'Work order photo'}
+                            className="w-full h-48 object-cover"
+                          />
+                          <div className="p-4">
+                            {photo.caption && (
+                              <p className="text-sm text-gray-700 mb-2">{photo.caption}</p>
+                            )}
+                            <div className="flex items-center justify-between">
+                              <p className="text-xs text-gray-500">
+                                {new Date(photo.created_at).toLocaleDateString()}
+                              </p>
+                              <button
+                                onClick={() => deletePhoto(photo.id)}
+                                className="text-red-600 hover:text-red-800"
+                              >
+                                <Trash2 className="w-4 h-4" />
+                              </button>
+                            </div>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  ) : (
+                    <div className="text-center py-8 text-gray-500">
+                      <Camera className="w-12 h-12 mx-auto mb-4 text-gray-300" />
+                      <p>No photos uploaded yet</p>
+                      <button
+                        onClick={() => setShowPhotoModal(true)}
+                        className="mt-4 inline-flex items-center px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors"
+                      >
+                        <Camera className="w-4 h-4 mr-2" />
+                        Add First Photo
+                      </button>
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {/* Purchase Orders Tab */}
+              {activeTab === 'purchase-orders' && (
+                <div className="space-y-6">
+                  <div className="flex items-center justify-between">
+                    <h4 className="text-lg font-medium text-gray-900">Purchase Orders for this Job</h4>
+                    <button
+                      onClick={createPurchaseOrder}
+                      className="inline-flex items-center px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors"
+                    >
+                      <ShoppingCart className="w-4 h-4 mr-2" />
+                      Create Purchase Order
+                    </button>
+                  </div>
+
+                  {purchaseOrders.length > 0 ? (
+                    <div className="space-y-4">
+                      {purchaseOrders.map((po) => (
+                        <div key={po.id} className="border border-gray-200 rounded-lg p-6">
+                          <div className="flex items-center justify-between mb-4">
+                            <div>
+                              <h5 className="text-lg font-semibold text-gray-900">{po.po_number}</h5>
+                              <p className="text-sm text-gray-600">Vendor: {po.vendor.name}</p>
+                            </div>
+                            <div className="text-right">
+                              <p className="text-lg font-bold text-green-600">${po.total_amount.toFixed(2)}</p>
+                              <span className={`inline-flex px-2 py-1 text-xs font-medium rounded-full ${getPOStatusColor(po.status)}`}>
+                                {po.status}
+                              </span>
+                            </div>
+                          </div>
+                          
+                          <div className="grid grid-cols-2 gap-4 text-sm">
+                            <div>
+                              <span className="font-medium text-gray-700">Order Date:</span>
+                              <span className="ml-2 text-gray-900">{new Date(po.order_date).toLocaleDateString()}</span>
+                            </div>
+                            {po.expected_delivery && (
+                              <div>
+                                <span className="font-medium text-gray-700">Expected Delivery:</span>
+                                <span className="ml-2 text-gray-900">{new Date(po.expected_delivery).toLocaleDateString()}</span>
+                              </div>
+                            )}
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  ) : (
+                    <div className="text-center py-8 text-gray-500">
+                      <ShoppingCart className="w-12 h-12 mx-auto mb-4 text-gray-300" />
+                      <p>No purchase orders have been created for this work order yet.</p>
+                      <p className="text-sm mt-2">Create a purchase order to order parts and materials needed for this job.</p>
+                      <button
+                        onClick={createPurchaseOrder}
+                        className="mt-4 inline-flex items-center px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors"
+                      >
+                        <ShoppingCart className="w-4 h-4 mr-2" />
+                        Create Purchase Order
+                      </button>
+                    </div>
+                  )}
+                </div>
+              )}
+            </div>
           </div>
         </div>
-      </div>
+      )}
 
       {/* Photo Upload Modal */}
       {showPhotoModal && (
