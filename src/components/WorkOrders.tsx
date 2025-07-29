@@ -18,13 +18,17 @@ import {
   Camera,
   ShoppingCart,
   FileText,
-  Package
+  Package,
+  ArrowRight,
+  Download,
+  Truck
 } from 'lucide-react'
 import { supabase, WorkOrder, Customer, Profile, CustomerSite } from '../lib/supabase'
 import { useViewPreference } from '../hooks/useViewPreference'
 import ViewToggle from './ViewToggle'
 import { getNextNumber, updateNextNumber } from '../lib/numbering'
-import { ArrowRight } from 'lucide-react'
+import { jsPDF } from 'jspdf'
+import autoTable from 'jspdf-autotable'
 
 interface WorkOrderWithDetails extends WorkOrder {
   customer?: Customer
@@ -33,6 +37,7 @@ interface WorkOrderWithDetails extends WorkOrder {
   assignments?: WorkOrderAssignment[]
   photos?: WorkOrderPhoto[]
   purchase_orders?: PurchaseOrder[]
+  truck_inventory?: any[]
 }
 
 interface WorkOrderAssignment {
@@ -212,11 +217,22 @@ export default function WorkOrders() {
             .eq('work_order_id', wo.id)
             .order('created_at', { ascending: false })
 
+          // Load truck inventory
+          const { data: truckInventory } = await supabase
+            .from('truck_inventory')
+            .select(`
+              id,
+              quantity_used,
+              inventory_item:inventory_items(name, sku, unit_price)
+            `)
+            .eq('work_order_id', wo.id)
+
           return {
             ...wo,
             assignments: assignments || [],
             photos: photos || [],
-            purchase_orders: purchaseOrders || []
+            purchase_orders: purchaseOrders || [],
+            truck_inventory: truckInventory || []
           }
         })
       )
@@ -509,6 +525,170 @@ export default function WorkOrders() {
     }
   }
 
+  const generateWorkOrderReport = async (workOrder: WorkOrderWithDetails) => {
+    try {
+      // Get company info
+      const { data: { user } } = await supabase.auth.getUser()
+      if (!user) throw new Error('User not authenticated')
+      
+      const { data: profile } = await supabase
+        .from('profiles')
+        .select('company_id')
+        .eq('id', user.id)
+        .single()
+      
+      if (!profile) throw new Error('Profile not found')
+
+      const { data: company } = await supabase
+        .from('companies')
+        .select('*')
+        .eq('id', profile.company_id)
+        .single()
+
+      // Create PDF
+      const doc = new jsPDF()
+      
+      // Header with company info
+      doc.setFontSize(20)
+      doc.setTextColor(0, 68, 108)
+      doc.text(company?.name || 'Work Order Report', 20, 25)
+      
+      // Work Order Title
+      doc.setFontSize(16)
+      doc.setTextColor(51, 51, 51)
+      doc.text(`Work Order: ${workOrder.wo_number}`, 20, 45)
+      
+      // Work Order Details
+      doc.setFontSize(12)
+      doc.setTextColor(102, 102, 102)
+      
+      let yPos = 60
+      const addLine = (label: string, value: string) => {
+        doc.text(`${label}: ${value}`, 20, yPos)
+        yPos += 8
+      }
+      
+      addLine('Title', workOrder.title)
+      addLine('Customer', workOrder.customer?.customer_type === 'residential' 
+        ? `${workOrder.customer?.first_name} ${workOrder.customer?.last_name}`
+        : workOrder.customer?.company_name || 'N/A')
+      addLine('Status', workOrder.status.toUpperCase())
+      addLine('Priority', workOrder.priority.toUpperCase())
+      addLine('Created', new Date(workOrder.created_at).toLocaleDateString())
+      
+      if (workOrder.scheduled_date) {
+        addLine('Scheduled', new Date(workOrder.scheduled_date).toLocaleDateString())
+      }
+      
+      if (workOrder.completed_date) {
+        addLine('Completed', new Date(workOrder.completed_date).toLocaleDateString())
+      }
+      
+      if (workOrder.assigned_technician) {
+        addLine('Assigned To', `${workOrder.assigned_technician.first_name} ${workOrder.assigned_technician.last_name}`)
+      }
+      
+      yPos += 10
+      
+      // Description
+      if (workOrder.description) {
+        doc.setFontSize(14)
+        doc.setTextColor(51, 51, 51)
+        doc.text('Description:', 20, yPos)
+        yPos += 10
+        
+        doc.setFontSize(10)
+        doc.setTextColor(102, 102, 102)
+        const splitDescription = doc.splitTextToSize(workOrder.description, 170)
+        doc.text(splitDescription, 20, yPos)
+        yPos += splitDescription.length * 5 + 10
+      }
+      
+      // Resolution Notes
+      if (workOrder.resolution_notes) {
+        doc.setFontSize(14)
+        doc.setTextColor(51, 51, 51)
+        doc.text('Resolution Notes:', 20, yPos)
+        yPos += 10
+        
+        doc.setFontSize(10)
+        doc.setTextColor(102, 102, 102)
+        const splitNotes = doc.splitTextToSize(workOrder.resolution_notes, 170)
+        doc.text(splitNotes, 20, yPos)
+        yPos += splitNotes.length * 5 + 15
+      }
+      
+      // Truck Inventory Table
+      if (workOrder.truck_inventory && workOrder.truck_inventory.length > 0) {
+        doc.setFontSize(14)
+        doc.setTextColor(51, 51, 51)
+        doc.text('Materials Used:', 20, yPos)
+        yPos += 10
+        
+        const inventoryData = workOrder.truck_inventory.map((item: any) => [
+          item.inventory_item?.name || 'N/A',
+          item.inventory_item?.sku || 'N/A',
+          item.quantity_used.toString(),
+          `$${item.inventory_item?.unit_price?.toFixed(2) || '0.00'}`,
+          `$${((item.inventory_item?.unit_price || 0) * item.quantity_used).toFixed(2)}`
+        ])
+        
+        autoTable(doc, {
+          startY: yPos,
+          head: [['Item', 'SKU', 'Qty', 'Unit Price', 'Total']],
+          body: inventoryData,
+          theme: 'grid',
+          headStyles: { 
+            fillColor: [0, 68, 108],
+            textColor: 255,
+            fontStyle: 'bold'
+          },
+          styles: { fontSize: 9 }
+        })
+        
+        yPos = (doc as any).lastAutoTable.finalY + 15
+        
+        // Total materials cost
+        const totalCost = workOrder.truck_inventory.reduce((sum: number, item: any) => 
+          sum + ((item.inventory_item?.unit_price || 0) * item.quantity_used), 0)
+        
+        doc.setFontSize(12)
+        doc.setTextColor(51, 51, 51)
+        doc.text(`Total Materials Cost: $${totalCost.toFixed(2)}`, 20, yPos)
+        yPos += 15
+      }
+      
+      // Purchase Orders
+      if (workOrder.purchase_orders && workOrder.purchase_orders.length > 0) {
+        doc.setFontSize(14)
+        doc.setTextColor(51, 51, 51)
+        doc.text('Related Purchase Orders:', 20, yPos)
+        yPos += 10
+        
+        workOrder.purchase_orders.forEach((po: any) => {
+          doc.setFontSize(10)
+          doc.setTextColor(102, 102, 102)
+          doc.text(`• ${po.po_number} - $${po.total_amount.toFixed(2)} (${po.status})`, 25, yPos)
+          yPos += 6
+        })
+        yPos += 10
+      }
+      
+      // Footer
+      doc.setFontSize(8)
+      doc.setTextColor(150, 150, 150)
+      doc.text(`Generated on: ${new Date().toLocaleString()}`, 20, doc.internal.pageSize.height - 20)
+      doc.text(`Page 1 of 1`, doc.internal.pageSize.width - 40, doc.internal.pageSize.height - 20)
+      
+      // Save the PDF
+      doc.save(`Work_Order_${workOrder.wo_number}_Report.pdf`)
+      
+    } catch (error) {
+      console.error('Error generating report:', error)
+      alert('Error generating work order report. Please try again.')
+    }
+  }
+
   const getStatusColor = (status: string) => {
     switch (status) {
       case 'completed': return 'text-green-700 bg-green-100'
@@ -633,7 +813,7 @@ export default function WorkOrders() {
                     Scheduled
                   </th>
                   <th className="hidden md:table-cell px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                    Photos/POs
+                    Photos/POs/Items
                   </th>
                   <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
                     Actions
@@ -710,10 +890,21 @@ export default function WorkOrders() {
                           <ShoppingCart className="w-3 h-3 mr-1" />
                           {workOrder.purchase_orders?.length || 0}
                         </span>
+                        <span className="flex items-center">
+                          <Truck className="w-3 h-3 mr-1" />
+                          {workOrder.truck_inventory?.length || 0}
+                        </span>
                       </div>
                     </td>
                     <td className="px-6 py-4 whitespace-nowrap text-sm font-medium">
                       <div className="flex space-x-2">
+                        <button
+                          onClick={() => generateWorkOrderReport(workOrder)}
+                          className="text-green-600 hover:text-green-800 p-1.5 transition-all duration-200 hover:bg-green-100 rounded-full hover:shadow-sm transform hover:scale-110"
+                          title="Generate Report"
+                        >
+                          <FileText className="w-4 h-4" />
+                        </button>
                         <button
                           onClick={() => setSelectedWorkOrder(workOrder)}
                           className="text-blue-600 hover:text-blue-800 p-1.5 transition-all duration-200 hover:bg-blue-100 rounded-full hover:shadow-sm transform hover:scale-110"
@@ -827,14 +1018,22 @@ export default function WorkOrders() {
                         <ShoppingCart className="w-3 h-3 mr-1" />
                         {workOrder.purchase_orders?.length || 0} POs
                       </span>
+                      <span className="flex items-center">
+                        <Truck className="w-3 h-3 mr-1" />
+                        {workOrder.truck_inventory?.length || 0} items
+                      </span>
                     </div>
                   </div>
                   
                   <div className="flex justify-between items-center pt-4 border-t border-gray-200">
-                    <div className="text-sm text-gray-500">
-                      {workOrder.photos?.length || 0} photos • {workOrder.purchase_orders?.length || 0} POs
-                    </div>
-                    <div className="flex space-x-3">
+                    <div className="flex space-x-2">
+                      <button
+                        onClick={() => generateWorkOrderReport(workOrder)}
+                        className="inline-flex items-center px-3 py-1 bg-green-100 text-green-700 rounded-md hover:bg-green-200 transition-colors text-sm"
+                      >
+                        <FileText className="w-4 h-4 mr-1" />
+                        Report
+                      </button>
                       {workOrder.status === 'completed' && (
                         <button
                           onClick={() => {
@@ -847,14 +1046,14 @@ export default function WorkOrders() {
                           Invoice
                         </button>
                       )}
-                      <button 
-                        onClick={() => setSelectedWorkOrder(workOrder)}
-                        className="text-blue-600 hover:text-blue-800 text-sm font-medium flex items-center"
-                      >
-                        View Details
-                        <Eye className="w-4 h-4 ml-1" />
-                      </button>
                     </div>
+                    <button 
+                      onClick={() => setSelectedWorkOrder(workOrder)}
+                      className="text-blue-600 hover:text-blue-800 text-sm font-medium flex items-center"
+                    >
+                      View Details
+                      <Eye className="w-4 h-4 ml-1" />
+                    </button>
                   </div>
                 </div>
               ))}
@@ -1326,6 +1525,53 @@ export default function WorkOrders() {
                 </div>
               </div>
 
+              {/* Truck Inventory Section */}
+              <div className="mb-6">
+                <h4 className="text-lg font-medium text-gray-900 mb-3">Materials Used ({selectedWorkOrder.truck_inventory?.length || 0})</h4>
+                
+                {selectedWorkOrder.truck_inventory && selectedWorkOrder.truck_inventory.length > 0 ? (
+                  <div className="space-y-3">
+                    {selectedWorkOrder.truck_inventory.map((item: any) => (
+                      <div key={item.id} className="border border-gray-200 rounded-lg p-4">
+                        <div className="flex items-center justify-between">
+                          <div>
+                            <h5 className="font-medium text-gray-900">{item.inventory_item?.name}</h5>
+                            <p className="text-sm text-gray-600">SKU: {item.inventory_item?.sku}</p>
+                            <p className="text-sm text-gray-600">Quantity Used: {item.quantity_used}</p>
+                            {item.notes && (
+                              <p className="text-sm text-gray-500 mt-1">{item.notes}</p>
+                            )}
+                          </div>
+                          <div className="text-right">
+                            <p className="font-medium text-gray-900">
+                              ${((item.inventory_item?.unit_price || 0) * item.quantity_used).toFixed(2)}
+                            </p>
+                            <p className="text-sm text-gray-500">
+                              ${item.inventory_item?.unit_price?.toFixed(2)} each
+                            </p>
+                          </div>
+                        </div>
+                      </div>
+                    ))}
+                    <div className="border-t border-gray-200 pt-3">
+                      <div className="flex justify-between items-center">
+                        <span className="font-medium text-gray-900">Total Materials Cost:</span>
+                        <span className="font-bold text-lg text-green-600">
+                          ${selectedWorkOrder.truck_inventory.reduce((sum: number, item: any) => 
+                            sum + ((item.inventory_item?.unit_price || 0) * item.quantity_used), 0
+                          ).toFixed(2)}
+                        </span>
+                      </div>
+                    </div>
+                  </div>
+                ) : (
+                  <div className="text-center py-8 text-gray-500">
+                    <Package className="w-12 h-12 mx-auto mb-4 text-gray-300" />
+                    <p>No materials used yet</p>
+                  </div>
+                )}
+              </div>
+
               {/* Notes */}
               {selectedWorkOrder.notes && (
                 <div className="mt-8">
@@ -1339,6 +1585,13 @@ export default function WorkOrders() {
               {/* Action Buttons */}
               <div className="flex justify-between items-center pt-6 border-t border-gray-200">
                 <div className="flex space-x-3">
+                  <button
+                    onClick={() => generateWorkOrderReport(selectedWorkOrder)}
+                    className="px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 transition-colors"
+                  >
+                    <FileText className="w-4 h-4 mr-2 inline" />
+                    Generate Report
+                  </button>
                   {selectedWorkOrder.status === 'completed' && (
                     <button
                       onClick={() => {
