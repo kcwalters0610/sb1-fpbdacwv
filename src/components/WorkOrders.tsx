@@ -1188,7 +1188,8 @@ export default function WorkOrders() {
                   { id: 'details', name: 'Job Details', icon: FileText },
                   { id: 'time', name: 'Time Tracking', icon: Timer },
                   { id: 'photos', name: 'Photos', icon: Camera },
-                  { id: 'purchase-orders', name: 'Purchase Orders', icon: ShoppingCart }
+                  { id: 'purchase-orders', name: 'Purchase Orders', icon: ShoppingCart },
+                  { id: 'resolution', name: 'Resolution', icon: CheckCircle }
                 ].map((tab) => {
                   const Icon = tab.icon
                   return (
