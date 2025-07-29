@@ -1662,6 +1662,16 @@ export default function WorkOrders() {
                           </div>
                         </div>
                       ))}
+
+                      {/* Resolution Notes */}
+                      {selectedWorkOrder.resolution_notes && (
+                        <div className="mb-6">
+                          <h5 className="text-md font-medium text-gray-900 mb-3">Resolution Notes</h5>
+                          <div className="bg-gray-50 rounded-lg p-4">
+                            <p className="text-sm text-gray-700 whitespace-pre-wrap">{selectedWorkOrder.resolution_notes}</p>
+                          </div>
+                        </div>
+                      )}
                       
                       {timeEntries.length === 0 && photos.length === 0 && (
                         <div className="text-center py-6 text-gray-500">

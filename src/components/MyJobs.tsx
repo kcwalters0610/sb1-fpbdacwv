@@ -1409,6 +1409,76 @@ export default function MyJobs() {
           </div>
         </div>
       )}
+
+      {/* Resolution Form Modal */}
+      {showResolutionForm && selectedWorkOrder && (
+        <div className="fixed inset-0 bg-gray-600 bg-opacity-50 flex items-center justify-center p-4 z-50">
+          <div className="bg-white rounded-xl shadow-xl max-w-2xl w-full">
+            <div className="p-6 border-b border-gray-200">
+              <h3 className="text-lg font-semibold text-gray-900">
+                Complete Work Order: {selectedWorkOrder.wo_number}
+              </h3>
+              <p className="text-sm text-gray-600 mt-1">
+                Please describe what work was completed
+              </p>
+            </div>
+            
+            <div className="p-6">
+              <div className="mb-4">
+                <h4 className="text-md font-medium text-gray-900 mb-2">Work Order Details</h4>
+                <div className="bg-gray-50 rounded-lg p-4">
+                  <p className="text-sm text-gray-700"><strong>Title:</strong> {selectedWorkOrder.title}</p>
+                  {selectedWorkOrder.description && (
+                    <p className="text-sm text-gray-700 mt-1"><strong>Description:</strong> {selectedWorkOrder.description}</p>
+                  )}
+                  <p className="text-sm text-gray-700 mt-1">
+                    <strong>Customer:</strong> {selectedWorkOrder.customer?.customer_type === 'residential' 
+                      ? `${selectedWorkOrder.customer?.first_name} ${selectedWorkOrder.customer?.last_name}`
+                      : selectedWorkOrder.customer?.company_name
+                    }
+                  </p>
+                </div>
+              </div>
+
+              <div className="mb-6">
+                <label className="block text-sm font-medium text-gray-700 mb-2">
+                  Resolution Notes *
+                </label>
+                <textarea
+                  value={resolutionNotes}
+                  onChange={(e) => setResolutionNotes(e.target.value)}
+                  rows={6}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                  placeholder="Describe what work was completed, any issues found, parts used, recommendations for the customer, etc..."
+                  required
+                />
+                <p className="text-xs text-gray-500 mt-1">
+                  This information will be visible to managers and can be included in customer communications.
+                </p>
+              </div>
+
+              <div className="flex justify-end space-x-3">
+                <button
+                  onClick={() => {
+                    setShowResolutionForm(false)
+                    setResolutionNotes('')
+                  }}
+                  className="px-4 py-2 text-gray-700 bg-gray-100 rounded-lg hover:bg-gray-200 transition-colors"
+                >
+                  Cancel
+                </button>
+                <button
+                  onClick={submitCompletion}
+                  disabled={!resolutionNotes.trim()}
+                  className="px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+                >
+                  Complete Work Order
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   )
 }
