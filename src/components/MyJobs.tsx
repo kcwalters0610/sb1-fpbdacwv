@@ -103,6 +103,12 @@ export default function MyJobs() {
   const [showInventoryModal, setShowInventoryModal] = useState(false)
   const [showTimeModal, setShowTimeModal] = useState(false)
   const [activeTimer, setActiveTimer] = useState<string | null>(null)
+  const [timeFormData, setTimeFormData] = useState({
+    start_time: '',
+    end_time: '',
+    duration_hours: 0,
+    description: ''
+  })
   const [timerStart, setTimerStart] = useState<Date | null>(null)
   const [availableInventory, setAvailableInventory] = useState<InventoryItem[]>([])
   const [inventoryForm, setInventoryForm] = useState({
