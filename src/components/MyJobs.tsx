@@ -303,6 +303,7 @@ export default function MyJobs() {
     const matchesPriority = !priorityFilter || workOrder.priority === priorityFilter
     return matchesSearch && matchesStatus && matchesPriority
   })
+
   if (loading) {
     return (
       <div className="flex items-center justify-center h-64">
@@ -348,6 +349,10 @@ export default function MyJobs() {
           <select
             value={priorityFilter}
             onChange={(e) => setPriorityFilter(e.target.value)}
+            className="px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+          >
+            <option value="">All Priorities</option>
+            <option value="low">Low</option>
             <option value="medium">Medium</option>
             <option value="high">High</option>
             <option value="urgent">Urgent</option>
@@ -357,6 +362,7 @@ export default function MyJobs() {
           </div>
         </div>
       </div>
+
       {/* Work Orders Content */}
       <div className="bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden">
         {viewType === 'table' ? (
