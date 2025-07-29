@@ -113,7 +113,8 @@ export async function getNextNumber(documentType: 'work_order' | 'estimate' | 'i
       .eq('id', profile.company_id)
       .single()
 
-    const numbering: NumberingSettings = company?.settings?.numbering || {
+    // Default numbering settings
+    const defaultNumbering: NumberingSettings = {
       workOrderPrefix: 'WO',
       workOrderFormat: 'WO-{YYYY}-{####}',
       workOrderNext: '1',
@@ -129,6 +130,12 @@ export async function getNextNumber(documentType: 'work_order' | 'estimate' | 'i
       purchaseOrderPrefix: 'PO',
       purchaseOrderFormat: 'PO-{YYYY}-{####}',
       purchaseOrderNext: '1'
+    }
+
+    // Merge with company settings to ensure all properties exist
+    const numbering: NumberingSettings = {
+      ...defaultNumbering,
+      ...(company?.settings?.numbering || {})
     }
 
     // Check if there are existing documents with higher numbers
@@ -216,7 +223,8 @@ export async function updateNextNumber(documentType: 'work_order' | 'estimate' |
       .eq('id', profile.company_id)
       .single()
 
-    let numbering = company?.settings?.numbering || {
+    // Default numbering settings
+    const defaultNumbering: NumberingSettings = {
       workOrderPrefix: 'WO',
       workOrderFormat: 'WO-{YYYY}-{####}',
       workOrderNext: '1',
@@ -232,6 +240,12 @@ export async function updateNextNumber(documentType: 'work_order' | 'estimate' |
       purchaseOrderPrefix: 'PO',
       purchaseOrderFormat: 'PO-{YYYY}-{####}',
       purchaseOrderNext: '1'
+    }
+
+    // Merge with company settings to ensure all properties exist
+    let numbering = {
+      ...defaultNumbering,
+      ...(company?.settings?.numbering || {})
     }
 
     // Update the next number in settings
