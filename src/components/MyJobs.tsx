@@ -1,130 +1,120 @@
 import React, { useState, useEffect } from 'react'
 import { 
-  Grid,
-  List,
   Calendar, 
-  MapPin, 
-  User, 
   Clock, 
+  User, 
+  MapPin, 
+  Phone, 
+  Mail, 
   Camera, 
-  FileText, 
+  Upload, 
+  X, 
   CheckCircle, 
-  Play, 
-  Pause, 
+  AlertTriangle,
+  FileText,
+  Timer,
+  Play,
+  Pause,
   Square,
-  Upload,
-  X,
-  ExternalLink,
-  Sparkles,
-  Zap,
-  Navigation,
-  Package,
-  DollarSign,
-  Plus,
-  Minus,
-  ShoppingCart
+  ShoppingCart,
+  Eye,
+  Edit,
+  Trash2
 } from 'lucide-react'
-import { supabase, WorkOrder } from '../lib/supabase'
-import { useViewPreference } from '../hooks/useViewPreference'
+import { supabase, WorkOrder, Profile } from '../lib/supabase'
 
 interface TimeEntry {
   id: string
   start_time: string
   end_time?: string
-  duration_minutes?: number
-  is_active: boolean
+  duration_minutes: number
+  description: string
+  status: 'pending' | 'approved' | 'rejected'
+}
+
+interface WorkOrderPhoto {
+  id: string
+  photo_url: string
+  caption?: string
+  uploaded_by: string
+  created_at: string
+}
+
+interface PurchaseOrder {
+  id: string
+  po_number: string
+  vendor: {
+    name: string
+  }
+  total_amount: number
+  status: string
+  order_date: string
+  expected_delivery?: string
 }
 
 export default function MyJobs() {
-  const { viewType, setViewType } = useViewPreference('myjobs')
   const [workOrders, setWorkOrders] = useState<WorkOrder[]>([])
-  const [loading, setLoading] = useState(true)
-  const [selectedJob, setSelectedJob] = useState<WorkOrder | null>(null)
+  const [selectedWorkOrder, setSelectedWorkOrder] = useState<WorkOrder | null>(null)
   const [activeTab, setActiveTab] = useState('details')
-  const [currentUser, setCurrentUser] = useState<any>(null)
+  const [loading, setLoading] = useState(true)
+  const [currentUser, setCurrentUser] = useState<Profile | null>(null)
   const [timeEntries, setTimeEntries] = useState<TimeEntry[]>([])
-  const [activeTimer, setActiveTimer] = useState<TimeEntry | null>(null)
-  const [timerDisplay, setTimerDisplay] = useState('00:00:00')
-  const [jobFilter, setJobFilter] = useState('all')
-
-  // Job completion form data
-  const [jobStatus, setJobStatus] = useState('')
-  const [hoursWorked, setHoursWorked] = useState('')
-  const [workNotes, setWorkNotes] = useState('')
-  const [resolutionSummary, setResolutionSummary] = useState('')
-
-  // Photo upload
-  const [selectedFile, setSelectedFile] = useState<File | null>(null)
+  const [photos, setPhotos] = useState<WorkOrderPhoto[]>([])
+  const [purchaseOrders, setPurchaseOrders] = useState<PurchaseOrder[]>([])
+  const [uploading, setUploading] = useState(false)
+  const [showPhotoModal, setShowPhotoModal] = useState(false)
+  const [selectedPhoto, setSelectedPhoto] = useState<WorkOrderPhoto | null>(null)
   const [photoCaption, setPhotoCaption] = useState('')
-  const [photos, setPhotos] = useState<any[]>([])
-
-  // Parts/Materials used
-  const [inventoryItems, setInventoryItems] = useState<any[]>([])
-  const [partsUsed, setPartsUsed] = useState<{[key: string]: number}>({})
-  const [showPartsModal, setShowPartsModal] = useState(false)
-  // GPS tracking state
-  const [isTracking, setIsTracking] = useState(false)
-  const [showInvoiceModal, setShowInvoiceModal] = useState(false)
-  const [invoiceFormData, setInvoiceFormData] = useState({
-    description: '',
-    labor_hours: '',
-    labor_rate: '75',
-    service_charge: '',
-    tax_rate: '',
-    include_parts: true,
-    notes: ''
-  })
-  const [locationTrackerId, setLocationTrackerId] = useState<number | null>(null)
+  
+  // Timer state
+  const [isTimerRunning, setIsTimerRunning] = useState(false)
+  const [currentTimeEntry, setCurrentTimeEntry] = useState<any>(null)
+  const [elapsedTime, setElapsedTime] = useState(0)
 
   useEffect(() => {
     getCurrentUser()
-    loadMyJobs()
+    loadMyWorkOrders()
   }, [])
 
   useEffect(() => {
-    loadInventoryItems()
-  }, [])
+    if (selectedWorkOrder) {
+      loadTimeEntries()
+      loadPhotos()
+      loadPurchaseOrders()
+    }
+  }, [selectedWorkOrder])
 
-
-  // Clean up location tracker on component unmount
-  useEffect(() => {
-    return () => {
-      if (locationTrackerId) {
-        clearInterval(locationTrackerId);
-        setIsTracking(false);
-      }
-    };
-  }, [locationTrackerId]);
-
+  // Timer effect
   useEffect(() => {
     let interval: NodeJS.Timeout
-    if (activeTimer) {
+    if (isTimerRunning && currentTimeEntry) {
       interval = setInterval(() => {
-        const startTime = new Date(activeTimer.start_time)
+        const startTime = new Date(currentTimeEntry.start_time)
         const now = new Date()
-        const diff = now.getTime() - startTime.getTime()
-        const hours = Math.floor(diff / (1000 * 60 * 60))
-        const minutes = Math.floor((diff % (1000 * 60 * 60)) / (1000 * 60))
-        const seconds = Math.floor((diff % (1000 * 60)) / 1000)
-        setTimerDisplay(`${hours.toString().padStart(2, '0')}:${minutes.toString().padStart(2, '0')}:${seconds.toString().padStart(2, '0')}`)
+        setElapsedTime(Math.floor((now.getTime() - startTime.getTime()) / 1000))
       }, 1000)
     }
     return () => clearInterval(interval)
-  }, [activeTimer])
+  }, [isTimerRunning, currentTimeEntry])
 
   const getCurrentUser = async () => {
-    const { data: { user } } = await supabase.auth.getUser()
-    if (user) {
-      const { data: profile } = await supabase
-        .from('profiles')
-        .select('*')
-        .eq('id', user.id)
-        .single()
-      setCurrentUser({ ...user, profile })
+    try {
+      const { data: { user } } = await supabase.auth.getUser()
+      if (user) {
+        const { data: profile } = await supabase
+          .from('profiles')
+          .select('*')
+          .eq('id', user.id)
+          .single()
+        
+        setCurrentUser(profile)
+      }
+    } catch (error) {
+      console.error('Error getting current user:', error)
     }
   }
 
-  const loadMyJobs = async () => {
+  const loadMyWorkOrders = async () => {
     try {
       const { data: { user } } = await supabase.auth.getUser()
       if (!user) return
@@ -134,64 +124,59 @@ export default function MyJobs() {
         .select(`
           *,
           customer:customers(*),
-          project:projects(*)
+          assigned_technician:profiles!work_orders_assigned_to_fkey(*),
+          customer_site:customer_sites(*)
         `)
         .eq('assigned_to', user.id)
+        .in('status', ['open', 'scheduled', 'in_progress'])
         .order('scheduled_date', { ascending: true })
 
       if (error) throw error
       setWorkOrders(data || [])
+      
+      // Auto-select first work order if none selected
+      if (data && data.length > 0 && !selectedWorkOrder) {
+        setSelectedWorkOrder(data[0])
+      }
     } catch (error) {
-      console.error('Error loading my jobs:', error)
+      console.error('Error loading work orders:', error)
     } finally {
       setLoading(false)
     }
   }
 
-  const loadInventoryItems = async () => {
-    try {
-      const { data, error } = await supabase
-        .from('inventory_items')
-        .select('*')
-        .gt('quantity', 0)
-        .order('name')
+  const loadTimeEntries = async () => {
+    if (!selectedWorkOrder) return
 
-      if (error) throw error
-      console.log('Loaded inventory items:', data)
-      setInventoryItems(data || [])
-    } catch (error) {
-      console.error('Error loading inventory items:', error)
-    }
-  }
-
-  const loadTimeEntries = async (workOrderId: string) => {
     try {
       const { data, error } = await supabase
         .from('time_entries')
         .select('*')
-        .eq('work_order_id', workOrderId)
-        .eq('user_id', currentUser.id)
+        .eq('work_order_id', selectedWorkOrder.id)
         .order('start_time', { ascending: false })
 
       if (error) throw error
-      
-      const entries = data || []
-      setTimeEntries(entries)
-      
-      // Check for active timer
-      const active = entries.find(entry => !entry.end_time)
-      setActiveTimer(active || null)
+      setTimeEntries(data || [])
+
+      // Check if there's an active timer
+      const activeEntry = data?.find(entry => !entry.end_time)
+      if (activeEntry) {
+        setCurrentTimeEntry(activeEntry)
+        setIsTimerRunning(true)
+      }
     } catch (error) {
       console.error('Error loading time entries:', error)
     }
   }
 
-  const loadPhotos = async (workOrderId: string) => {
+  const loadPhotos = async () => {
+    if (!selectedWorkOrder) return
+
     try {
       const { data, error } = await supabase
         .from('work_order_photos')
         .select('*')
-        .eq('work_order_id', workOrderId)
+        .eq('work_order_id', selectedWorkOrder.id)
         .order('created_at', { ascending: false })
 
       if (error) throw error
@@ -201,49 +186,75 @@ export default function MyJobs() {
     }
   }
 
-  const startTimer = async () => {
-    if (!selectedJob || activeTimer) return
+  const loadPurchaseOrders = async () => {
+    if (!selectedWorkOrder) return
 
     try {
-      // Get user's company_id from their profile
-      const { data: userProfile, error: profileError } = await supabase
+      const { data, error } = await supabase
+        .from('purchase_orders')
+        .select(`
+          id,
+          po_number,
+          total_amount,
+          status,
+          order_date,
+          expected_delivery,
+          vendor:vendors(name)
+        `)
+        .eq('work_order_id', selectedWorkOrder.id)
+        .order('created_at', { ascending: false })
+
+      if (error) throw error
+      setPurchaseOrders(data || [])
+    } catch (error) {
+      console.error('Error loading purchase orders:', error)
+    }
+  }
+
+  const startTimer = async () => {
+    if (!selectedWorkOrder || !currentUser) return
+
+    try {
+      const { data: profile } = await supabase
         .from('profiles')
         .select('company_id')
         .eq('id', currentUser.id)
         .single()
 
-      if (profileError) throw profileError
+      if (!profile) return
 
       const { data, error } = await supabase
         .from('time_entries')
         .insert([{
           user_id: currentUser.id,
-          company_id: userProfile.company_id,
-          work_order_id: selectedJob.id,
+          company_id: profile.company_id,
+          work_order_id: selectedWorkOrder.id,
           start_time: new Date().toISOString(),
-          duration_minutes: 1,
-          description: `Working on ${selectedJob.title}`,
-          entry_type: 'work'
+          description: `Working on ${selectedWorkOrder.title}`,
+          entry_type: 'work',
+          status: 'pending',
+          duration_minutes: 0
         }])
         .select()
         .single()
 
       if (error) throw error
-      
-      setActiveTimer(data)
-      loadTimeEntries(selectedJob.id)
+
+      setCurrentTimeEntry(data)
+      setIsTimerRunning(true)
+      setElapsedTime(0)
     } catch (error) {
       console.error('Error starting timer:', error)
     }
   }
 
   const stopTimer = async () => {
-    if (!activeTimer) return
+    if (!currentTimeEntry) return
 
     try {
       const endTime = new Date()
-      const startTime = new Date(activeTimer.start_time)
-      const durationMinutes = Math.max(1, Math.floor((endTime.getTime() - startTime.getTime()) / (1000 * 60)))
+      const startTime = new Date(currentTimeEntry.start_time)
+      const durationMinutes = Math.floor((endTime.getTime() - startTime.getTime()) / (1000 * 60))
 
       const { error } = await supabase
         .from('time_entries')
@@ -251,299 +262,158 @@ export default function MyJobs() {
           end_time: endTime.toISOString(),
           duration_minutes: durationMinutes
         })
-        .eq('id', activeTimer.id)
+        .eq('id', currentTimeEntry.id)
 
       if (error) throw error
-      
-      setActiveTimer(null)
-      setTimerDisplay('00:00:00')
-      if (selectedJob) {
-        loadTimeEntries(selectedJob.id)
-      }
+
+      setIsTimerRunning(false)
+      setCurrentTimeEntry(null)
+      setElapsedTime(0)
+      loadTimeEntries()
     } catch (error) {
       console.error('Error stopping timer:', error)
     }
   }
 
-  const uploadPhoto = async () => {
-    if (!selectedFile || !selectedJob) return
+  const updateWorkOrderStatus = async (status: string) => {
+    if (!selectedWorkOrder) return
 
     try {
-      // In a real app, you'd upload to Supabase Storage first
-      // For now, we'll simulate with a placeholder URL
-      const photoUrl = `https://placeholder.com/photo-${Date.now()}.jpg`
-
-      const { error } = await supabase
-        .from('work_order_photos')
-        .insert([{
-          work_order_id: selectedJob.id,
-          company_id: currentUser.profile.company_id,
-          photo_url: photoUrl,
-          caption: photoCaption,
-          uploaded_by: currentUser.id
-        }])
-
-      if (error) throw error
-      
-      setSelectedFile(null)
-      setPhotoCaption('')
-      loadPhotos(selectedJob.id)
-    } catch (error) {
-      console.error('Error uploading photo:', error)
-    }
-  }
-
-  const updateJobStatus = async () => {
-    if (!selectedJob) return
-
-    try {
-      // First, update inventory quantities for parts used
-      for (const [itemId, qtyUsed] of Object.entries(partsUsed)) {
-        if (qtyUsed > 0) {
-          const item = inventoryItems.find(i => i.id === itemId)
-          if (item) {
-            const newQuantity = Math.max(0, item.quantity - qtyUsed)
-            await supabase
-              .from('inventory_items')
-              .update({ quantity: newQuantity })
-              .eq('id', itemId)
-          }
-        }
-      }
-
-      const updateData: any = {
-        status: jobStatus,
-        actual_hours: parseFloat(hoursWorked) || null,
-        notes: workNotes
-      }
-
-      if (jobStatus === 'completed') {
+      const updateData: any = { status }
+      if (status === 'completed') {
         updateData.completed_date = new Date().toISOString()
       }
 
       const { error } = await supabase
         .from('work_orders')
         .update(updateData)
-        .eq('id', selectedJob.id)
+        .eq('id', selectedWorkOrder.id)
 
       if (error) throw error
-      
-      setSelectedJob(null)
-      loadMyJobs()
-      alert('Job updated successfully!')
+
+      // Update local state
+      setSelectedWorkOrder({ ...selectedWorkOrder, status })
+      loadMyWorkOrders()
     } catch (error) {
-      console.error('Error updating job:', error)
-      alert('Error updating job')
+      console.error('Error updating work order status:', error)
     }
   }
 
-  const convertToInvoice = async () => {
-    if (!selectedJob) return
+  const handlePhotoUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0]
+    if (!file || !selectedWorkOrder || !currentUser) return
+
+    setUploading(true)
 
     try {
-      // Calculate totals
-      const laborCost = (parseFloat(invoiceFormData.labor_hours) || 0) * (parseFloat(invoiceFormData.labor_rate) || 0)
-      const serviceCost = parseFloat(invoiceFormData.service_charge) || 0
-      const subtotal = laborCost + serviceCost
-      const taxAmount = subtotal * (parseFloat(invoiceFormData.tax_rate) || 0) / 100
-      const total = subtotal + taxAmount
-
-      // Get user's company_id from their profile
-      const { data: userProfile, error: profileError } = await supabase
+      // Get company_id
+      const { data: profile } = await supabase
         .from('profiles')
         .select('company_id')
         .eq('id', currentUser.id)
         .single()
 
-      if (profileError) throw profileError
+      if (!profile) throw new Error('Profile not found')
 
-      // Create invoice
-      const { data: invoice, error: invoiceError } = await supabase
-        .from('invoices')
+      // Upload to Supabase Storage
+      const fileExt = file.name.split('.').pop()
+      const fileName = `${selectedWorkOrder.id}/${Date.now()}.${fileExt}`
+
+      const { error: uploadError } = await supabase.storage
+        .from('work-order-photos')
+        .upload(fileName, file)
+
+      if (uploadError) throw uploadError
+
+      // Get public URL
+      const { data: { publicUrl } } = supabase.storage
+        .from('work-order-photos')
+        .getPublicUrl(fileName)
+
+      // Save photo record
+      const { error: insertError } = await supabase
+        .from('work_order_photos')
         .insert([{
-          company_id: userProfile.company_id,
-          customer_id: selectedJob.customer_id,
-          work_order_id: selectedJob.id,
-          invoice_number: `INV-${Date.now()}`,
-          issue_date: new Date().toISOString().split('T')[0],
-          due_date: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString().split('T')[0],
-          subtotal: subtotal,
-          tax_amount: taxAmount,
-          total_amount: total,
-          status: 'draft',
-          notes: invoiceFormData.notes
+          work_order_id: selectedWorkOrder.id,
+          company_id: profile.company_id,
+          photo_url: publicUrl,
+          caption: photoCaption || null,
+          uploaded_by: currentUser.id
         }])
-        .select()
-        .single()
 
-      if (invoiceError) throw invoiceError
+      if (insertError) throw insertError
 
-      // Create invoice line items
-      const lineItems = []
-
-      // Add labor line item
-      if (laborCost > 0) {
-        lineItems.push({
-          invoice_id: invoice.id,
-          description: `Labor - ${selectedJob.title}`,
-          quantity: parseFloat(invoiceFormData.labor_hours),
-          unit_price: parseFloat(invoiceFormData.labor_rate),
-          total: laborCost
-        })
-      }
-
-      // Add service charge line item
-      if (serviceCost > 0) {
-        lineItems.push({
-          invoice_id: invoice.id,
-          description: 'Service Charge',
-          quantity: 1,
-          unit_price: serviceCost,
-          total: serviceCost
-        })
-      }
-
-      if (lineItems.length > 0) {
-        const { error: lineItemsError } = await supabase
-          .from('invoice_line_items')
-          .insert(lineItems)
-
-        if (lineItemsError) throw lineItemsError
-      }
-
-      setShowInvoiceModal(false)
-      alert('Invoice created successfully!')
-      
-      // Navigate to invoices page
-      window.dispatchEvent(new CustomEvent('navigate', { detail: 'invoices' }))
+      setPhotoCaption('')
+      setShowPhotoModal(false)
+      loadPhotos()
     } catch (error) {
-      console.error('Error creating invoice:', error)
-      alert('Error creating invoice')
+      console.error('Error uploading photo:', error)
+      alert('Error uploading photo')
+    } finally {
+      setUploading(false)
     }
   }
 
-  // GPS tracking functions
-  const startLocationTracking = () => {
-    if (!navigator.geolocation) {
-      alert("Geolocation is not supported by your browser");
-      return;
-    }
-    
-    if (isTracking) return;
-    
-    setIsTracking(true);
-    
-    // Track location every 5 minutes (300000 ms)
-    // For testing, you can reduce this to a shorter interval
-    const trackerId = window.setInterval(() => {
-      navigator.geolocation.getCurrentPosition(
-        position => saveLocation(position),
-        error => {
-          console.error("Error getting location:", error);
-          if (error.code === error.PERMISSION_DENIED) {
-            alert("Location access denied. Please enable location permissions in your browser to use GPS tracking.");
-            stopLocationTracking();
-          }
-        },
-        { enableHighAccuracy: true }
-      );
-    }, 300000);
-    
-    // Also get location immediately
-    navigator.geolocation.getCurrentPosition(
-      position => saveLocation(position),
-      error => {
-        console.error("Error getting location:", error);
-        if (error.code === error.PERMISSION_DENIED) {
-          alert("Location access denied. Please enable location permissions in your browser to use GPS tracking.");
-          stopLocationTracking();
-        }
-      },
-      { enableHighAccuracy: true }
-    );
-    
-    setLocationTrackerId(trackerId);
-  };
-  
-  const stopLocationTracking = () => {
-    if (locationTrackerId) {
-      clearInterval(locationTrackerId);
-      setLocationTrackerId(null);
-    }
-    setIsTracking(false);
-  };
-  
-  const saveLocation = async (position: GeolocationPosition) => {
+  const deletePhoto = async (photoId: string) => {
+    if (!confirm('Are you sure you want to delete this photo?')) return
+
     try {
-      const { latitude, longitude, accuracy } = position.coords;
-      const timestamp = new Date().toISOString();
-      
-      // Get user's company_id from their profile
-      const { data: userProfile, error: profileError } = await supabase
-        .from('profiles')
-        .select('company_id')
-        .eq('id', currentUser.id)
-        .single();
-
-      if (profileError) throw profileError;
-      
-      // Save location to technician_locations table
       const { error } = await supabase
-        .from('technician_locations')
-        .insert([{
-          technician_id: currentUser.id,
-          company_id: userProfile.company_id,
-          latitude,
-          longitude,
-          accuracy,
-          timestamp
-        }]);
-        
-      if (error) throw error;
-      
-      console.log("Location saved successfully");
-    } catch (error) {
-      console.error("Error saving location:", error);
-    }
-  };
+        .from('work_order_photos')
+        .delete()
+        .eq('id', photoId)
 
-  const openJobModal = (job: WorkOrder) => {
-    setSelectedJob(job)
-    setActiveTab('details')
-    setJobStatus(job.status)
-    setHoursWorked(job.actual_hours?.toString() || '')
-    setWorkNotes(job.notes || '')
-    setPartsUsed({})
-    loadTimeEntries(job.id)
-    loadPhotos(job.id)
+      if (error) throw error
+      loadPhotos()
+    } catch (error) {
+      console.error('Error deleting photo:', error)
+    }
+  }
+
+  const createPurchaseOrder = () => {
+    if (!selectedWorkOrder) return
+    
+    // Store the work order ID in localStorage to pre-select it in the PO form
+    localStorage.setItem('preselected_work_order', selectedWorkOrder.id)
+    
+    // Navigate to purchase orders page
+    window.dispatchEvent(new CustomEvent('navigate', { detail: 'purchase-orders' }))
+  }
+
+  const formatTime = (seconds: number) => {
+    const hours = Math.floor(seconds / 3600)
+    const minutes = Math.floor((seconds % 3600) / 60)
+    const secs = seconds % 60
+    return `${hours.toString().padStart(2, '0')}:${minutes.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}`
+  }
+
+  const formatDuration = (minutes: number) => {
+    const hours = Math.floor(minutes / 60)
+    const mins = minutes % 60
+    return `${hours}h ${mins}m`
   }
 
   const getStatusColor = (status: string) => {
     switch (status) {
-      case 'open': return 'bg-gray-100 text-gray-800'
-      case 'completed': return 'bg-green-100 text-green-800'
-      case 'in_progress': return 'bg-blue-100 text-blue-800'
-      case 'scheduled': return 'bg-purple-100 text-purple-800'
-      default: return 'bg-gray-100 text-gray-800'
+      case 'completed': return 'text-green-700 bg-green-100'
+      case 'in_progress': return 'text-blue-700 bg-blue-100'
+      case 'scheduled': return 'text-purple-700 bg-purple-100'
+      case 'open': return 'text-yellow-700 bg-yellow-100'
+      case 'cancelled': return 'text-red-700 bg-red-100'
+      default: return 'text-gray-700 bg-gray-100'
     }
   }
 
-  const getPriorityColor = (priority: string) => {
-    switch (priority) {
-      case 'urgent': return 'bg-red-100 text-red-800'
-      case 'high': return 'bg-orange-100 text-orange-800'
-      case 'medium': return 'bg-yellow-100 text-yellow-800'
-      case 'low': return 'bg-green-100 text-green-800'
-      default: return 'bg-gray-100 text-gray-800'
+  const getPOStatusColor = (status: string) => {
+    switch (status) {
+      case 'received': return 'text-green-700 bg-green-100'
+      case 'approved': return 'text-blue-700 bg-blue-100'
+      case 'sent': return 'text-purple-700 bg-purple-100'
+      case 'cancelled': return 'text-red-700 bg-red-100'
+      case 'draft': return 'text-yellow-700 bg-yellow-100'
+      default: return 'text-gray-700 bg-gray-100'
     }
   }
-
-  const filteredJobs = workOrders.filter(job => {
-    if (jobFilter === 'all') return true
-    return job.status === jobFilter
-  })
-
-  const totalHours = timeEntries.reduce((sum, entry) => sum + (entry.duration_minutes / 60), 0)
 
   if (loading) {
     return (
@@ -553,818 +423,475 @@ export default function MyJobs() {
     )
   }
 
+  if (workOrders.length === 0) {
+    return (
+      <div className="text-center py-12">
+        <CheckCircle className="w-16 h-16 text-green-500 mx-auto mb-4" />
+        <h3 className="text-lg font-medium text-gray-900 mb-2">No Active Jobs</h3>
+        <p className="text-gray-600">You don't have any active work orders assigned to you.</p>
+      </div>
+    )
+  }
+
   return (
     <div className="space-y-6">
       {/* Header */}
-      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
-        <div>
-          <h1 className="text-2xl font-bold text-gray-900">My Jobs</h1>
-          <p className="text-gray-600">Manage your assigned work orders</p>
-        </div>
-        <div className="flex items-center space-x-3">
-          <select
-            value={jobFilter}
-            onChange={(e) => setJobFilter(e.target.value)}
-            className="px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-          >
-            <option value="all">All Jobs</option>
-            <option value="open">Open</option>
-            <option value="scheduled">Scheduled</option>
-            <option value="in_progress">In Progress</option>
-            <option value="completed">Completed</option>
-          </select>
-          
-          {/* GPS Tracking Toggle */}
-          <button
-            onClick={isTracking ? stopLocationTracking : startLocationTracking}
-            className={`flex items-center px-3 py-2 rounded-lg border transition-colors ${
-              isTracking 
-                ? 'bg-green-50 border-green-200 text-green-700 hover:bg-green-100' 
-                : 'bg-gray-50 border-gray-200 text-gray-700 hover:bg-gray-100'
-            }`}
-          >
-            <Navigation className={`w-4 h-4 mr-2 ${isTracking ? 'text-green-600' : 'text-gray-600'}`} />
-            <span className="text-sm font-medium">
-              {isTracking ? 'Stop GPS Tracking' : 'Start GPS Tracking'}
-            </span>
-          </button>
-          
-          <div className="flex items-center bg-gray-100 rounded-lg p-1">
-            <button
-              onClick={() => setViewType('table')}
-              className={`flex items-center px-3 py-1.5 rounded-md text-sm font-medium transition-colors ${
-                viewType === 'table'
-                  ? 'bg-white text-gray-900 shadow-sm'
-                  : 'text-gray-600 hover:text-gray-900'
-              }`}
-            >
-              <List className="w-4 h-4 mr-1.5" />
-              Table
-            </button>
-            <button
-              onClick={() => setViewType('card')}
-              className={`flex items-center px-3 py-1.5 rounded-md text-sm font-medium transition-colors ${
-                viewType === 'card'
-                  ? 'bg-white text-gray-900 shadow-sm'
-                  : 'text-gray-600 hover:text-gray-900'
-              }`}
-            >
-              <Grid className="w-4 h-4 mr-1.5" />
-              Cards
-            </button>
-          </div>
-        </div>
+      <div>
+        <h1 className="text-2xl font-bold text-gray-900">My Jobs</h1>
+        <p className="text-gray-600">Manage your assigned work orders</p>
       </div>
 
-      {/* Jobs Grid */}
-      {viewType === 'table' ? (
-        <div className="bg-white rounded-lg border border-gray-200 overflow-hidden shadow-md hover:shadow-lg transition-shadow duration-300">
-          <div className="overflow-x-auto">
-            <table className="w-full">
-              <thead className="bg-gray-50">
-                <tr>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                    Work Order
-                  </th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                    Customer
-                  </th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                    Status
-                  </th>
-                  <th className="hidden md:table-cell px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                    Priority
-                  </th>
-                  <th className="hidden md:table-cell px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                    Scheduled
-                  </th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                    Actions
-                  </th>
-                </tr>
-              </thead>
-              <tbody className="bg-white divide-y divide-gray-200">
-                {filteredJobs.map((job) => (
-                  <tr key={job.id} className="hover:bg-gray-50">
-                    <td className="px-6 py-4 whitespace-nowrap">
-                      <div className="text-sm font-medium text-gray-900">{job.wo_number}</div>
-                      <div className="text-sm text-gray-500">{job.title}</div>
-                    </td>
-                    <td className="px-6 py-4 whitespace-nowrap">
-                      <div className="text-sm text-gray-900">
-                        {job.customer?.customer_type === 'residential' 
-                          ? `${job.customer?.first_name} ${job.customer?.last_name}`
-                          : job.customer?.company_name
-                        }
-                      </div>
-                    </td>
-                    <td className="px-6 py-4 whitespace-nowrap">
-                      <span className={`inline-flex px-2 py-1 text-xs font-medium rounded-full ${getStatusColor(job.status)}`}>
-                        {job.status.toUpperCase()}
-                      </span>
-                    </td>
-                    <td className="hidden md:table-cell px-6 py-4 whitespace-nowrap">
-                      <span className={`inline-flex px-2 py-1 text-xs font-medium rounded-full ${getPriorityColor(job.priority)}`}>
-                        {job.priority.toUpperCase()}
-                      </span>
-                    </td>
-                    <td className="hidden md:table-cell px-6 py-4 whitespace-nowrap">
-                      {job.scheduled_date && (
-                        <div className="text-sm text-gray-900">
-                          {new Date(job.scheduled_date).toLocaleDateString()}
-                        </div>
-                      )}
-                    </td>
-                    <td className="px-6 py-4 whitespace-nowrap text-sm font-medium">
-                      <button
-                        onClick={() => openJobModal(job)}
-                        className="text-blue-600 hover:text-blue-800 p-1.5 transition-all duration-200 hover:bg-blue-100 rounded-full hover:shadow-sm transform hover:scale-110 flex items-center"
-                      >
-                        <Sparkles className="w-4 h-4 mr-1" /> <span className="text-xs font-medium">Manage</span>
-                      </button>
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        </div>
-      ) : (
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-          {filteredJobs.map((job, index) => (
-            <div key={job.id} className="bg-white rounded-lg border border-gray-200 p-6 hover:shadow-md transition-shadow">
-              <div className="flex items-start justify-between mb-4">
-                <div>
-                  <h3 className="text-lg font-semibold text-blue-600 mb-1">
-                    {job.wo_number} • {job.customer?.customer_type === 'residential' 
-                      ? `${job.customer?.first_name} ${job.customer?.last_name}`
-                      : job.customer?.company_name
-                    }
-                  </h3>
-                  <div className="flex space-x-2 mb-3">
-                    <span className={`inline-flex px-2 py-1 text-xs font-medium rounded-full ${getStatusColor(job.status)}`}>
-                      {job.status.toUpperCase()}
-                    </span>
-                    <span className={`inline-flex px-2 py-1 text-xs font-medium rounded-full ${getPriorityColor(job.priority)}`}>
-                      {job.priority.toUpperCase()} PRIORITY
-                    </span>
-                  </div>
-                </div>
-              </div>
-
-              <div className="space-y-2 mb-4">
-                <div className="flex items-center text-sm text-gray-600">
-                  <User className="w-4 h-4 mr-2" />
-                  <span>{currentUser?.profile?.first_name} {currentUser?.profile?.last_name} ({currentUser?.profile?.role})</span>
-                </div>
-                
-                {job.scheduled_date && (
-                  <div className="flex items-center text-sm text-gray-600">
-                    <Calendar className="w-4 h-4 mr-2" />
-                    <span>{new Date(job.scheduled_date).toLocaleDateString()} {new Date(job.scheduled_date).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</span>
-                  </div>
-                )}
-                
-                {job.customer?.address && (
-                  <div className="flex items-center text-sm text-gray-600">
-                    <MapPin className="w-4 h-4 mr-2" />
-                    <span>{job.customer.address}</span>
-                    <ExternalLink className="w-3 h-3 ml-1 text-blue-500" />
-                  </div>
-                )}
-              </div>
-
-              <div className="mb-4">
-                <p className="text-sm text-gray-700">{job.title}</p>
-              </div>
-
-              <div className="flex items-center justify-between">
-                <div className="text-sm text-gray-500">
-                  {job.actual_hours ? `${job.actual_hours}h` : '0'}
-                </div>
-                <button
-                  onClick={() => openJobModal(job)}
-                  className="text-blue-600 hover:text-blue-800 text-sm font-medium"
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+        {/* Work Orders List */}
+        <div className="lg:col-span-1">
+          <div className="bg-white rounded-xl shadow-sm border border-gray-200">
+            <div className="p-4 border-b border-gray-200">
+              <h3 className="text-lg font-semibold text-gray-900">Active Jobs ({workOrders.length})</h3>
+            </div>
+            <div className="divide-y divide-gray-200 max-h-96 overflow-y-auto">
+              {workOrders.map((workOrder) => (
+                <div
+                  key={workOrder.id}
+                  onClick={() => setSelectedWorkOrder(workOrder)}
+                  className={`p-4 cursor-pointer hover:bg-gray-50 transition-colors ${
+                    selectedWorkOrder?.id === workOrder.id ? 'bg-blue-50 border-r-4 border-blue-500' : ''
+                  }`}
                 >
-                  Click to manage →
-                </button>
-              </div>
-            </div>
-          ))}
-        </div>
-      )}
-
-      {/* Job Detail Modal */}
-      {selectedJob && (
-        <div className="fixed inset-0 bg-gray-600 bg-opacity-50 flex items-center justify-center p-4 z-50">
-          <div className="bg-white rounded-xl shadow-xl max-w-4xl w-full max-h-screen overflow-y-auto">
-            <div className="p-6 border-b border-gray-200">
-              <div className="flex items-center justify-between">
-                <div>
-                  <h3 className="text-xl font-semibold text-gray-900">{selectedJob.wo_number}</h3>
-                  <p className="text-gray-600">{selectedJob.customer?.customer_type === 'residential' 
-                    ? `${selectedJob.customer?.first_name} ${selectedJob.customer?.last_name}`
-                    : selectedJob.customer?.company_name
-                  }</p>
-                  <p className="text-sm text-gray-500">{currentUser?.profile?.first_name} {currentUser?.profile?.last_name}</p>
-                </div>
-                <button
-                  onClick={() => setSelectedJob(null)}
-                  className="text-gray-400 hover:text-gray-600"
-                >
-                  <X className="w-6 h-6" />
-                </button>
-              </div>
-            </div>
-
-            {/* Tab Navigation */}
-            <div className="border-b border-gray-200">
-              <nav className="flex space-x-8 px-6">
-                {[
-                  { id: 'details', label: 'Job Details', icon: FileText },
-                  { id: 'time', label: 'Time Tracking', icon: Clock },
-                  { id: 'photos', label: 'Photos', icon: Camera },
-                  { id: 'purchase-orders', label: 'Purchase Orders', icon: ShoppingCart },
-                  { id: 'resolution', label: 'Resolution', icon: CheckCircle }
-                ].map((tab) => {
-                  const Icon = tab.icon
-                  return (
-                    <button
-                      key={tab.id}
-                      onClick={() => setActiveTab(tab.id)}
-                      className={`flex items-center space-x-2 py-4 border-b-2 font-medium text-sm ${
-                        activeTab === tab.id
-                          ? 'border-blue-500 text-blue-600'
-                          : 'border-transparent text-gray-500 hover:text-gray-700'
-                      }`}
-                    >
-                      <Icon className="w-4 h-4" />
-                      <span>{tab.label}</span>
-                    </button>
-                  )
-                })}
-              </nav>
-            </div>
-
-            {/* Tab Content */}
-            <div className="p-6">
-              {activeTab === 'details' && (
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
-                  <div>
-                    <h4 className="text-lg font-medium text-gray-900 mb-4">Job Information</h4>
-                    <div className="space-y-3">
-                      <div>
-                        <span className="text-sm font-medium text-gray-700">WO Number:</span>
-                        <span className="ml-2 text-sm text-gray-900">{selectedJob.wo_number}</span>
-                      </div>
-                      <div>
-                        <span className="text-sm font-medium text-gray-700">Priority:</span>
-                        <span className={`ml-2 inline-flex px-2 py-1 text-xs font-medium rounded-full ${getPriorityColor(selectedJob.priority)}`}>
-                          {selectedJob.priority.toUpperCase()}
+                  <div className="flex items-start justify-between">
+                    <div className="flex-1">
+                      <h4 className="font-medium text-gray-900">{workOrder.wo_number}</h4>
+                      <p className="text-sm text-gray-600 mt-1">{workOrder.title}</p>
+                      <div className="flex items-center mt-2">
+                        <span className={`inline-flex px-2 py-1 text-xs font-medium rounded-full ${getStatusColor(workOrder.status)}`}>
+                          {workOrder.status.replace('_', ' ')}
                         </span>
                       </div>
-                      {selectedJob.scheduled_date && (
+                    </div>
+                  </div>
+                  
+                  <div className="mt-3 space-y-1">
+                    <div className="flex items-center text-sm text-gray-600">
+                      <User className="w-4 h-4 mr-2" />
+                      {workOrder.customer?.customer_type === 'residential' 
+                        ? `${workOrder.customer?.first_name} ${workOrder.customer?.last_name}`
+                        : workOrder.customer?.company_name
+                      }
+                    </div>
+                    
+                    {workOrder.scheduled_date && (
+                      <div className="flex items-center text-sm text-gray-600">
+                        <Calendar className="w-4 h-4 mr-2" />
+                        {new Date(workOrder.scheduled_date).toLocaleDateString()}
+                      </div>
+                    )}
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        </div>
+
+        {/* Work Order Details */}
+        <div className="lg:col-span-2">
+          {selectedWorkOrder ? (
+            <div className="bg-white rounded-xl shadow-sm border border-gray-200">
+              {/* Header */}
+              <div className="p-6 border-b border-gray-200">
+                <div className="flex items-start justify-between">
+                  <div>
+                    <h2 className="text-xl font-bold text-gray-900">{selectedWorkOrder.wo_number}</h2>
+                    <p className="text-gray-600 mt-1">{selectedWorkOrder.title}</p>
+                    <div className="flex items-center mt-3 space-x-4">
+                      <span className={`inline-flex px-3 py-1 text-sm font-medium rounded-full ${getStatusColor(selectedWorkOrder.status)}`}>
+                        {selectedWorkOrder.status.replace('_', ' ')}
+                      </span>
+                      {selectedWorkOrder.priority && (
+                        <span className={`inline-flex px-3 py-1 text-sm font-medium rounded-full ${
+                          selectedWorkOrder.priority === 'urgent' ? 'text-red-700 bg-red-100' :
+                          selectedWorkOrder.priority === 'high' ? 'text-orange-700 bg-orange-100' :
+                          selectedWorkOrder.priority === 'medium' ? 'text-yellow-700 bg-yellow-100' :
+                          'text-green-700 bg-green-100'
+                        }`}>
+                          {selectedWorkOrder.priority} priority
+                        </span>
+                      )}
+                    </div>
+                  </div>
+                  
+                  {/* Status Update Buttons */}
+                  <div className="flex space-x-2">
+                    {selectedWorkOrder.status === 'scheduled' && (
+                      <button
+                        onClick={() => updateWorkOrderStatus('in_progress')}
+                        className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors"
+                      >
+                        Start Job
+                      </button>
+                    )}
+                    {selectedWorkOrder.status === 'in_progress' && (
+                      <button
+                        onClick={() => updateWorkOrderStatus('completed')}
+                        className="px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 transition-colors"
+                      >
+                        Complete Job
+                      </button>
+                    )}
+                  </div>
+                </div>
+              </div>
+
+              {/* Tabs */}
+              <div className="border-b border-gray-200">
+                <nav className="flex space-x-8 px-6">
+                  {[
+                    { id: 'details', name: 'Job Details', icon: FileText },
+                    { id: 'time', name: 'Time Tracking', icon: Timer },
+                    { id: 'photos', name: 'Photos', icon: Camera },
+                    { id: 'purchase-orders', name: 'Purchase Orders', icon: ShoppingCart }
+                  ].map((tab) => {
+                    const Icon = tab.icon
+                    return (
+                      <button
+                        key={tab.id}
+                        onClick={() => setActiveTab(tab.id)}
+                        className={`flex items-center space-x-2 py-4 border-b-2 font-medium text-sm ${
+                          activeTab === tab.id
+                            ? 'border-blue-500 text-blue-600'
+                            : 'border-transparent text-gray-500 hover:text-gray-700'
+                        }`}
+                      >
+                        <Icon className="w-4 h-4" />
+                        <span>{tab.name}</span>
+                      </button>
+                    )
+                  })}
+                </nav>
+              </div>
+
+              {/* Tab Content */}
+              <div className="p-6">
+                {/* Job Details Tab */}
+                {activeTab === 'details' && (
+                  <div className="space-y-6">
+                    <div>
+                      <h3 className="text-lg font-medium text-gray-900 mb-4">Job Information</h3>
+                      <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                         <div>
-                          <span className="text-sm font-medium text-gray-700">Scheduled:</span>
-                          <span className="ml-2 text-sm text-gray-900">
-                            {new Date(selectedJob.scheduled_date).toLocaleDateString()} {new Date(selectedJob.scheduled_date).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
-                          </span>
+                          <h4 className="text-sm font-medium text-gray-700 mb-3">Customer Details</h4>
+                          <div className="space-y-2">
+                            <div className="flex items-center text-sm text-gray-600">
+                              <User className="w-4 h-4 mr-3" />
+                              {selectedWorkOrder.customer?.customer_type === 'residential' 
+                                ? `${selectedWorkOrder.customer?.first_name} ${selectedWorkOrder.customer?.last_name}`
+                                : selectedWorkOrder.customer?.company_name
+                              }
+                            </div>
+                            {selectedWorkOrder.customer?.email && (
+                              <div className="flex items-center text-sm text-gray-600">
+                                <Mail className="w-4 h-4 mr-3" />
+                                <a href={`mailto:${selectedWorkOrder.customer.email}`} className="text-blue-600 hover:text-blue-800">
+                                  {selectedWorkOrder.customer.email}
+                                </a>
+                              </div>
+                            )}
+                            {selectedWorkOrder.customer?.phone && (
+                              <div className="flex items-center text-sm text-gray-600">
+                                <Phone className="w-4 h-4 mr-3" />
+                                <a href={`tel:${selectedWorkOrder.customer.phone}`} className="text-blue-600 hover:text-blue-800">
+                                  {selectedWorkOrder.customer.phone}
+                                </a>
+                              </div>
+                            )}
+                            {(selectedWorkOrder.customer?.address || selectedWorkOrder.customer_site?.address) && (
+                              <div className="flex items-center text-sm text-gray-600">
+                                <MapPin className="w-4 h-4 mr-3" />
+                                <div>
+                                  {selectedWorkOrder.customer_site?.address || selectedWorkOrder.customer?.address}
+                                  {selectedWorkOrder.customer_site?.city && selectedWorkOrder.customer_site?.state && (
+                                    <div className="text-gray-500">
+                                      {selectedWorkOrder.customer_site.city}, {selectedWorkOrder.customer_site.state}
+                                    </div>
+                                  )}
+                                </div>
+                              </div>
+                            )}
+                          </div>
+                        </div>
+
+                        <div>
+                          <h4 className="text-sm font-medium text-gray-700 mb-3">Schedule</h4>
+                          <div className="space-y-2">
+                            {selectedWorkOrder.scheduled_date && (
+                              <div className="flex items-center text-sm text-gray-600">
+                                <Calendar className="w-4 h-4 mr-3" />
+                                <div>
+                                  <div>Scheduled: {new Date(selectedWorkOrder.scheduled_date).toLocaleDateString()}</div>
+                                  <div className="text-gray-500">
+                                    {new Date(selectedWorkOrder.scheduled_date).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                                  </div>
+                                </div>
+                              </div>
+                            )}
+                            {selectedWorkOrder.completed_date && (
+                              <div className="flex items-center text-sm text-gray-600">
+                                <CheckCircle className="w-4 h-4 mr-3" />
+                                Completed: {new Date(selectedWorkOrder.completed_date).toLocaleDateString()}
+                              </div>
+                            )}
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+
+                    {selectedWorkOrder.description && (
+                      <div>
+                        <h4 className="text-sm font-medium text-gray-700 mb-3">Description</h4>
+                        <div className="bg-gray-50 rounded-lg p-4">
+                          <p className="text-sm text-gray-700">{selectedWorkOrder.description}</p>
+                        </div>
+                      </div>
+                    )}
+
+                    {selectedWorkOrder.notes && (
+                      <div>
+                        <h4 className="text-sm font-medium text-gray-700 mb-3">Notes</h4>
+                        <div className="bg-gray-50 rounded-lg p-4">
+                          <p className="text-sm text-gray-700">{selectedWorkOrder.notes}</p>
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                )}
+
+                {/* Time Tracking Tab */}
+                {activeTab === 'time' && (
+                  <div className="space-y-6">
+                    {/* Timer Controls */}
+                    <div className="bg-gray-50 rounded-lg p-6">
+                      <div className="flex items-center justify-between">
+                        <div>
+                          <h3 className="text-lg font-medium text-gray-900">Time Tracker</h3>
+                          <div className="text-3xl font-mono font-bold text-blue-600 mt-2">
+                            {formatTime(elapsedTime)}
+                          </div>
+                        </div>
+                        <div className="flex space-x-3">
+                          {!isTimerRunning ? (
+                            <button
+                              onClick={startTimer}
+                              className="inline-flex items-center px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 transition-colors"
+                            >
+                              <Play className="w-4 h-4 mr-2" />
+                              Start Timer
+                            </button>
+                          ) : (
+                            <button
+                              onClick={stopTimer}
+                              className="inline-flex items-center px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700 transition-colors"
+                            >
+                              <Square className="w-4 h-4 mr-2" />
+                              Stop Timer
+                            </button>
+                          )}
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* Time Entries List */}
+                    <div>
+                      <h3 className="text-lg font-medium text-gray-900 mb-4">Time Entries</h3>
+                      {timeEntries.length > 0 ? (
+                        <div className="space-y-3">
+                          {timeEntries.map((entry) => (
+                            <div key={entry.id} className="border border-gray-200 rounded-lg p-4">
+                              <div className="flex items-center justify-between">
+                                <div>
+                                  <div className="text-sm font-medium text-gray-900">
+                                    {formatDuration(entry.duration_minutes)}
+                                  </div>
+                                  <div className="text-sm text-gray-600">
+                                    {new Date(entry.start_time).toLocaleDateString()} - {entry.description}
+                                  </div>
+                                </div>
+                                <span className={`inline-flex px-2 py-1 text-xs font-medium rounded-full ${
+                                  entry.status === 'approved' ? 'text-green-700 bg-green-100' :
+                                  entry.status === 'rejected' ? 'text-red-700 bg-red-100' :
+                                  'text-yellow-700 bg-yellow-100'
+                                }`}>
+                                  {entry.status}
+                                </span>
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                      ) : (
+                        <div className="text-center py-8 text-gray-500">
+                          <Clock className="w-12 h-12 mx-auto mb-4 text-gray-300" />
+                          <p>No time entries recorded yet</p>
                         </div>
                       )}
-                      <div>
-                        <span className="text-sm font-medium text-gray-700">Estimated Hours:</span>
-                        <span className="ml-2 text-sm text-gray-900">Not specified</span>
+                    </div>
+                  </div>
+                )}
+
+                {/* Photos Tab */}
+                {activeTab === 'photos' && (
+                  <div className="space-y-6">
+                    <div className="flex items-center justify-between">
+                      <h3 className="text-lg font-medium text-gray-900">Job Photos</h3>
+                      <button
+                        onClick={() => setShowPhotoModal(true)}
+                        className="inline-flex items-center px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors"
+                      >
+                        <Camera className="w-4 h-4 mr-2" />
+                        Add Photo
+                      </button>
+                    </div>
+
+                    {photos.length > 0 ? (
+                      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                        {photos.map((photo) => (
+                          <div key={photo.id} className="relative group">
+                            <img
+                              src={photo.photo_url}
+                              alt={photo.caption || 'Work order photo'}
+                              className="w-full h-48 object-cover rounded-lg border border-gray-200"
+                            />
+                            <div className="absolute inset-0 bg-black bg-opacity-0 group-hover:bg-opacity-50 transition-opacity rounded-lg flex items-center justify-center">
+                              <button
+                                onClick={() => deletePhoto(photo.id)}
+                                className="opacity-0 group-hover:opacity-100 text-white bg-red-600 rounded-full p-2 hover:bg-red-700 transition-all"
+                              >
+                                <Trash2 className="w-4 h-4" />
+                              </button>
+                            </div>
+                            {photo.caption && (
+                              <div className="mt-2">
+                                <p className="text-sm text-gray-600">{photo.caption}</p>
+                              </div>
+                            )}
+                          </div>
+                        ))}
                       </div>
-                    </div>
-
-                    <h5 className="text-md font-medium text-gray-900 mt-6 mb-3">Description</h5>
-                    <div className="bg-gray-50 rounded-lg p-4">
-                      <p className="text-sm text-gray-700">{selectedJob.title}</p>
-                    </div>
-
-                    {/* Purchase Orders Section */}
-                    <div className="mt-6">
-                      <div className="flex items-center justify-between mb-3">
-                        <h5 className="text-md font-medium text-gray-900">Purchase Orders</h5>
+                    ) : (
+                      <div className="text-center py-12 text-gray-500">
+                        <Camera className="w-16 h-16 mx-auto mb-4 text-gray-300" />
+                        <h3 className="text-lg font-medium text-gray-900 mb-2">No Photos</h3>
+                        <p className="text-gray-600 mb-4">Add photos to document your work progress</p>
                         <button
-                          onClick={() => window.dispatchEvent(new CustomEvent('navigate', { detail: 'purchase-orders' }))}
-                          className="text-blue-600 hover:text-blue-800 text-sm font-medium"
+                          onClick={() => setShowPhotoModal(true)}
+                          className="inline-flex items-center px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors"
                         >
-                          View All POs
+                          <Camera className="w-4 h-4 mr-2" />
+                          Add First Photo
                         </button>
                       </div>
-                      <div className="bg-gray-50 rounded-lg p-4">
-                        <p className="text-sm text-gray-600">
-                          No purchase orders linked to this work order yet.
-                        </p>
+                    )}
+                  </div>
+                )}
+
+                {/* Purchase Orders Tab */}
+                {activeTab === 'purchase-orders' && (
+                  <div className="space-y-6">
+                    <div className="flex items-center justify-between">
+                      <h3 className="text-lg font-medium text-gray-900">Purchase Orders for this Job</h3>
+                      <button
+                        onClick={createPurchaseOrder}
+                        className="inline-flex items-center px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors"
+                      >
+                        <ShoppingCart className="w-4 h-4 mr-2" />
+                        Create Purchase Order
+                      </button>
+                    </div>
+
+                    {purchaseOrders.length > 0 ? (
+                      <div className="space-y-4">
+                        {purchaseOrders.map((po) => (
+                          <div key={po.id} className="border border-gray-200 rounded-lg p-4 hover:shadow-md transition-shadow">
+                            <div className="flex items-center justify-between">
+                              <div className="flex-1">
+                                <div className="flex items-center space-x-4">
+                                  <h4 className="text-lg font-semibold text-gray-900">{po.po_number}</h4>
+                                  <span className={`inline-flex px-2 py-1 text-xs font-medium rounded-full ${getPOStatusColor(po.status)}`}>
+                                    {po.status}
+                                  </span>
+                                </div>
+                                <div className="mt-2 grid grid-cols-1 md:grid-cols-3 gap-4">
+                                  <div>
+                                    <span className="text-sm font-medium text-gray-700">Vendor:</span>
+                                    <p className="text-sm text-gray-900">{po.vendor.name}</p>
+                                  </div>
+                                  <div>
+                                    <span className="text-sm font-medium text-gray-700">Amount:</span>
+                                    <p className="text-sm text-gray-900">${po.total_amount.toFixed(2)}</p>
+                                  </div>
+                                  <div>
+                                    <span className="text-sm font-medium text-gray-700">Order Date:</span>
+                                    <p className="text-sm text-gray-900">{new Date(po.order_date).toLocaleDateString()}</p>
+                                  </div>
+                                </div>
+                                {po.expected_delivery && (
+                                  <div className="mt-2">
+                                    <span className="text-sm font-medium text-gray-700">Expected Delivery:</span>
+                                    <p className="text-sm text-gray-900">{new Date(po.expected_delivery).toLocaleDateString()}</p>
+                                  </div>
+                                )}
+                              </div>
+                              <div className="flex space-x-2">
+                                <button
+                                  onClick={() => {
+                                    // Navigate to purchase orders page and show this PO
+                                    localStorage.setItem('selected_purchase_order', po.id)
+                                    window.dispatchEvent(new CustomEvent('navigate', { detail: 'purchase-orders' }))
+                                  }}
+                                  className="text-blue-600 hover:text-blue-800 p-2 transition-colors"
+                                  title="View Purchase Order"
+                                >
+                                  <Eye className="w-4 h-4" />
+                                </button>
+                              </div>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    ) : (
+                      <div className="text-center py-12 text-gray-500">
+                        <ShoppingCart className="w-16 h-16 mx-auto mb-4 text-gray-300" />
+                        <h3 className="text-lg font-medium text-gray-900 mb-2">No Purchase Orders</h3>
+                        <p className="text-gray-600 mb-4">No purchase orders have been created for this work order yet.</p>
+                        <p className="text-gray-600 mb-4">Create a purchase order to order parts and materials needed for this job.</p>
                         <button
-                          onClick={() => {
-                            // Store the work order ID for pre-filling the PO form
-                            localStorage.setItem('preselected_work_order', selectedJob.id)
-                            window.dispatchEvent(new CustomEvent('navigate', { detail: 'purchase-orders' }))
-                          }}
-                          className="mt-2 inline-flex items-center px-3 py-1 bg-blue-100 text-blue-700 rounded-md hover:bg-blue-200 transition-colors text-sm"
+                          onClick={createPurchaseOrder}
+                          className="inline-flex items-center px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors"
                         >
-                          <ShoppingCart className="w-4 h-4 mr-1" />
+                          <ShoppingCart className="w-4 h-4 mr-2" />
                           Create Purchase Order
                         </button>
                       </div>
-                    </div>
-                  </div>
-
-                  <div>
-                    <h4 className="text-lg font-medium text-gray-900 mb-4">Customer Details</h4>
-                    <div className="space-y-3">
-                      <div>
-                        <span className="text-sm font-medium text-gray-700">Email:</span>
-                        <span className="ml-2 text-sm text-gray-900">{selectedJob.customer?.email || 'Not provided'}</span>
-                      </div>
-                      <div>
-                        <span className="text-sm font-medium text-gray-700">Phone:</span>
-                        <span className="ml-2 text-sm text-gray-900">{selectedJob.customer?.phone || 'Not provided'}</span>
-                      </div>
-                      {selectedJob.customer?.address && (
-                        <div>
-                          <span className="text-sm font-medium text-gray-700">Address:</span>
-                          <div className="mt-1">
-                            <p className="text-sm text-gray-900">{selectedJob.customer.address}</p>
-                            <a 
-                              href={`https://maps.google.com/?q=${encodeURIComponent(selectedJob.customer.address)}`}
-                              target="_blank"
-                              rel="noopener noreferrer"
-                              className="text-blue-600 hover:text-blue-800 text-sm flex items-center mt-1"
-                            >
-                              <ExternalLink className="w-3 h-3 mr-1" />
-                              View on Maps
-                            </a>
-                          </div>
-                        </div>
-                      )}
-                    </div>
-                  </div>
-                </div>
-              )}
-
-              {activeTab === 'time' && (
-                <div className="text-center">
-                  <h4 className="text-lg font-medium text-gray-900 mb-8">Time Tracking</h4>
-                  
-                  <div className="text-6xl font-mono text-blue-600 mb-8">
-                    {timerDisplay}
-                  </div>
-
-                  <div className="mb-8">
-                    {activeTimer ? (
-                      <button
-                        onClick={stopTimer}
-                        className="inline-flex items-center px-6 py-3 bg-red-600 text-white rounded-lg hover:bg-red-700 transition-colors"
-                      >
-                        <Square className="w-5 h-5 mr-2" />
-                        Stop Work
-                      </button>
-                    ) : (
-                      <button
-                        onClick={startTimer}
-                        className="inline-flex items-center px-6 py-3 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors"
-                      >
-                        <Play className="w-5 h-5 mr-2" />
-                        Start Work
-                      </button>
                     )}
                   </div>
-
-                  <div className="text-left">
-                    <h5 className="text-md font-medium text-gray-900 mb-3">Total Hours Worked</h5>
-                    <div className="bg-gray-50 rounded-lg p-4">
-                      <p className="text-2xl font-semibold text-gray-900">{totalHours.toFixed(1)}</p>
-                    </div>
-                  </div>
-                  
-                  {/* GPS Tracking Status */}
-                  <div className="text-center mt-4">
-                    <div className={`inline-flex items-center px-3 py-1 rounded-full text-sm ${
-                      isTracking ? 'bg-green-100 text-green-800' : 'bg-gray-100 text-gray-800'
-                    }`}>
-                      <Navigation className="w-4 h-4 mr-2" />
-                      {isTracking ? 'GPS Tracking Active' : 'GPS Tracking Inactive'}
-                    </div>
-                  </div>
-                </div>
-              )}
-
-              {activeTab === 'photos' && (
-                <div>
-                  <h4 className="text-lg font-medium text-gray-900 mb-6">Job Photos</h4>
-                  
-                  <div className="mb-8">
-                    <h5 className="text-md font-medium text-gray-900 mb-4">Add Photo</h5>
-                    <div className="space-y-4">
-                      <input
-                        type="file"
-                        accept="image/*"
-                        onChange={(e) => setSelectedFile(e.target.files?.[0] || null)}
-                        className="block w-full text-sm text-gray-500 file:mr-4 file:py-2 file:px-4 file:rounded-lg file:border-0 file:text-sm file:font-medium file:bg-blue-50 file:text-blue-700 hover:file:bg-blue-100"
-                      />
-                      
-                      <input
-                        type="text"
-                        placeholder="Describe this photo..."
-                        value={photoCaption}
-                        onChange={(e) => setPhotoCaption(e.target.value)}
-                        className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                      />
-                      
-                      <button
-                        onClick={uploadPhoto}
-                        disabled={!selectedFile}
-                        className="inline-flex items-center px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
-                      >
-                        <Upload className="w-4 h-4 mr-2" />
-                        Upload Photo
-                      </button>
-                    </div>
-                  </div>
-
-                  {photos.length === 0 ? (
-                    <div className="text-center py-12">
-                      <Camera className="w-12 h-12 text-gray-400 mx-auto mb-4" />
-                      <p className="text-gray-600">No photos have been uploaded for this work order</p>
-                    </div>
-                  ) : (
-                    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-                      {photos.map((photo) => (
-                        <div key={photo.id} className="border border-gray-200 rounded-lg p-4">
-                          <div className="bg-gray-100 rounded-lg h-48 flex items-center justify-center mb-3">
-                            <Camera className="w-8 h-8 text-gray-400" />
-                          </div>
-                          <p className="text-sm text-gray-700">{photo.caption}</p>
-                          <p className="text-xs text-gray-500 mt-1">
-                            {new Date(photo.created_at).toLocaleDateString()}
-                          </p>
-                        </div>
-                      ))}
-                    </div>
-                  )}
-                </div>
-              )}
-
-              {activeTab === 'purchase-orders' && (
-                <div>
-                  <h4 className="text-lg font-medium text-gray-900 mb-6">Purchase Orders for this Job</h4>
-                  
-                  <div className="mb-6">
-                    <button
-                      onClick={() => {
-                        // Store the work order ID for pre-filling the PO form
-                        localStorage.setItem('preselected_work_order', selectedJob.id)
-                        window.dispatchEvent(new CustomEvent('navigate', { detail: 'purchase-orders' }))
-                      }}
-                      className="inline-flex items-center px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors"
-                    >
-                      <ShoppingCart className="w-5 h-5 mr-2" />
-                      Create Purchase Order
-                    </button>
-                  </div>
-
-                  <div className="bg-gray-50 rounded-lg p-6 text-center">
-                    <ShoppingCart className="w-12 h-12 text-gray-400 mx-auto mb-4" />
-                    <h3 className="text-lg font-medium text-gray-900 mb-2">No Purchase Orders</h3>
-                    <p className="text-gray-600 mb-4">
-                      No purchase orders have been created for this work order yet.
-                    </p>
-                    <p className="text-sm text-gray-500">
-                      Create a purchase order to order parts and materials needed for this job.
-                    </p>
-                  </div>
-                </div>
-              )}
-
-              {activeTab === 'resolution' && (
-                <div>
-                  <h4 className="text-lg font-medium text-gray-900 mb-6">Job Status & Resolution</h4>
-                  
-                  <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mb-6">
-                    <div>
-                      <label className="block text-sm font-medium text-gray-700 mb-2">
-                        Job Status
-                      </label>
-                      <select
-                        value={jobStatus}
-                        onChange={(e) => setJobStatus(e.target.value)}
-                        className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                      >
-                        <option value="open">Open</option>
-                        <option value="scheduled">Scheduled</option>
-                        <option value="in_progress">In Progress</option>
-                        <option value="completed">Completed</option>
-                        <option value="cancelled">Cancelled</option>
-                      </select>
-                    </div>
-
-                    <div>
-                      <label className="block text-sm font-medium text-gray-700 mb-2">
-                        Hours Worked
-                      </label>
-                      <input
-                        type="number"
-                        step="0.5"
-                        value={hoursWorked}
-                        onChange={(e) => setHoursWorked(e.target.value)}
-                        className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                      />
-                    </div>
-                  </div>
-
-                  <div className="mb-6">
-                    <div className="flex items-center justify-between mb-2">
-                      <label className="block text-sm font-medium text-gray-700">
-                        Work Notes
-                      </label>
-                      <button className="text-blue-500 text-sm">✨ AI Assistant</button>
-                    </div>
-                    <textarea
-                      value={workNotes}
-                      onChange={(e) => setWorkNotes(e.target.value)}
-                      rows={4}
-                      placeholder="Add notes about the work performed..."
-                      className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                    />
-                  </div>
-
-                  <div className="mb-8">
-                    <label className="block text-sm font-medium text-gray-700 mb-2">
-                      Resolution Summary
-                    </label>
-                    <textarea
-                      value={resolutionSummary}
-                      onChange={(e) => setResolutionSummary(e.target.value)}
-                      rows={4}
-                      placeholder="Describe how the issue was resolved..."
-                      className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                    />
-                  </div>
-
-                  {/* Parts & Materials Used */}
-                  <div className="mb-6">
-                    <div className="flex items-center justify-between mb-4">
-                      <h5 className="text-md font-medium text-gray-900">Parts & Materials Used</h5>
-                      <button
-                        type="button"
-                        onClick={() => setShowPartsModal(true)}
-                        className="inline-flex items-center px-3 py-2 bg-blue-100 text-blue-700 rounded-lg hover:bg-blue-200 transition-colors text-sm"
-                      >
-                        <Package className="w-4 h-4 mr-2" />
-                        Manage Parts Used
-                      </button>
-                    </div>
-                    
-                    {Object.keys(partsUsed).length > 0 && (
-                      <div className="bg-gray-50 rounded-lg p-4">
-                        <h6 className="text-sm font-medium text-gray-900 mb-3">Items Used:</h6>
-                        <div className="space-y-2">
-                          {Object.entries(partsUsed).map(([itemId, quantity]) => {
-                            const item = inventoryItems.find(i => i.id === itemId)
-                            if (!item || quantity === 0) return null
-                            return (
-                              <div key={itemId} className="flex justify-between items-center text-sm">
-                                <span className="text-gray-700">{item.name} (SKU: {item.sku})</span>
-                                <span className="font-medium text-gray-900">
-                                  Qty: {quantity} × ${item.unit_price.toFixed(2)} = ${(quantity * item.unit_price).toFixed(2)}
-                                </span>
-                              </div>
-                            )
-                          })}
-                          <div className="pt-2 border-t border-gray-200">
-                            <div className="flex justify-between items-center font-semibold">
-                              <span>Total Parts Cost:</span>
-                              <span className="text-green-600">
-                                ${Object.entries(partsUsed).reduce((total, [itemId, quantity]) => {
-                                  const item = inventoryItems.find(i => i.id === itemId)
-                                  return total + (item ? quantity * item.unit_price : 0)
-                                }, 0).toFixed(2)}
-                              </span>
-                            </div>
-                          </div>
-                        </div>
-                      </div>
-                    )}
-                  </div>
-
-                  <div className="flex justify-end space-x-3">
-                    <button
-                      onClick={() => setSelectedJob(null)}
-                      className="px-6 py-2 text-gray-700 bg-gray-100 rounded-lg hover:bg-gray-200 transition-colors"
-                    >
-                      Cancel
-                    </button>
-                    <button
-                      onClick={() => setShowInvoiceModal(true)}
-                      className="px-6 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 transition-colors"
-                    >
-                      Convert to Invoice
-                    </button>
-                    <button
-                      onClick={updateJobStatus}
-                      className="px-6 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors"
-                    >
-                      Update Job
-                    </button>
-                  </div>
-                </div>
-              )}
+                )}
+              </div>
             </div>
-          </div>
+          ) : (
+            <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-12 text-center">
+              <AlertTriangle className="w-16 h-16 text-gray-300 mx-auto mb-4" />
+              <h3 className="text-lg font-medium text-gray-900 mb-2">Select a Job</h3>
+              <p className="text-gray-600">Choose a work order from the list to view details</p>
+            </div>
+          )}
         </div>
-      )}
+      </div>
 
-      {/* Convert to Invoice Modal */}
-      {showInvoiceModal && selectedJob && (
+      {/* Photo Upload Modal */}
+      {showPhotoModal && (
         <div className="fixed inset-0 bg-gray-600 bg-opacity-50 flex items-center justify-center p-4 z-50">
-          <div className="bg-white rounded-xl shadow-xl max-w-2xl w-full max-h-screen overflow-y-auto">
+          <div className="bg-white rounded-xl shadow-xl max-w-md w-full">
             <div className="p-6 border-b border-gray-200">
               <div className="flex items-center justify-between">
-                <h3 className="text-lg font-semibold text-gray-900">
-                  Convert Job to Invoice - {selectedJob.wo_number}
-                </h3>
+                <h3 className="text-lg font-semibold text-gray-900">Add Photo</h3>
                 <button
-                  onClick={() => setShowInvoiceModal(false)}
-                  className="text-gray-400 hover:text-gray-600"
-                >
-                  <X className="w-6 h-6" />
-                </button>
-              </div>
-            </div>
-            
-            <div className="p-6 space-y-6">
-              {/* Job Information */}
-              <div className="bg-gray-50 rounded-lg p-4">
-                <h4 className="text-md font-medium text-gray-900 mb-2">Job Details</h4>
-                <div className="grid grid-cols-2 gap-4 text-sm">
-                  <div>
-                    <span className="font-medium text-gray-700">Customer:</span>
-                    <div className="text-gray-900">
-                      {selectedJob.customer?.customer_type === 'residential' 
-                        ? `${selectedJob.customer?.first_name} ${selectedJob.customer?.last_name}`
-                        : selectedJob.customer?.company_name
-                      }
-                    </div>
-                  </div>
-                  <div>
-                    <span className="font-medium text-gray-700">Job Title:</span>
-                    <div className="text-gray-900">{selectedJob.title}</div>
-                  </div>
-                </div>
-              </div>
-
-              {/* Labor Information */}
-              <div>
-                <h4 className="text-md font-medium text-gray-900 mb-4">Labor & Service</h4>
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-2">
-                      Hours Worked *
-                    </label>
-                    <input
-                      type="number"
-                      step="0.25"
-                      min="0"
-                      value={invoiceFormData.labor_hours}
-                      onChange={(e) => setInvoiceFormData({ ...invoiceFormData, labor_hours: e.target.value })}
-                      className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                      placeholder="8.5"
-                      required
-                    />
-                  </div>
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-2">
-                      Labor Rate ($/hour) *
-                    </label>
-                    <input
-                      type="number"
-                      step="0.01"
-                      min="0"
-                      value={invoiceFormData.labor_rate}
-                      onChange={(e) => setInvoiceFormData({ ...invoiceFormData, labor_rate: e.target.value })}
-                      className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                      placeholder="75.00"
-                      required
-                    />
-                  </div>
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-2">
-                      Service Charge
-                    </label>
-                    <input
-                      type="number"
-                      step="0.01"
-                      min="0"
-                      value={invoiceFormData.service_charge}
-                      onChange={(e) => setInvoiceFormData({ ...invoiceFormData, service_charge: e.target.value })}
-                      className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                      placeholder="0.00"
-                    />
-                  </div>
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-2">
-                      Tax Rate (%)
-                    </label>
-                    <input
-                      type="number"
-                      step="0.01"
-                      min="0"
-                      max="100"
-                      value={invoiceFormData.tax_rate}
-                      onChange={(e) => setInvoiceFormData({ ...invoiceFormData, tax_rate: e.target.value })}
-                      className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                      placeholder="8.25"
-                    />
-                  </div>
-                </div>
-              </div>
-
-              {/* Invoice Preview */}
-              <div className="bg-blue-50 rounded-lg p-4">
-                <h4 className="text-md font-medium text-blue-900 mb-3">Invoice Preview</h4>
-                <div className="space-y-2 text-sm">
-                  <div className="flex justify-between">
-                    <span className="text-blue-700">Labor ({invoiceFormData.labor_hours || 0} hrs @ ${invoiceFormData.labor_rate || 0}/hr):</span>
-                    <span className="font-medium text-blue-900">
-                      ${((parseFloat(invoiceFormData.labor_hours) || 0) * (parseFloat(invoiceFormData.labor_rate) || 0)).toFixed(2)}
-                    </span>
-                  </div>
-                  {parseFloat(invoiceFormData.service_charge) > 0 && (
-                    <div className="flex justify-between">
-                      <span className="text-blue-700">Service Charge:</span>
-                      <span className="font-medium text-blue-900">${(parseFloat(invoiceFormData.service_charge) || 0).toFixed(2)}</span>
-                    </div>
-                  )}
-                  <div className="flex justify-between border-t border-blue-200 pt-2">
-                    <span className="text-blue-700">Subtotal:</span>
-                    <span className="font-medium text-blue-900">
-                      ${(((parseFloat(invoiceFormData.labor_hours) || 0) * (parseFloat(invoiceFormData.labor_rate) || 0)) + (parseFloat(invoiceFormData.service_charge) || 0)).toFixed(2)}
-                    </span>
-                  </div>
-                  <div className="flex justify-between">
-                    <span className="text-blue-700">Tax ({invoiceFormData.tax_rate || 0}%):</span>
-                    <span className="font-medium text-blue-900">
-                      ${((((parseFloat(invoiceFormData.labor_hours) || 0) * (parseFloat(invoiceFormData.labor_rate) || 0)) + (parseFloat(invoiceFormData.service_charge) || 0)) * (parseFloat(invoiceFormData.tax_rate) || 0) / 100).toFixed(2)}
-                    </span>
-                  </div>
-                  <div className="flex justify-between border-t border-blue-200 pt-2 text-lg">
-                    <span className="font-bold text-blue-900">Total:</span>
-                    <span className="font-bold text-blue-900">
-                      ${(((parseFloat(invoiceFormData.labor_hours) || 0) * (parseFloat(invoiceFormData.labor_rate) || 0)) + (parseFloat(invoiceFormData.service_charge) || 0) + ((((parseFloat(invoiceFormData.labor_hours) || 0) * (parseFloat(invoiceFormData.labor_rate) || 0)) + (parseFloat(invoiceFormData.service_charge) || 0)) * (parseFloat(invoiceFormData.tax_rate) || 0) / 100)).toFixed(2)}
-                    </span>
-                  </div>
-                </div>
-              </div>
-
-              {/* Additional Notes */}
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-2">
-                  Additional Notes
-                </label>
-                <textarea
-                  value={invoiceFormData.notes}
-                  onChange={(e) => setInvoiceFormData({ ...invoiceFormData, notes: e.target.value })}
-                  rows={3}
-                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                  placeholder="Any additional notes for the invoice..."
-                />
-              </div>
-
-              {/* Action Buttons */}
-              <div className="flex justify-end space-x-3 pt-6 border-t border-gray-200">
-                <button
-                  onClick={() => setShowInvoiceModal(false)}
-                  className="px-4 py-2 text-gray-700 bg-gray-100 rounded-lg hover:bg-gray-200 transition-colors"
-                >
-                  Cancel
-                </button>
-                <button
-                  onClick={convertToInvoice}
-                  disabled={!invoiceFormData.labor_hours || !invoiceFormData.labor_rate}
-                  className="px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
-                >
-                  Create Invoice
-                </button>
-              </div>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* Parts Management Modal */}
-      {showPartsModal && selectedJob && (
-        <div className="fixed inset-0 bg-gray-600 bg-opacity-50 flex items-center justify-center p-4 z-50">
-          <div className="bg-white rounded-xl shadow-xl max-w-4xl w-full max-h-screen overflow-y-auto">
-            <div className="p-6 border-b border-gray-200">
-              <div className="flex items-center justify-between">
-                <h3 className="text-xl font-semibold text-gray-900">
-                  Parts & Materials Used - {selectedJob.wo_number}
-                </h3>
-                <button
-                  onClick={() => setShowPartsModal(false)}
+                  onClick={() => setShowPhotoModal(false)}
                   className="text-gray-400 hover:text-gray-600"
                 >
                   <X className="w-6 h-6" />
@@ -1373,117 +900,39 @@ export default function MyJobs() {
             </div>
             
             <div className="p-6">
-              <div className="mb-6">
-                <h4 className="text-lg font-medium text-gray-900 mb-4">Available Inventory</h4>
-                {inventoryItems.length === 0 ? (
-                  <div className="text-center py-8">
-                    <Package className="w-12 h-12 text-gray-400 mx-auto mb-4" />
-                    <p className="text-gray-600">No inventory items available</p>
-                    <p className="text-sm text-gray-500 mt-1">Add items to inventory to track parts usage</p>
-                  </div>
-                ) : (
-                  <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-                    {inventoryItems.map((item) => (
-                      <div key={item.id} className="border border-gray-200 rounded-lg p-4">
-                        <div className="flex items-start justify-between mb-3">
-                          <div>
-                            <h5 className="font-medium text-gray-900">{item.name}</h5>
-                            <p className="text-sm text-gray-600">SKU: {item.sku}</p>
-                            <p className="text-sm text-gray-600">Available: {item.quantity}</p>
-                            <p className="text-sm font-medium text-green-600">${item.unit_price.toFixed(2)} each</p>
-                          </div>
-                        </div>
-                        
-                        <div className="flex items-center justify-between">
-                          <span className="text-sm font-medium text-gray-700">Qty Used:</span>
-                          <div className="flex items-center space-x-2">
-                            <button
-                              onClick={() => {
-                                const currentQty = partsUsed[item.id] || 0
-                                if (currentQty > 0) {
-                                  setPartsUsed(prev => ({
-                                    ...prev,
-                                    [item.id]: currentQty - 1
-                                  }))
-                                }
-                              }}
-                              className="w-8 h-8 flex items-center justify-center bg-gray-100 text-gray-600 rounded-full hover:bg-gray-200 transition-colors"
-                            >
-                              <Minus className="w-4 h-4" />
-                            </button>
-                            <span className="w-12 text-center font-medium">
-                              {partsUsed[item.id] || 0}
-                            </span>
-                            <button
-                              onClick={() => {
-                                const currentQty = partsUsed[item.id] || 0
-                                if (currentQty < item.quantity) {
-                                  setPartsUsed(prev => ({
-                                    ...prev,
-                                    [item.id]: currentQty + 1
-                                  }))
-                                }
-                              }}
-                              className="w-8 h-8 flex items-center justify-center bg-blue-100 text-blue-600 rounded-full hover:bg-blue-200 transition-colors"
-                              disabled={partsUsed[item.id] >= item.quantity}
-                            >
-                              <Plus className="w-4 h-4" />
-                            </button>
-                          </div>
-                        </div>
-                        
-                        {partsUsed[item.id] > 0 && (
-                          <div className="mt-2 pt-2 border-t border-gray-200">
-                            <p className="text-sm font-medium text-gray-900">
-                              Subtotal: ${(partsUsed[item.id] * item.unit_price).toFixed(2)}
-                            </p>
-                          </div>
-                        )}
-                      </div>
-                    ))}
-                  </div>
-                )}
+              <div className="space-y-4">
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-2">
+                    Photo Caption (Optional)
+                  </label>
+                  <input
+                    type="text"
+                    value={photoCaption}
+                    onChange={(e) => setPhotoCaption(e.target.value)}
+                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                    placeholder="Describe what this photo shows..."
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-2">
+                    Select Photo
+                  </label>
+                  <input
+                    type="file"
+                    accept="image/*"
+                    onChange={handlePhotoUpload}
+                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                  />
+                </div>
               </div>
 
-              {/* Parts Summary */}
-              {Object.keys(partsUsed).some(id => partsUsed[id] > 0) && (
-                <div className="bg-gray-50 rounded-lg p-6 mb-6">
-                  <h4 className="text-lg font-medium text-gray-900 mb-4">Parts Usage Summary</h4>
-                  <div className="space-y-2">
-                    {Object.entries(partsUsed).map(([itemId, quantity]) => {
-                      const item = inventoryItems.find(i => i.id === itemId)
-                      if (!item || quantity === 0) return null
-                      return (
-                        <div key={itemId} className="flex justify-between items-center">
-                          <span className="text-gray-700">{item.name} (SKU: {item.sku})</span>
-                          <span className="font-medium text-gray-900">
-                            {quantity} × ${item.unit_price.toFixed(2)} = ${(quantity * item.unit_price).toFixed(2)}
-                          </span>
-                        </div>
-                      )
-                    })}
-                    <div className="pt-2 border-t border-gray-200">
-                      <div className="flex justify-between items-center font-semibold text-lg">
-                        <span>Total Parts Cost:</span>
-                        <span className="text-green-600">
-                          ${Object.entries(partsUsed).reduce((total, [itemId, quantity]) => {
-                            const item = inventoryItems.find(i => i.id === itemId)
-                            return total + (item ? quantity * item.unit_price : 0)
-                          }, 0).toFixed(2)}
-                        </span>
-                      </div>
-                    </div>
-                  </div>
+              {uploading && (
+                <div className="mt-4 text-center">
+                  <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600 mx-auto"></div>
+                  <p className="text-sm text-gray-600 mt-2">Uploading photo...</p>
                 </div>
               )}
-              <div className="flex justify-end space-x-3">
-                <button
-                  onClick={() => setShowPartsModal(false)}
-                  className="px-6 py-2 text-gray-700 bg-gray-100 rounded-lg hover:bg-gray-200 transition-colors"
-                >
-                  Done
-                </button>
-              </div>
             </div>
           </div>
         </div>
