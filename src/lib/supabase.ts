@@ -92,6 +92,7 @@ export type WorkOrder = {
   scheduled_date?: string
   completed_date?: string
   actual_hours?: number
+  resolution_notes?: string
   wo_number: string
   customer_site_id?: string
   created_at: string

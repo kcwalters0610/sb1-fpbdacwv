@@ -61,6 +61,8 @@ export default function MyJobs() {
   const [selectedWorkOrder, setSelectedWorkOrder] = useState<WorkOrder | null>(null)
   const [showDetailModal, setShowDetailModal] = useState(false)
   const [activeTab, setActiveTab] = useState('details')
+  const [resolutionNotes, setResolutionNotes] = useState('')
+  const [showResolutionForm, setShowResolutionForm] = useState(false)
   const [loading, setLoading] = useState(true)
   const [currentUser, setCurrentUser] = useState<Profile | null>(null)
   const [timeEntries, setTimeEntries] = useState<TimeEntry[]>([])
