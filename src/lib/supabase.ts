@@ -243,3 +243,19 @@ export type DepartmentMember = {
   user_id: string
   created_at: string
 }
+
+export type TimeEntry = {
+  id: string
+  user_id: string
+  company_id: string
+  work_order_id?: string
+  project_id?: string
+  start_time: string
+  end_time?: string | null
+  duration_minutes: number | null
+  description: string
+  status: 'pending' | 'approved' | 'rejected'
+  entry_type: 'work' | 'pto' | 'sick' | 'holiday'
+  created_at: string
+  updated_at: string
+}
