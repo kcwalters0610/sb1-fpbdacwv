@@ -337,8 +337,7 @@ export default function MyJobs() {
       const { error: uploadError } = await supabase.storage
         .from('work-order-photos')
         .upload(fileName, file)
-
-      if (uploadError) throw uploadError
+        status: 'pending' as const
 
       // Get public URL
       const { data: { publicUrl } } = supabase.storage
