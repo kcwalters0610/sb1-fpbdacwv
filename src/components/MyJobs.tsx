@@ -21,7 +21,10 @@ import {
   Filter,
   Truck,
   Minus,
-  AlertCircle
+  AlertCircle,
+  Play,
+  Square,
+  Timer
 } from 'lucide-react'
 import { supabase, WorkOrder, Profile } from '../lib/supabase'
 import { useViewPreference } from '../hooks/useViewPreference'
@@ -33,6 +36,7 @@ interface WorkOrderWithDetails extends WorkOrder {
   photos?: WorkOrderPhoto[]
   purchase_orders?: PurchaseOrder[]
   truck_inventory?: TruckInventoryItem[]
+  time_entries?: TimeEntry[]
 }
 
 interface WorkOrderPhoto {
@@ -69,6 +73,17 @@ interface TruckInventoryItem {
   }
 }
 
+interface TimeEntry {
+  id: string
+  work_order_id: string
+  start_time: string
+  end_time?: string
+  duration_minutes?: number
+  description: string
+  status: string
+  created_at: string
+}
+
 interface InventoryItem {
   id: string
   name: string
@@ -86,11 +101,20 @@ export default function MyJobs() {
   const [showPhotoModal, setShowPhotoModal] = useState(false)
   const [showPOModal, setShowPOModal] = useState(false)
   const [showInventoryModal, setShowInventoryModal] = useState(false)
+  const [showTimeModal, setShowTimeModal] = useState(false)
+  const [activeTimer, setActiveTimer] = useState<string | null>(null)
+  const [timerStart, setTimerStart] = useState<Date | null>(null)
   const [availableInventory, setAvailableInventory] = useState<InventoryItem[]>([])
   const [inventoryForm, setInventoryForm] = useState({
     inventory_item_id: '',
     quantity_used: 1,
     notes: ''
+  })
+  const [timeForm, setTimeForm] = useState({
+    start_time: '',
+    end_time: '',
+    duration_minutes: 0,
+    description: ''
   })
   const [uploadingPhoto, setUploadingPhoto] = useState(false)
   const [photoCaption, setPhotoCaption] = useState('')
@@ -110,6 +134,20 @@ export default function MyJobs() {
       loadAvailableInventory()
     }
   }, [currentUser])
+
+  // Load timer state on component mount
+  useEffect(() => {
+    const savedTimer = localStorage.getItem('activeTimer')
+    if (savedTimer) {
+      try {
+        const { workOrderId, startTime } = JSON.parse(savedTimer)
+        setActiveTimer(workOrderId)
+        setTimerStart(new Date(startTime))
+      } catch (error) {
+        localStorage.removeItem('activeTimer')
+      }
+    }
+  }, [])
 
   const loadAvailableInventory = async () => {
     try {
@@ -195,11 +233,20 @@ export default function MyJobs() {
             .eq('work_order_id', wo.id)
             .order('created_at', { ascending: false })
 
+          // Load time entries
+          const { data: timeEntries } = await supabase
+            .from('time_entries')
+            .select('*')
+            .eq('work_order_id', wo.id)
+            .eq('user_id', currentUser.id)
+            .order('created_at', { ascending: false })
+
           return {
             ...wo,
             photos: photos || [],
             purchase_orders: purchaseOrders || [],
-            truck_inventory: truckInventory || []
+            truck_inventory: truckInventory || [],
+            time_entries: timeEntries || []
           }
         })
       )
@@ -228,6 +275,99 @@ export default function MyJobs() {
       loadMyWorkOrders()
     } catch (error) {
       console.error('Error updating work order status:', error)
+    }
+  }
+
+  const startTimer = async (workOrderId: string) => {
+    try {
+      const now = new Date()
+      setActiveTimer(workOrderId)
+      setTimerStart(now)
+      
+      // Store timer state in localStorage for persistence
+      localStorage.setItem('activeTimer', JSON.stringify({
+        workOrderId,
+        startTime: now.toISOString()
+      }))
+    } catch (error) {
+      console.error('Error starting timer:', error)
+    }
+  }
+
+  const stopTimer = async (workOrderId: string) => {
+    if (!timerStart) return
+
+    try {
+      const endTime = new Date()
+      const durationMinutes = Math.round((endTime.getTime() - timerStart.getTime()) / (1000 * 60))
+      
+      setTimeForm({
+        start_time: timerStart.toISOString().slice(0, 16),
+        end_time: endTime.toISOString().slice(0, 16),
+        duration_minutes: durationMinutes,
+        description: ''
+      })
+      
+      setActiveTimer(null)
+      setTimerStart(null)
+      localStorage.removeItem('activeTimer')
+      setShowTimeModal(true)
+    } catch (error) {
+      console.error('Error stopping timer:', error)
+    }
+  }
+
+  const handleTimeSubmit = async (e: React.FormEvent) => {
+    e.preventDefault()
+    if (!selectedWorkOrder) return
+
+    try {
+      const { data: { user } } = await supabase.auth.getUser()
+      if (!user) throw new Error('User not authenticated')
+
+      const { data: profile } = await supabase
+        .from('profiles')
+        .select('company_id')
+        .eq('id', user.id)
+        .single()
+
+      if (!profile) throw new Error('Profile not found')
+
+      const { error } = await supabase
+        .from('time_entries')
+        .insert([{
+          user_id: user.id,
+          company_id: profile.company_id,
+          work_order_id: selectedWorkOrder.id,
+          start_time: timeForm.start_time,
+          end_time: timeForm.end_time || null,
+          duration_minutes: timeForm.duration_minutes,
+          description: timeForm.description,
+          entry_type: 'work',
+          status: 'pending'
+        }])
+
+      if (error) throw error
+
+      setTimeForm({
+        start_time: '',
+        end_time: '',
+        duration_minutes: 0,
+        description: ''
+      })
+      setShowTimeModal(false)
+      loadMyWorkOrders()
+      
+      // Update selected work order
+      if (selectedWorkOrder) {
+        const updatedWO = workOrders.find(wo => wo.id === selectedWorkOrder.id)
+        if (updatedWO) {
+          setSelectedWorkOrder(updatedWO)
+        }
+      }
+    } catch (error) {
+      console.error('Error adding time entry:', error)
+      alert('Error adding time entry: ' + (error as Error).message)
     }
   }
 
@@ -563,6 +703,10 @@ export default function MyJobs() {
                           <Truck className="w-3 h-3 mr-1" />
                           {workOrder.truck_inventory?.length || 0}
                         </span>
+                        <span className="flex items-center">
+                          <Clock className="w-3 h-3 mr-1" />
+                          {workOrder.time_entries?.length || 0}
+                        </span>
                       </div>
                     </td>
                     <td className="px-6 py-4 whitespace-nowrap text-sm font-medium">
@@ -655,6 +799,10 @@ export default function MyJobs() {
                       <span className="flex items-center">
                         <Truck className="w-3 h-3 mr-1" />
                         {workOrder.truck_inventory?.length || 0} items
+                      </span>
+                      <span className="flex items-center">
+                        <Clock className="w-3 h-3 mr-1" />
+                        {workOrder.time_entries?.length || 0} entries
                       </span>
                     </div>
                     <div className="text-blue-600 text-sm font-medium">
@@ -939,6 +1087,97 @@ export default function MyJobs() {
                 )}
               </div>
 
+              {/* Time Tracking Section */}
+              <div className="mb-6">
+                <div className="flex items-center justify-between mb-3">
+                  <h4 className="text-lg font-medium text-gray-900">Time Tracking ({selectedWorkOrder.time_entries?.length || 0})</h4>
+                  <div className="flex space-x-2">
+                    {activeTimer === selectedWorkOrder.id ? (
+                      <button
+                        onClick={() => stopTimer(selectedWorkOrder.id)}
+                        className="inline-flex items-center px-3 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700 transition-colors text-sm"
+                      >
+                        <Square className="w-4 h-4 mr-2" />
+                        Stop Timer
+                      </button>
+                    ) : (
+                      <button
+                        onClick={() => startTimer(selectedWorkOrder.id)}
+                        className="inline-flex items-center px-3 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 transition-colors text-sm"
+                      >
+                        <Play className="w-4 h-4 mr-2" />
+                        Start Timer
+                      </button>
+                    )}
+                    <button
+                      onClick={() => setShowTimeModal(true)}
+                      className="inline-flex items-center px-3 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors text-sm"
+                    >
+                      <Clock className="w-4 h-4 mr-2" />
+                      Add Time
+                    </button>
+                  </div>
+                </div>
+                
+                {activeTimer === selectedWorkOrder.id && timerStart && (
+                  <div className="mb-4 p-4 bg-green-50 border border-green-200 rounded-lg">
+                    <div className="flex items-center justify-between">
+                      <div className="flex items-center">
+                        <Timer className="w-5 h-5 text-green-600 mr-2" />
+                        <span className="text-green-800 font-medium">Timer Running</span>
+                      </div>
+                      <div className="text-green-700 font-mono">
+                        Started: {timerStart.toLocaleTimeString()}
+                      </div>
+                    </div>
+                  </div>
+                )}
+                
+                {selectedWorkOrder.time_entries && selectedWorkOrder.time_entries.length > 0 ? (
+                  <div className="space-y-3">
+                    {selectedWorkOrder.time_entries.map((entry) => (
+                      <div key={entry.id} className="border border-gray-200 rounded-lg p-4">
+                        <div className="flex items-center justify-between">
+                          <div>
+                            <div className="flex items-center space-x-4">
+                              <span className="font-medium text-gray-900">
+                                {Math.round(entry.duration_minutes / 60 * 10) / 10}h
+                              </span>
+                              <span className="text-sm text-gray-600">
+                                {new Date(entry.start_time).toLocaleDateString()} 
+                                {entry.end_time && ` - ${new Date(entry.end_time).toLocaleTimeString()}`}
+                              </span>
+                            </div>
+                            <p className="text-sm text-gray-700 mt-1">{entry.description}</p>
+                          </div>
+                          <span className={`inline-flex px-2 py-1 text-xs font-medium rounded-full ${
+                            entry.status === 'approved' ? 'bg-green-100 text-green-800' :
+                            entry.status === 'rejected' ? 'bg-red-100 text-red-800' :
+                            'bg-yellow-100 text-yellow-800'
+                          }`}>
+                            {entry.status}
+                          </span>
+                        </div>
+                      </div>
+                    ))}
+                    <div className="border-t border-gray-200 pt-3">
+                      <div className="flex justify-between items-center">
+                        <span className="font-medium text-gray-900">Total Time Logged:</span>
+                        <span className="font-bold text-lg text-blue-600">
+                          {Math.round(selectedWorkOrder.time_entries.reduce((sum, entry) => 
+                            sum + entry.duration_minutes, 0) / 60 * 10) / 10}h
+                        </span>
+                      </div>
+                    </div>
+                  </div>
+                ) : (
+                  <div className="text-center py-8 text-gray-500">
+                    <Clock className="w-12 h-12 mx-auto mb-4 text-gray-300" />
+                    <p>No time entries logged yet</p>
+                  </div>
+                )}
+              </div>
+
               {/* Action Buttons */}
               <div className="flex justify-between items-center pt-6 border-t border-gray-200">
                 <div className="flex space-x-3">
@@ -1134,6 +1373,119 @@ export default function MyJobs() {
                   className="px-4 py-2 bg-orange-600 text-white rounded-lg hover:bg-orange-700 transition-colors"
                 >
                   Add Item
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* Time Entry Modal */}
+      {showTimeModal && (
+        <div className="fixed inset-0 bg-gray-600 bg-opacity-50 flex items-center justify-center p-4 z-50">
+          <div className="bg-white rounded-xl shadow-xl max-w-md w-full">
+            <div className="p-6 border-b border-gray-200">
+              <div className="flex items-center justify-between">
+                <h3 className="text-lg font-semibold text-gray-900">Add Time Entry</h3>
+                <button
+                  onClick={() => setShowTimeModal(false)}
+                  className="text-gray-400 hover:text-gray-600"
+                >
+                  <X className="w-6 h-6" />
+                </button>
+              </div>
+            </div>
+            
+            <form onSubmit={handleTimeSubmit} className="p-6">
+              <div className="space-y-4">
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-2">
+                    Start Time *
+                  </label>
+                  <input
+                    type="datetime-local"
+                    value={timeForm.start_time}
+                    onChange={(e) => setTimeForm({ ...timeForm, start_time: e.target.value })}
+                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                    required
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-2">
+                    End Time
+                  </label>
+                  <input
+                    type="datetime-local"
+                    value={timeForm.end_time}
+                    onChange={(e) => {
+                      setTimeForm({ ...timeForm, end_time: e.target.value })
+                      // Auto-calculate duration
+                      if (timeForm.start_time && e.target.value) {
+                        const start = new Date(timeForm.start_time)
+                        const end = new Date(e.target.value)
+                        const diffMs = end.getTime() - start.getTime()
+                        const diffMins = Math.round(diffMs / (1000 * 60))
+                        setTimeForm(prev => ({ ...prev, duration_minutes: diffMins }))
+                      }
+                    }}
+                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-2">
+                    Duration (minutes) *
+                  </label>
+                  <input
+                    type="number"
+                    min="1"
+                    value={timeForm.duration_minutes}
+                    onChange={(e) => setTimeForm({ ...timeForm, duration_minutes: parseInt(e.target.value) || 0 })}
+                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                    required
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-2">
+                    Description *
+                  </label>
+                  <textarea
+                    value={timeForm.description}
+                    onChange={(e) => setTimeForm({ ...timeForm, description: e.target.value })}
+                    rows={3}
+                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                    placeholder="Describe the work performed..."
+                    required
+                  />
+                </div>
+
+                {timeForm.duration_minutes > 0 && (
+                  <div className="bg-blue-50 rounded-lg p-3">
+                    <div className="text-sm">
+                      <div className="font-medium text-blue-900">Time Summary:</div>
+                      <div className="text-blue-700">
+                        {Math.round(timeForm.duration_minutes / 60 * 10) / 10} hours
+                      </div>
+                    </div>
+                  </div>
+                )}
+              </div>
+
+              <div className="flex justify-end space-x-3 mt-6">
+                <button
+                  type="button"
+                  onClick={() => setShowTimeModal(false)}
+                  className="px-4 py-2 text-gray-700 bg-gray-100 rounded-lg hover:bg-gray-200 transition-colors"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors"
+                >
+                  Add Time Entry
                 </button>
               </div>
             </form>
