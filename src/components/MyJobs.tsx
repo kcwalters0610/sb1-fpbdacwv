@@ -16,9 +16,13 @@ import {
   ShoppingCart,
   Eye,
   DollarSign,
-  Package
+  Package,
+  Search,
+  Filter
 } from 'lucide-react'
 import { supabase, WorkOrder, Profile } from '../lib/supabase'
+import { useViewPreference } from '../hooks/useViewPreference'
+import ViewToggle from './ViewToggle'
 
 interface WorkOrderWithDetails extends WorkOrder {
   customer?: any
@@ -48,6 +52,7 @@ interface PurchaseOrder {
 }
 
 export default function MyJobs() {
+  const { viewType, setViewType } = useViewPreference('myJobs')
   const [workOrders, setWorkOrders] = useState<WorkOrderWithDetails[]>([])
   const [loading, setLoading] = useState(true)
   const [currentUser, setCurrentUser] = useState<any>(null)
@@ -58,6 +63,9 @@ export default function MyJobs() {
   const [photoCaption, setPhotoCaption] = useState('')
   const [resolutionNotes, setResolutionNotes] = useState('')
   const [savingNotes, setSavingNotes] = useState(false)
+  const [searchTerm, setSearchTerm] = useState('')
+  const [statusFilter, setStatusFilter] = useState('')
+  const [priorityFilter, setPriorityFilter] = useState('')
 
   useEffect(() => {
     getCurrentUser()
@@ -99,7 +107,7 @@ export default function MyJobs() {
           customer_site:customer_sites(*)
         `)
         .eq('assigned_to', currentUser.id)
-        .in('status', ['scheduled', 'in_progress'])
+        .in('status', ['open', 'scheduled', 'in_progress', 'completed'])
         .order('scheduled_date', { ascending: true })
 
       if (error) throw error
@@ -283,6 +291,18 @@ export default function MyJobs() {
     }
   }
 
+  // Filter work orders based on search term, status, and priority
+  const filteredWorkOrders = workOrders.filter(workOrder => {
+    const matchesSearch = workOrder.wo_number.toLowerCase().includes(searchTerm.toLowerCase()) ||
+                         workOrder.title.toLowerCase().includes(searchTerm.toLowerCase()) ||
+                         (workOrder.customer?.customer_type === 'residential' 
+                           ? `${workOrder.customer?.first_name} ${workOrder.customer?.last_name}`.toLowerCase().includes(searchTerm.toLowerCase())
+                           : workOrder.customer?.company_name?.toLowerCase().includes(searchTerm.toLowerCase())
+                         )
+    const matchesStatus = !statusFilter || workOrder.status === statusFilter
+    const matchesPriority = !priorityFilter || workOrder.priority === priorityFilter
+    return matchesSearch && matchesStatus && matchesPriority
+  })
   if (loading) {
     return (
       <div className="flex items-center justify-center h-64">
@@ -301,92 +321,228 @@ export default function MyJobs() {
         </div>
       </div>
 
-      {/* Work Orders Grid */}
-      <div className="grid grid-cols-1 lg:grid-cols-2 xl:grid-cols-3 gap-6">
-        {workOrders.map((workOrder) => (
-          <div 
-            key={workOrder.id} 
-            className={`bg-white rounded-lg border-2 p-6 hover:shadow-md transition-shadow cursor-pointer ${getPriorityColor(workOrder.priority)}`}
-            onClick={() => {
-              setSelectedWorkOrder(workOrder)
-              setResolutionNotes(workOrder.resolution_notes || '')
-            }}
+      {/* Filters */}
+      <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-6">
+        <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+          <div className="relative">
+            <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400 w-5 h-5" />
+            <input
+              type="text"
+              placeholder="Search jobs..."
+              value={searchTerm}
+              onChange={(e) => setSearchTerm(e.target.value)}
+              className="w-full pl-10 pr-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+            />
+          </div>
+          <select
+            value={statusFilter}
+            onChange={(e) => setStatusFilter(e.target.value)}
+            className="px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
           >
-            <div className="flex items-start justify-between mb-4">
-              <div>
-                <h3 className="text-lg font-semibold text-gray-900 mb-1">
-                  {workOrder.wo_number}
-                </h3>
-                <p className="text-sm text-gray-600 mb-2">{workOrder.title}</p>
-                <span className={`inline-flex px-2 py-1 text-xs font-medium rounded-full ${getStatusColor(workOrder.status)}`}>
-                  {workOrder.status.replace('_', ' ').toUpperCase()}
-                </span>
-              </div>
-              <span className={`inline-flex px-2 py-1 text-xs font-medium rounded-full border ${getPriorityColor(workOrder.priority)}`}>
-                {workOrder.priority.toUpperCase()}
-              </span>
-            </div>
+            <option value="">All Statuses</option>
+            <option value="open">Open</option>
+            <option value="scheduled">Scheduled</option>
+            <option value="in_progress">In Progress</option>
+            <option value="completed">Completed</option>
+          </select>
+          <select
+            value={priorityFilter}
+            onChange={(e) => setPriorityFilter(e.target.value)}
+            <option value="medium">Medium</option>
+            <option value="high">High</option>
+            <option value="urgent">Urgent</option>
+          </select>
+          <div className="flex justify-end">
+            <ViewToggle viewType={viewType} onViewChange={setViewType} />
+          </div>
+        </div>
+      </div>
+      {/* Work Orders Content */}
+      <div className="bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden">
+        {viewType === 'table' ? (
+          <div className="overflow-x-auto">
+            <table className="w-full">
+              <thead className="bg-gray-50">
+                <tr>
+                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                    Work Order
+                  </th>
+                  <th className="hidden md:table-cell px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                    Customer
+                  </th>
+                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                    Status
+                  </th>
+                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                    Priority
+                  </th>
+                  <th className="hidden md:table-cell px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                    Scheduled
+                  </th>
+                  <th className="hidden md:table-cell px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                    Photos/POs
+                  </th>
+                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                    Actions
+                  </th>
+                </tr>
+              </thead>
+              <tbody className="bg-white divide-y divide-gray-200">
+                {filteredWorkOrders.map((workOrder) => (
+                  <tr key={workOrder.id} className="hover:bg-gray-50">
+                    <td className="px-6 py-4 whitespace-nowrap">
+                      <div className="text-sm font-medium text-gray-900">{workOrder.wo_number}</div>
+                      <div className="text-sm text-gray-500">{workOrder.title}</div>
+                    </td>
+                    <td className="hidden md:table-cell px-6 py-4 whitespace-nowrap">
+                      <div className="text-sm text-gray-900">
+                        {workOrder.customer?.customer_type === 'residential' 
+                          ? `${workOrder.customer?.first_name} ${workOrder.customer?.last_name}`
+                          : workOrder.customer?.company_name
+                        }
+                      </div>
+                      {workOrder.customer_site && (
+                        <div className="text-xs text-gray-500">{workOrder.customer_site.site_name}</div>
+                      )}
+                    </td>
+                    <td className="px-6 py-4 whitespace-nowrap">
+                      <span className={`inline-flex px-2 py-1 text-xs font-medium rounded-full ${getStatusColor(workOrder.status)}`}>
+                        {workOrder.status.replace('_', ' ').toUpperCase()}
+                      </span>
+                    </td>
+                    <td className="px-6 py-4 whitespace-nowrap">
+                      <span className={`inline-flex px-2 py-1 text-xs font-medium rounded-full border ${getPriorityColor(workOrder.priority)}`}>
+                        {workOrder.priority.toUpperCase()}
+                      </span>
+                    </td>
+                    <td className="hidden md:table-cell px-6 py-4 whitespace-nowrap text-sm text-gray-900">
+                      {workOrder.scheduled_date ? new Date(workOrder.scheduled_date).toLocaleDateString() : 'Not scheduled'}
+                    </td>
+                    <td className="hidden md:table-cell px-6 py-4 whitespace-nowrap">
+                      <div className="flex space-x-4 text-xs text-gray-500">
+                        <span className="flex items-center">
+                          <Camera className="w-3 h-3 mr-1" />
+                          {workOrder.photos?.length || 0}
+                        </span>
+                        <span className="flex items-center">
+                          <ShoppingCart className="w-3 h-3 mr-1" />
+                          {workOrder.purchase_orders?.length || 0}
+                        </span>
+                      </div>
+                    </td>
+                    <td className="px-6 py-4 whitespace-nowrap text-sm font-medium">
+                      <button
+                        onClick={() => {
+                          setSelectedWorkOrder(workOrder)
+                          setResolutionNotes(workOrder.resolution_notes || '')
+                        }}
+                        className="text-blue-600 hover:text-blue-800 p-1.5 transition-all duration-200 hover:bg-blue-100 rounded-full hover:shadow-sm transform hover:scale-110"
+                      >
+                        <Eye className="w-4 h-4" />
+                      </button>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        ) : (
+          <div className="p-6">
+            <div className="grid grid-cols-1 lg:grid-cols-2 xl:grid-cols-3 gap-6">
+              {filteredWorkOrders.map((workOrder) => (
+                <div 
+                  key={workOrder.id} 
+                  className={`bg-white rounded-lg border-2 p-6 hover:shadow-md transition-shadow cursor-pointer ${getPriorityColor(workOrder.priority)}`}
+                  onClick={() => {
+                    setSelectedWorkOrder(workOrder)
+                    setResolutionNotes(workOrder.resolution_notes || '')
+                  }}
+                >
+                  <div className="flex items-start justify-between mb-4">
+                    <div>
+                      <h3 className="text-lg font-semibold text-gray-900 mb-1">
+                        {workOrder.wo_number}
+                      </h3>
+                      <p className="text-sm text-gray-600 mb-2">{workOrder.title}</p>
+                      <span className={`inline-flex px-2 py-1 text-xs font-medium rounded-full ${getStatusColor(workOrder.status)}`}>
+                        {workOrder.status.replace('_', ' ').toUpperCase()}
+                      </span>
+                    </div>
+                    <span className={`inline-flex px-2 py-1 text-xs font-medium rounded-full border ${getPriorityColor(workOrder.priority)}`}>
+                      {workOrder.priority.toUpperCase()}
+                    </span>
+                  </div>
 
-            <div className="space-y-3 mb-4">
-              <div className="flex items-center text-sm text-gray-600">
-                <User className="w-4 h-4 mr-3" />
-                <span>
-                  {workOrder.customer?.customer_type === 'residential' 
-                    ? `${workOrder.customer?.first_name} ${workOrder.customer?.last_name}`
-                    : workOrder.customer?.company_name
-                  }
-                </span>
-              </div>
+                  <div className="space-y-3 mb-4">
+                    <div className="flex items-center text-sm text-gray-600">
+                      <User className="w-4 h-4 mr-3" />
+                      <span>
+                        {workOrder.customer?.customer_type === 'residential' 
+                          ? `${workOrder.customer?.first_name} ${workOrder.customer?.last_name}`
+                          : workOrder.customer?.company_name
+                        }
+                      </span>
+                    </div>
 
-              {workOrder.customer_site && (
-                <div className="flex items-center text-sm text-gray-600">
-                  <MapPin className="w-4 h-4 mr-3" />
-                  <span>{workOrder.customer_site.site_name}</span>
+                    {workOrder.customer_site && (
+                      <div className="flex items-center text-sm text-gray-600">
+                        <MapPin className="w-4 h-4 mr-3" />
+                        <span>{workOrder.customer_site.site_name}</span>
+                      </div>
+                    )}
+
+                    {workOrder.scheduled_date && (
+                      <div className="flex items-center text-sm text-gray-600">
+                        <Calendar className="w-4 h-4 mr-3" />
+                        <span>{new Date(workOrder.scheduled_date).toLocaleDateString()}</span>
+                      </div>
+                    )}
+
+                    {workOrder.customer?.phone && (
+                      <div className="flex items-center text-sm text-gray-600">
+                        <Phone className="w-4 h-4 mr-3" />
+                        <span>{workOrder.customer.phone}</span>
+                      </div>
+                    )}
+                  </div>
+
+                  {/* Quick Stats */}
+                  <div className="flex items-center justify-between pt-4 border-t border-gray-200">
+                    <div className="flex space-x-4 text-xs text-gray-500">
+                      <span className="flex items-center">
+                        <Camera className="w-3 h-3 mr-1" />
+                        {workOrder.photos?.length || 0} photos
+                      </span>
+                      <span className="flex items-center">
+                        <ShoppingCart className="w-3 h-3 mr-1" />
+                        {workOrder.purchase_orders?.length || 0} POs
+                      </span>
+                    </div>
+                    <div className="text-blue-600 text-sm font-medium">
+                      Click to view →
+                    </div>
+                  </div>
                 </div>
-              )}
-
-              {workOrder.scheduled_date && (
-                <div className="flex items-center text-sm text-gray-600">
-                  <Calendar className="w-4 h-4 mr-3" />
-                  <span>{new Date(workOrder.scheduled_date).toLocaleDateString()}</span>
-                </div>
-              )}
-
-              {workOrder.customer?.phone && (
-                <div className="flex items-center text-sm text-gray-600">
-                  <Phone className="w-4 h-4 mr-3" />
-                  <span>{workOrder.customer.phone}</span>
-                </div>
-              )}
-            </div>
-
-            {/* Quick Stats */}
-            <div className="flex items-center justify-between pt-4 border-t border-gray-200">
-              <div className="flex space-x-4 text-xs text-gray-500">
-                <span className="flex items-center">
-                  <Camera className="w-3 h-3 mr-1" />
-                  {workOrder.photos?.length || 0} photos
-                </span>
-                <span className="flex items-center">
-                  <ShoppingCart className="w-3 h-3 mr-1" />
-                  {workOrder.purchase_orders?.length || 0} POs
-                </span>
-              </div>
-              <div className="text-blue-600 text-sm font-medium">
-                Click to view →
-              </div>
+              ))}
             </div>
           </div>
-        ))}
-      </div>
+        )}
 
-      {workOrders.length === 0 && (
-        <div className="text-center py-12">
-          <CheckCircle className="w-16 h-16 text-green-500 mx-auto mb-4" />
-          <h3 className="text-lg font-medium text-gray-900 mb-2">All caught up!</h3>
-          <p className="text-gray-600">You have no active work orders assigned to you.</p>
-        </div>
-      )}
+        {filteredWorkOrders.length === 0 && (
+          <div className="text-center py-12">
+            <CheckCircle className="w-16 h-16 text-green-500 mx-auto mb-4" />
+            <h3 className="text-lg font-medium text-gray-900 mb-2">
+              {workOrders.length === 0 ? 'All caught up!' : 'No jobs match your filters'}
+            </h3>
+            <p className="text-gray-600">
+              {workOrders.length === 0 
+                ? 'You have no active work orders assigned to you.'
+                : 'Try adjusting your search or filter criteria.'
+              }
+            </p>
+          </div>
+        )}
+      </div>
 
       {/* Work Order Detail Modal */}
       {selectedWorkOrder && (

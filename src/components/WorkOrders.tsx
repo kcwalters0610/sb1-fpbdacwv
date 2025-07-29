@@ -24,6 +24,7 @@ import { supabase, WorkOrder, Customer, Profile, CustomerSite } from '../lib/sup
 import { useViewPreference } from '../hooks/useViewPreference'
 import ViewToggle from './ViewToggle'
 import { getNextNumber, updateNextNumber } from '../lib/numbering'
+import { ArrowRight } from 'lucide-react'
 
 interface WorkOrderWithDetails extends WorkOrder {
   customer?: Customer
@@ -83,6 +84,13 @@ export default function WorkOrders() {
   const [selectedTechnicians, setSelectedTechnicians] = useState<string[]>([])
   const [primaryTechnician, setPrimaryTechnician] = useState<string>('')
   const [loadingSites, setLoadingSites] = useState(false)
+  const [showInvoiceModal, setShowInvoiceModal] = useState(false)
+  const [selectedWorkOrderForInvoice, setSelectedWorkOrderForInvoice] = useState<WorkOrderWithDetails | null>(null)
+  const [invoiceFormData, setInvoiceFormData] = useState({
+    subtotal: '',
+    tax_rate: '0',
+    notes: ''
+  })
 
   const [formData, setFormData] = useState({
     wo_number: '',
@@ -442,6 +450,65 @@ export default function WorkOrders() {
     }
   }
 
+  const convertToInvoice = async () => {
+    if (!selectedWorkOrderForInvoice) return
+
+    try {
+      // Get current user's company_id
+      const { data: { user } } = await supabase.auth.getUser()
+      if (!user) throw new Error('User not authenticated')
+      
+      const { data: profile } = await supabase
+        .from('profiles')
+        .select('company_id')
+        .eq('id', user.id)
+        .single()
+      
+      if (!profile) throw new Error('User profile not found')
+
+      const subtotal = parseFloat(invoiceFormData.subtotal) || 0
+      const taxRate = parseFloat(invoiceFormData.tax_rate) || 0
+      const taxAmount = (subtotal * taxRate) / 100
+      const totalAmount = subtotal + taxAmount
+
+      // Generate invoice number
+      const { formattedNumber: invoiceNumber, nextSequence } = await getNextNumber('invoice')
+      
+      const invoiceData = {
+        company_id: profile.company_id,
+        customer_id: selectedWorkOrderForInvoice.customer_id,
+        work_order_id: selectedWorkOrderForInvoice.id,
+        invoice_number: invoiceNumber,
+        status: 'draft',
+        issue_date: new Date().toISOString().split('T')[0],
+        subtotal,
+        tax_rate: taxRate,
+        tax_amount: taxAmount,
+        total_amount: totalAmount,
+        paid_amount: 0,
+        notes: invoiceFormData.notes || `Invoice for work order ${selectedWorkOrderForInvoice.wo_number}: ${selectedWorkOrderForInvoice.title}`
+      }
+
+      const { error } = await supabase
+        .from('invoices')
+        .insert([invoiceData])
+      
+      if (error) throw error
+      
+      // Update the sequence number
+      await updateNextNumber('invoice', nextSequence)
+
+      setShowInvoiceModal(false)
+      setSelectedWorkOrderForInvoice(null)
+      setInvoiceFormData({ subtotal: '', tax_rate: '0', notes: '' })
+      
+      alert(`Invoice ${invoiceNumber} created successfully from work order ${selectedWorkOrderForInvoice.wo_number}!`)
+    } catch (error) {
+      console.error('Error converting to invoice:', error)
+      alert('Error converting work order to invoice: ' + (error as Error).message)
+    }
+  }
+
   const getStatusColor = (status: string) => {
     switch (status) {
       case 'completed': return 'text-green-700 bg-green-100'
@@ -650,9 +717,22 @@ export default function WorkOrders() {
                         <button
                           onClick={() => setSelectedWorkOrder(workOrder)}
                           className="text-blue-600 hover:text-blue-800 p-1.5 transition-all duration-200 hover:bg-blue-100 rounded-full hover:shadow-sm transform hover:scale-110"
+                          title="View Work Order"
                         >
                           <Eye className="w-4 h-4" />
                         </button>
+                        {workOrder.status === 'completed' && (
+                          <button
+                            onClick={() => {
+                              setSelectedWorkOrderForInvoice(workOrder)
+                              setShowInvoiceModal(true)
+                            }}
+                            className="text-green-600 hover:text-green-800 p-1.5 transition-all duration-200 hover:bg-green-100 rounded-full hover:shadow-sm transform hover:scale-110"
+                            title="Convert to Invoice"
+                          >
+                            <ArrowRight className="w-4 h-4" />
+                          </button>
+                        )}
                         {(currentUser?.profile?.role === 'admin' || currentUser?.profile?.role === 'manager' || currentUser?.profile?.role === 'office') && (
                           <>
                             <button
@@ -751,8 +831,29 @@ export default function WorkOrders() {
                   </div>
                   
                   <div className="flex justify-between items-center pt-4 border-t border-gray-200">
-                    <div className="text-blue-600 text-sm font-medium">
-                      Click to view details →
+                    <div className="text-sm text-gray-500">
+                      {workOrder.photos?.length || 0} photos • {workOrder.purchase_orders?.length || 0} POs
+                    </div>
+                    <div className="flex space-x-3">
+                      {workOrder.status === 'completed' && (
+                        <button
+                          onClick={() => {
+                            setSelectedWorkOrderForInvoice(workOrder)
+                            setShowInvoiceModal(true)
+                          }}
+                          className="inline-flex items-center px-3 py-1 bg-green-100 text-green-700 rounded-md hover:bg-green-200 transition-colors text-sm"
+                        >
+                          <ArrowRight className="w-4 h-4 mr-1" />
+                          Invoice
+                        </button>
+                      )}
+                      <button 
+                        onClick={() => setSelectedWorkOrder(workOrder)}
+                        className="text-blue-600 hover:text-blue-800 text-sm font-medium flex items-center"
+                      >
+                        View Details
+                        <Eye className="w-4 h-4 ml-1" />
+                      </button>
                     </div>
                   </div>
                 </div>
@@ -1236,15 +1337,28 @@ export default function WorkOrders() {
               )}
 
               {/* Action Buttons */}
-              <div className="flex justify-end space-x-3 mt-8 pt-6 border-t border-gray-200">
-                {(currentUser?.profile?.role === 'admin' || currentUser?.profile?.role === 'manager' || currentUser?.profile?.role === 'office') && (
-                  <button
-                    onClick={() => startEdit(selectedWorkOrder)}
-                    className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors"
-                  >
-                    Edit Work Order
-                  </button>
-                )}
+              <div className="flex justify-between items-center pt-6 border-t border-gray-200">
+                <div className="flex space-x-3">
+                  {selectedWorkOrder.status === 'completed' && (
+                    <button
+                      onClick={() => {
+                        setSelectedWorkOrderForInvoice(selectedWorkOrder)
+                        setShowInvoiceModal(true)
+                      }}
+                      className="px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 transition-colors"
+                    >
+                      Convert to Invoice
+                    </button>
+                  )}
+                  {(currentUser?.profile?.role === 'admin' || currentUser?.profile?.role === 'manager' || currentUser?.profile?.role === 'office') && (
+                    <button
+                      onClick={() => startEdit(selectedWorkOrder)}
+                      className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors"
+                    >
+                      Edit Work Order
+                    </button>
+                  )}
+                </div>
                 <button
                   onClick={() => setSelectedWorkOrder(null)}
                   className="px-4 py-2 border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-50 transition-colors"
@@ -1356,6 +1470,122 @@ export default function WorkOrders() {
                   className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
                 >
                   Assign {selectedTechnicians.length} Technician{selectedTechnicians.length !== 1 ? 's' : ''}
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Convert to Invoice Modal */}
+      {showInvoiceModal && selectedWorkOrderForInvoice && (
+        <div className="fixed inset-0 bg-gray-600 bg-opacity-50 flex items-center justify-center p-4 z-50">
+          <div className="bg-white rounded-xl shadow-xl max-w-md w-full">
+            <div className="p-6 border-b border-gray-200">
+              <h3 className="text-lg font-semibold text-gray-900">
+                Convert Work Order to Invoice
+              </h3>
+              <p className="text-sm text-gray-600 mt-1">
+                {selectedWorkOrderForInvoice.wo_number} - {selectedWorkOrderForInvoice.title}
+              </p>
+            </div>
+            
+            <div className="p-6 space-y-4">
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-2">
+                  Customer
+                </label>
+                <div className="px-3 py-2 bg-gray-50 border border-gray-200 rounded-lg text-sm text-gray-900">
+                  {selectedWorkOrderForInvoice.customer?.customer_type === 'residential' 
+                    ? `${selectedWorkOrderForInvoice.customer?.first_name} ${selectedWorkOrderForInvoice.customer?.last_name}`
+                    : selectedWorkOrderForInvoice.customer?.company_name
+                  }
+                </div>
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-2">
+                  Subtotal *
+                </label>
+                <input
+                  type="number"
+                  step="0.01"
+                  min="0"
+                  value={invoiceFormData.subtotal}
+                  onChange={(e) => setInvoiceFormData({ ...invoiceFormData, subtotal: e.target.value })}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                  placeholder="0.00"
+                  required
+                />
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-2">
+                  Tax Rate (%)
+                </label>
+                <input
+                  type="number"
+                  step="0.01"
+                  min="0"
+                  max="100"
+                  value={invoiceFormData.tax_rate}
+                  onChange={(e) => setInvoiceFormData({ ...invoiceFormData, tax_rate: e.target.value })}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                  placeholder="0.00"
+                />
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-2">
+                  Notes
+                </label>
+                <textarea
+                  value={invoiceFormData.notes}
+                  onChange={(e) => setInvoiceFormData({ ...invoiceFormData, notes: e.target.value })}
+                  rows={3}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                  placeholder="Additional notes for the invoice..."
+                />
+              </div>
+
+              {/* Invoice Preview */}
+              {invoiceFormData.subtotal && (
+                <div className="bg-gray-50 rounded-lg p-4">
+                  <h4 className="text-sm font-medium text-gray-900 mb-2">Invoice Preview</h4>
+                  <div className="space-y-1 text-sm">
+                    <div className="flex justify-between">
+                      <span>Subtotal:</span>
+                      <span>${parseFloat(invoiceFormData.subtotal || '0').toFixed(2)}</span>
+                    </div>
+                    <div className="flex justify-between">
+                      <span>Tax ({invoiceFormData.tax_rate}%):</span>
+                      <span>${((parseFloat(invoiceFormData.subtotal || '0') * parseFloat(invoiceFormData.tax_rate || '0')) / 100).toFixed(2)}</span>
+                    </div>
+                    <div className="flex justify-between font-medium pt-1 border-t border-gray-200">
+                      <span>Total:</span>
+                      <span>${(parseFloat(invoiceFormData.subtotal || '0') + ((parseFloat(invoiceFormData.subtotal || '0') * parseFloat(invoiceFormData.tax_rate || '0')) / 100)).toFixed(2)}</span>
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              <div className="flex justify-end space-x-3 pt-4">
+                <button
+                  onClick={() => {
+                    setShowInvoiceModal(false)
+                    setSelectedWorkOrderForInvoice(null)
+                    setInvoiceFormData({ subtotal: '', tax_rate: '0', notes: '' })
+                  }}
+                  className="px-4 py-2 text-gray-700 bg-gray-100 rounded-lg hover:bg-gray-200 transition-colors"
+                >
+                  Cancel
+                </button>
+                <button
+                  onClick={convertToInvoice}
+                  disabled={!invoiceFormData.subtotal}
+                  className="px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+                >
+                  Create Invoice
                 </button>
               </div>
             </div>
