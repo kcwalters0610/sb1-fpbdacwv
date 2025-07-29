@@ -18,7 +18,10 @@ import {
   DollarSign,
   Package,
   Search,
-  Filter
+  Filter,
+  Truck,
+  Minus,
+  AlertCircle
 } from 'lucide-react'
 import { supabase, WorkOrder, Profile } from '../lib/supabase'
 import { useViewPreference } from '../hooks/useViewPreference'
@@ -29,6 +32,7 @@ interface WorkOrderWithDetails extends WorkOrder {
   assigned_technician?: Profile
   photos?: WorkOrderPhoto[]
   purchase_orders?: PurchaseOrder[]
+  truck_inventory?: TruckInventoryItem[]
 }
 
 interface WorkOrderPhoto {
@@ -51,6 +55,28 @@ interface PurchaseOrder {
   created_at: string
 }
 
+interface TruckInventoryItem {
+  id: string
+  work_order_id: string
+  inventory_item_id: string
+  quantity_used: number
+  notes?: string
+  created_at: string
+  inventory_item?: {
+    name: string
+    sku: string
+    unit_price: number
+  }
+}
+
+interface InventoryItem {
+  id: string
+  name: string
+  sku: string
+  quantity: number
+  unit_price: number
+}
+
 export default function MyJobs() {
   const { viewType, setViewType } = useViewPreference('myJobs')
   const [workOrders, setWorkOrders] = useState<WorkOrderWithDetails[]>([])
@@ -59,6 +85,13 @@ export default function MyJobs() {
   const [selectedWorkOrder, setSelectedWorkOrder] = useState<WorkOrderWithDetails | null>(null)
   const [showPhotoModal, setShowPhotoModal] = useState(false)
   const [showPOModal, setShowPOModal] = useState(false)
+  const [showInventoryModal, setShowInventoryModal] = useState(false)
+  const [availableInventory, setAvailableInventory] = useState<InventoryItem[]>([])
+  const [inventoryForm, setInventoryForm] = useState({
+    inventory_item_id: '',
+    quantity_used: 1,
+    notes: ''
+  })
   const [uploadingPhoto, setUploadingPhoto] = useState(false)
   const [photoCaption, setPhotoCaption] = useState('')
   const [resolutionNotes, setResolutionNotes] = useState('')
@@ -74,8 +107,24 @@ export default function MyJobs() {
   useEffect(() => {
     if (currentUser) {
       loadMyWorkOrders()
+      loadAvailableInventory()
     }
   }, [currentUser])
+
+  const loadAvailableInventory = async () => {
+    try {
+      const { data, error } = await supabase
+        .from('inventory_items')
+        .select('id, name, sku, quantity, unit_price')
+        .gt('quantity', 0)
+        .order('name')
+
+      if (error) throw error
+      setAvailableInventory(data || [])
+    } catch (error) {
+      console.error('Error loading inventory:', error)
+    }
+  }
 
   const getCurrentUser = async () => {
     try {
@@ -112,7 +161,7 @@ export default function MyJobs() {
 
       if (error) throw error
 
-      // Load photos and purchase orders for each work order
+      // Load photos, purchase orders, and truck inventory for each work order
       const workOrdersWithDetails = await Promise.all(
         (data || []).map(async (wo) => {
           // Load photos
@@ -136,10 +185,21 @@ export default function MyJobs() {
             .eq('work_order_id', wo.id)
             .order('created_at', { ascending: false })
 
+          // Load truck inventory
+          const { data: truckInventory } = await supabase
+            .from('truck_inventory')
+            .select(`
+              *,
+              inventory_item:inventory_items(name, sku, unit_price)
+            `)
+            .eq('work_order_id', wo.id)
+            .order('created_at', { ascending: false })
+
           return {
             ...wo,
             photos: photos || [],
-            purchase_orders: purchaseOrders || []
+            purchase_orders: purchaseOrders || [],
+            truck_inventory: truckInventory || []
           }
         })
       )
@@ -234,6 +294,71 @@ export default function MyJobs() {
       setUploadingPhoto(false)
       // Reset file input
       e.target.value = ''
+    }
+  }
+
+  const handleInventorySubmit = async (e: React.FormEvent) => {
+    e.preventDefault()
+    if (!selectedWorkOrder) return
+
+    try {
+      const { data: { user } } = await supabase.auth.getUser()
+      if (!user) throw new Error('User not authenticated')
+
+      const { data: profile } = await supabase
+        .from('profiles')
+        .select('company_id')
+        .eq('id', user.id)
+        .single()
+
+      if (!profile) throw new Error('Profile not found')
+
+      // Add to truck inventory
+      const { error: inventoryError } = await supabase
+        .from('truck_inventory')
+        .insert([{
+          work_order_id: selectedWorkOrder.id,
+          company_id: profile.company_id,
+          inventory_item_id: inventoryForm.inventory_item_id,
+          quantity_used: inventoryForm.quantity_used,
+          notes: inventoryForm.notes || null,
+          used_by: user.id
+        }])
+
+      if (inventoryError) throw inventoryError
+
+      // Update inventory quantity
+      const selectedItem = availableInventory.find(item => item.id === inventoryForm.inventory_item_id)
+      if (selectedItem) {
+        const { error: updateError } = await supabase
+          .from('inventory_items')
+          .update({ 
+            quantity: selectedItem.quantity - inventoryForm.quantity_used 
+          })
+          .eq('id', inventoryForm.inventory_item_id)
+
+        if (updateError) throw updateError
+      }
+
+      setInventoryForm({
+        inventory_item_id: '',
+        quantity_used: 1,
+        notes: ''
+      })
+      setShowInventoryModal(false)
+      loadMyWorkOrders()
+      loadAvailableInventory()
+      
+      // Update selected work order
+      if (selectedWorkOrder) {
+        const updatedWO = workOrders.find(wo => wo.id === selectedWorkOrder.id)
+        if (updatedWO) {
+          setSelectedWorkOrder(updatedWO)
+        }
+      }
+    } catch (error) {
+      console.error('Error adding inventory item:', error)
+      alert('Error adding inventory item: ' + (error as Error).message)
     }
   }
 
@@ -434,6 +559,10 @@ export default function MyJobs() {
                           <ShoppingCart className="w-3 h-3 mr-1" />
                           {workOrder.purchase_orders?.length || 0}
                         </span>
+                        <span className="flex items-center">
+                          <Truck className="w-3 h-3 mr-1" />
+                          {workOrder.truck_inventory?.length || 0}
+                        </span>
                       </div>
                     </td>
                     <td className="px-6 py-4 whitespace-nowrap text-sm font-medium">
@@ -522,6 +651,10 @@ export default function MyJobs() {
                       <span className="flex items-center">
                         <ShoppingCart className="w-3 h-3 mr-1" />
                         {workOrder.purchase_orders?.length || 0} POs
+                      </span>
+                      <span className="flex items-center">
+                        <Truck className="w-3 h-3 mr-1" />
+                        {workOrder.truck_inventory?.length || 0} items
                       </span>
                     </div>
                     <div className="text-blue-600 text-sm font-medium">
@@ -750,6 +883,62 @@ export default function MyJobs() {
                 )}
               </div>
 
+              {/* Truck Inventory Section */}
+              <div className="mb-6">
+                <div className="flex items-center justify-between mb-3">
+                  <h4 className="text-lg font-medium text-gray-900">Truck Inventory ({selectedWorkOrder.truck_inventory?.length || 0})</h4>
+                  <button
+                    onClick={() => setShowInventoryModal(true)}
+                    className="inline-flex items-center px-3 py-2 bg-orange-600 text-white rounded-lg hover:bg-orange-700 transition-colors text-sm"
+                  >
+                    <Package className="w-4 h-4 mr-2" />
+                    Add Item
+                  </button>
+                </div>
+                
+                {selectedWorkOrder.truck_inventory && selectedWorkOrder.truck_inventory.length > 0 ? (
+                  <div className="space-y-3">
+                    {selectedWorkOrder.truck_inventory.map((item) => (
+                      <div key={item.id} className="border border-gray-200 rounded-lg p-4">
+                        <div className="flex items-center justify-between">
+                          <div>
+                            <h5 className="font-medium text-gray-900">{item.inventory_item?.name}</h5>
+                            <p className="text-sm text-gray-600">SKU: {item.inventory_item?.sku}</p>
+                            <p className="text-sm text-gray-600">Quantity Used: {item.quantity_used}</p>
+                            {item.notes && (
+                              <p className="text-sm text-gray-500 mt-1">{item.notes}</p>
+                            )}
+                          </div>
+                          <div className="text-right">
+                            <p className="font-medium text-gray-900">
+                              ${((item.inventory_item?.unit_price || 0) * item.quantity_used).toFixed(2)}
+                            </p>
+                            <p className="text-sm text-gray-500">
+                              ${item.inventory_item?.unit_price?.toFixed(2)} each
+                            </p>
+                          </div>
+                        </div>
+                      </div>
+                    ))}
+                    <div className="border-t border-gray-200 pt-3">
+                      <div className="flex justify-between items-center">
+                        <span className="font-medium text-gray-900">Total Materials Cost:</span>
+                        <span className="font-bold text-lg text-green-600">
+                          ${selectedWorkOrder.truck_inventory.reduce((sum, item) => 
+                            sum + ((item.inventory_item?.unit_price || 0) * item.quantity_used), 0
+                          ).toFixed(2)}
+                        </span>
+                      </div>
+                    </div>
+                  </div>
+                ) : (
+                  <div className="text-center py-8 text-gray-500">
+                    <Truck className="w-12 h-12 mx-auto mb-4 text-gray-300" />
+                    <p>No inventory items used yet</p>
+                  </div>
+                )}
+              </div>
+
               {/* Action Buttons */}
               <div className="flex justify-between items-center pt-6 border-t border-gray-200">
                 <div className="flex space-x-3">
@@ -848,6 +1037,106 @@ export default function MyJobs() {
                 </button>
               </div>
             </div>
+          </div>
+        </div>
+      )}
+
+      {/* Inventory Modal */}
+      {showInventoryModal && (
+        <div className="fixed inset-0 bg-gray-600 bg-opacity-50 flex items-center justify-center p-4 z-50">
+          <div className="bg-white rounded-xl shadow-xl max-w-md w-full">
+            <div className="p-6 border-b border-gray-200">
+              <div className="flex items-center justify-between">
+                <h3 className="text-lg font-semibold text-gray-900">Add Inventory Item</h3>
+                <button
+                  onClick={() => setShowInventoryModal(false)}
+                  className="text-gray-400 hover:text-gray-600"
+                >
+                  <X className="w-6 h-6" />
+                </button>
+              </div>
+            </div>
+            
+            <form onSubmit={handleInventorySubmit} className="p-6">
+              <div className="space-y-4">
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-2">
+                    Inventory Item *
+                  </label>
+                  <select
+                    value={inventoryForm.inventory_item_id}
+                    onChange={(e) => setInventoryForm({ ...inventoryForm, inventory_item_id: e.target.value })}
+                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                    required
+                  >
+                    <option value="">Select Item</option>
+                    {availableInventory.map((item) => (
+                      <option key={item.id} value={item.id}>
+                        {item.name} - {item.sku} (Stock: {item.quantity})
+                      </option>
+                    ))}
+                  </select>
+                </div>
+
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-2">
+                    Quantity Used *
+                  </label>
+                  <input
+                    type="number"
+                    min="1"
+                    value={inventoryForm.quantity_used}
+                    onChange={(e) => setInventoryForm({ ...inventoryForm, quantity_used: parseInt(e.target.value) || 1 })}
+                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                    required
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-2">
+                    Notes (Optional)
+                  </label>
+                  <textarea
+                    value={inventoryForm.notes}
+                    onChange={(e) => setInventoryForm({ ...inventoryForm, notes: e.target.value })}
+                    rows={3}
+                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                    placeholder="Additional notes about usage..."
+                  />
+                </div>
+
+                {inventoryForm.inventory_item_id && (
+                  <div className="bg-blue-50 rounded-lg p-3">
+                    <div className="text-sm">
+                      <div className="font-medium text-blue-900">Cost Calculation:</div>
+                      <div className="text-blue-700">
+                        {(() => {
+                          const item = availableInventory.find(i => i.id === inventoryForm.inventory_item_id)
+                          const cost = (item?.unit_price || 0) * inventoryForm.quantity_used
+                          return `${inventoryForm.quantity_used} × $${item?.unit_price?.toFixed(2)} = $${cost.toFixed(2)}`
+                        })()}
+                      </div>
+                    </div>
+                  </div>
+                )}
+              </div>
+
+              <div className="flex justify-end space-x-3 mt-6">
+                <button
+                  type="button"
+                  onClick={() => setShowInventoryModal(false)}
+                  className="px-4 py-2 text-gray-700 bg-gray-100 rounded-lg hover:bg-gray-200 transition-colors"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  className="px-4 py-2 bg-orange-600 text-white rounded-lg hover:bg-orange-700 transition-colors"
+                >
+                  Add Item
+                </button>
+              </div>
+            </form>
           </div>
         </div>
       )}
