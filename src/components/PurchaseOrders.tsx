@@ -3,7 +3,7 @@ import { Plus, Search, Building2, FileText, DollarSign, Calendar, Edit, Trash2, 
 import { supabase } from '../lib/supabase'
 import { useViewPreference } from '../hooks/useViewPreference'
 import ViewToggle from './ViewToggle'
-import { getNextNumber } from '../lib/numbering'
+import { getNextNumber, updateNextNumber } from '../lib/numbering'
 
 interface PurchaseOrder {
   id: string
