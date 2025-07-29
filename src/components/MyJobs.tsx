@@ -341,7 +341,7 @@ export default function MyJobs() {
       if (uploadError) throw uploadError
 
       // Get public URL
-      const { data: { publicUrl } } = supabase.storage
+      const { data: { publicUrl: photoPublicUrl } } = supabase.storage
         .from('work-order-photos')
         .getPublicUrl(fileName)
 
@@ -351,29 +351,12 @@ export default function MyJobs() {
         .insert([{
           work_order_id: selectedWorkOrder.id,
           company_id: profile.company_id,
-          photo_url: publicUrl,
+          photo_url: photoPublicUrl,
           caption: photoCaption,
-          uploaded_by: user.id
-        }])
-
-      if (dbError) throw dbError
-      // Get public URL
-      const { data: { publicUrl } } = supabase.storage
-        .from('work-order-photos')
-        .getPublicUrl(fileName)
-
-      // Save photo record
-      const { error: insertError } = await supabase
-        .from('work_order_photos')
-        .insert([{
-          work_order_id: selectedWorkOrder.id,
-          company_id: profile.company_id,
-          photo_url: publicUrl,
-          caption: photoCaption || null,
           uploaded_by: currentUser.id
         }])
 
-      if (insertError) throw insertError
+      if (dbError) throw dbError
 
       setPhotoCaption('')
       setShowPhotoModal(false)
