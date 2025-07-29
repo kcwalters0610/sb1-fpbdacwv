@@ -54,14 +54,6 @@ function App() {
       }
       setSession(session)
       setLoading(false)
-    }).catch(async (error) => {
-      // Handle any unexpected errors, especially refresh token issues
-      console.error('Session retrieval error:', error)
-      if (error.message && (error.message.includes('Invalid Refresh Token') || error.message.includes('refresh_token_not_found'))) {
-        await supabase.auth.signOut()
-        setSession(null)
-      }
-      setLoading(false)
     })
 
     // Listen for auth changes
