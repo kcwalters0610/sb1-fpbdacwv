@@ -357,10 +357,6 @@ export default function MyJobs() {
         }])
 
       if (dbError) throw dbError
-        status: 'pending' as const,
-        duration_minutes: null,
-        end_time: null
-
       // Get public URL
       const { data: { publicUrl } } = supabase.storage
         .from('work-order-photos')
