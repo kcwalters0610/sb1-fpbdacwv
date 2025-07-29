@@ -1096,6 +1096,166 @@ export default function MyJobs() {
                   )}
                 </div>
               )}
+
+              {/* Resolution Tab */}
+              {activeTab === 'resolution' && (
+                <div className="space-y-6">
+                  <div className="flex items-center justify-between">
+                    <h4 className="text-lg font-medium text-gray-900">Work Order Resolution</h4>
+                    {selectedWorkOrder.status === 'completed' && (
+                      <span className="inline-flex items-center px-3 py-1 rounded-full text-sm font-medium bg-green-100 text-green-800">
+                        <CheckCircle className="w-4 h-4 mr-2" />
+                        Completed
+                      </span>
+                    )}
+                  </div>
+
+                  {selectedWorkOrder.status === 'completed' ? (
+                    <div className="bg-green-50 border border-green-200 rounded-lg p-6">
+                      <div className="flex items-start">
+                        <CheckCircle className="w-6 h-6 text-green-600 mt-1" />
+                        <div className="ml-4">
+                          <h5 className="text-lg font-medium text-green-900 mb-2">Work Order Completed</h5>
+                          <div className="space-y-2 text-sm text-green-800">
+                            <p><strong>Completed Date:</strong> {selectedWorkOrder.completed_date ? new Date(selectedWorkOrder.completed_date).toLocaleDateString() : 'Not recorded'}</p>
+                            <p><strong>Assigned Technician:</strong> {selectedWorkOrder.assigned_technician ? `${selectedWorkOrder.assigned_technician.first_name} ${selectedWorkOrder.assigned_technician.last_name}` : 'Not assigned'}</p>
+                            {selectedWorkOrder.actual_hours && selectedWorkOrder.actual_hours > 0 && (
+                              <p><strong>Total Hours:</strong> {selectedWorkOrder.actual_hours} hours</p>
+                            )}
+                          </div>
+                          
+                          {selectedWorkOrder.notes && (
+                            <div className="mt-4">
+                              <h6 className="font-medium text-green-900 mb-2">Resolution Notes:</h6>
+                              <div className="bg-white rounded-lg p-3 border border-green-200">
+                                <p className="text-sm text-gray-700">{selectedWorkOrder.notes}</p>
+                              </div>
+                            </div>
+                          )}
+                        </div>
+                      </div>
+                    </div>
+                  ) : (
+                    <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-6">
+                      <div className="flex items-start">
+                        <AlertTriangle className="w-6 h-6 text-yellow-600 mt-1" />
+                        <div className="ml-4">
+                          <h5 className="text-lg font-medium text-yellow-900 mb-2">Work Order In Progress</h5>
+                          <p className="text-sm text-yellow-800 mb-4">
+                            This work order is currently {selectedWorkOrder.status.replace('_', ' ')}. 
+                            Resolution details will be available once the work order is completed.
+                          </p>
+                          
+                          <div className="space-y-2 text-sm text-yellow-800">
+                            <p><strong>Current Status:</strong> {selectedWorkOrder.status.replace('_', ' ').toUpperCase()}</p>
+                            <p><strong>Assigned Technician:</strong> {selectedWorkOrder.assigned_technician ? `${selectedWorkOrder.assigned_technician.first_name} ${selectedWorkOrder.assigned_technician.last_name}` : 'Not assigned'}</p>
+                            {selectedWorkOrder.scheduled_date && (
+                              <p><strong>Scheduled Date:</strong> {new Date(selectedWorkOrder.scheduled_date).toLocaleDateString()}</p>
+                            )}
+                          </div>
+
+                          {selectedWorkOrder.status === 'in_progress' && (
+                            <div className="mt-4">
+                              <button
+                                onClick={() => updateWorkOrderStatus('completed')}
+                                className="inline-flex items-center px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 transition-colors"
+                              >
+                                <CheckCircle className="w-4 h-4 mr-2" />
+                                Mark as Completed
+                              </button>
+                            </div>
+                          )}
+                        </div>
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Work Summary */}
+                  <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+                    <div className="bg-white border border-gray-200 rounded-lg p-4">
+                      <div className="flex items-center">
+                        <Clock className="w-6 h-6 text-blue-600" />
+                        <div className="ml-3">
+                          <p className="text-sm font-medium text-gray-600">Time Logged</p>
+                          <p className="text-lg font-semibold text-gray-900">
+                            {timeEntries.reduce((total, entry) => total + entry.duration_minutes, 0) > 0 
+                              ? `${Math.round(timeEntries.reduce((total, entry) => total + entry.duration_minutes, 0) / 60 * 10) / 10}h`
+                              : '0h'
+                            }
+                          </p>
+                        </div>
+                      </div>
+                    </div>
+
+                    <div className="bg-white border border-gray-200 rounded-lg p-4">
+                      <div className="flex items-center">
+                        <Camera className="w-6 h-6 text-green-600" />
+                        <div className="ml-3">
+                          <p className="text-sm font-medium text-gray-600">Photos Taken</p>
+                          <p className="text-lg font-semibold text-gray-900">{photos.length}</p>
+                        </div>
+                      </div>
+                    </div>
+
+                    <div className="bg-white border border-gray-200 rounded-lg p-4">
+                      <div className="flex items-center">
+                        <ShoppingCart className="w-6 h-6 text-purple-600" />
+                        <div className="ml-3">
+                          <p className="text-sm font-medium text-gray-600">Purchase Orders</p>
+                          <p className="text-lg font-semibold text-gray-900">{purchaseOrders.length}</p>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Recent Activity */}
+                  <div>
+                    <h5 className="text-md font-medium text-gray-900 mb-4">Recent Activity</h5>
+                    <div className="space-y-3">
+                      {/* Time Entries */}
+                      {timeEntries.slice(0, 3).map((entry) => (
+                        <div key={entry.id} className="flex items-center p-3 bg-gray-50 rounded-lg">
+                          <Clock className="w-4 h-4 text-blue-600 mr-3" />
+                          <div className="flex-1">
+                            <p className="text-sm font-medium text-gray-900">
+                              Time logged: {Math.round(entry.duration_minutes / 60 * 10) / 10}h
+                            </p>
+                            <p className="text-xs text-gray-500">
+                              {new Date(entry.start_time).toLocaleDateString()} - {entry.description}
+                            </p>
+                          </div>
+                          <span className={`inline-flex px-2 py-1 text-xs font-medium rounded-full ${
+                            entry.status === 'approved' ? 'text-green-700 bg-green-100' :
+                            entry.status === 'rejected' ? 'text-red-700 bg-red-100' :
+                            'text-yellow-700 bg-yellow-100'
+                          }`}>
+                            {entry.status}
+                          </span>
+                        </div>
+                      ))}
+                      
+                      {/* Photos */}
+                      {photos.slice(0, 2).map((photo) => (
+                        <div key={photo.id} className="flex items-center p-3 bg-gray-50 rounded-lg">
+                          <Camera className="w-4 h-4 text-green-600 mr-3" />
+                          <div className="flex-1">
+                            <p className="text-sm font-medium text-gray-900">Photo uploaded</p>
+                            <p className="text-xs text-gray-500">
+                              {new Date(photo.created_at).toLocaleDateString()} - {photo.caption || 'No caption'}
+                            </p>
+                          </div>
+                        </div>
+                      ))}
+                      
+                      {timeEntries.length === 0 && photos.length === 0 && (
+                        <div className="text-center py-6 text-gray-500">
+                          <p>No activity recorded yet</p>
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                </div>
+              )}
             </div>
           </div>
         </div>
