@@ -1435,14 +1435,14 @@ export default function MyJobs() {
 
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-2">
-                    Duration (minutes) *
+                    Duration (hours) *
                   </label>
                   <input
                     type="number"
                     min="1"
                     value={timeForm.duration_minutes}
-                    onChange={(e) => setTimeForm({ ...timeForm, duration_minutes: parseInt(e.target.value) || 0 })}
-                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                    value={timeFormData.duration_minutes / 60}
+                    onChange={(e) => setTimeFormData({ ...timeFormData, duration_minutes: Math.round((parseFloat(e.target.value) || 0) * 60) })}
                     required
                   />
                 </div>
@@ -1456,9 +1456,10 @@ export default function MyJobs() {
                     onChange={(e) => setTimeForm({ ...timeForm, description: e.target.value })}
                     rows={3}
                     className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                    placeholder="Describe the work performed..."
+                    placeholder="e.g., 2.5"
                     required
                   />
+                  <p className="text-xs text-gray-500 mt-1">Enter hours (e.g., 2.5 for 2 hours 30 minutes)</p>
                 </div>
 
                 {timeForm.duration_minutes > 0 && (
