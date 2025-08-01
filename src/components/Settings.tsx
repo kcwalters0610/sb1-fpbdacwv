@@ -13,7 +13,8 @@ import {
   Shield,
   Globe,
   Database,
-  Wrench
+  Wrench,
+  DollarSign
 } from 'lucide-react'
 import { supabase } from '../lib/supabase'
 import TeamMemberSettings from './TeamMemberSettings'
