@@ -89,12 +89,19 @@ export default function LaborRatesSettings() {
 
       // Deactivate existing rates for this role/department combination
       if (!editingRate) {
-        const { error: deactivateError } = await supabase
+        let query = supabase
           .from('labor_rates')
           .update({ is_active: false })
           .eq('company_id', profile.company_id)
           .eq('role', formData.role)
-          .eq('department_id', formData.department_id || null)
+
+        if (formData.department_id) {
+          query = query.eq('department_id', formData.department_id)
+        } else {
+          query = query.is('department_id', null)
+        }
+
+        const { error: deactivateError } = await query
 
         if (deactivateError) throw deactivateError
       }
