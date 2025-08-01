@@ -514,7 +514,25 @@ export default function WorkOrders() {
       // Update the sequence number
       await updateNextNumber('invoice', nextSequence)
 
-      setShowInvoiceModal(false)
+      // Create invoice line items
+      const allLineItems = [...laborLineItems, ...materialLineItems, ...inventoryLineItems]
+      
+      if (allLineItems.length > 0) {
+        // Get the created invoice ID
+        const { data: createdInvoice } = await supabase
+          .from('invoices')
+          .select('id')
+          .eq('invoice_number', invoiceNumber)
+          .single()
+
+        if (createdInvoice) {
+          // Note: You would need to create an invoice_line_items table to store these
+          // For now, the costs are included in the invoice totals and notes
+          console.log('Line items to be added:', allLineItems)
+        }
+      }
+
+      alert(`Invoice ${invoiceNumber} created successfully!\n\nTotal: $${totalAmount.toFixed(2)}\n- Labor: $${laborCost.toFixed(2)}\n- Materials: $${materialCost.toFixed(2)}\n- Inventory: $${inventoryCost.toFixed(2)}`)
       setSelectedWorkOrderForInvoice(null)
       setInvoiceFormData({ subtotal: '', tax_rate: '0', notes: '' })
       
