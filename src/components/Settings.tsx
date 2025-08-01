@@ -17,6 +17,7 @@ import {
 } from 'lucide-react'
 import { supabase } from '../lib/supabase'
 import TeamMemberSettings from './TeamMemberSettings'
+import LaborRatesSettings from './LaborRatesSettings'
 
 interface CompanySettings {
   logo_url?: string
@@ -462,6 +463,7 @@ export default function Settings() {
       { id: 'company', name: 'Company', icon: Building2 },
       { id: 'work-types', name: 'Work Types', icon: Wrench },
       { id: 'numbering', name: 'Document Numbering', icon: Hash },
+      { id: 'labor-rates', name: 'Labor Rates', icon: DollarSign },
       { id: 'team', name: 'Team Members', icon: Users }
     ] : [])
   ]
@@ -1154,6 +1156,11 @@ export default function Settings() {
           {/* Team Members */}
           {activeTab === 'team' && (
             <TeamMemberSettings />
+          )}
+
+          {/* Labor Rates */}
+          {activeTab === 'labor-rates' && (
+            <LaborRatesSettings />
           )}
         </div>
       </div>
