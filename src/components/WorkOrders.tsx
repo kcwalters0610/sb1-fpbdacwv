@@ -1,96 +1,52 @@
 import React, { useState, useEffect } from 'react'
-import { 
-  Plus, 
-  Search, 
-  Calendar, 
-  User, 
-  MapPin, 
-  Clock, 
-  Edit, 
-  Trash2, 
-  Eye, 
-  X, 
-  Phone, 
-  Mail,
-  CheckCircle,
-  AlertTriangle,
-  Users,
-  Camera,
-  ShoppingCart,
-  FileText,
-  Package,
-  ArrowRight,
-  Download,
-  Truck
-} from 'lucide-react'
-import { supabase, WorkOrder, Customer, Profile, CustomerSite } from '../lib/supabase'
+import { Plus, Search, Calendar, User, MapPin, Phone, Edit, Trash2, Eye, X, Clock, AlertTriangle, CheckCircle, Users, Camera, Package, DollarSign, FileText, Building2 } from 'lucide-react'
+import { supabase, WorkOrder, Customer, Profile, Project, CustomerSite } from '../lib/supabase'
 import { useViewPreference } from '../hooks/useViewPreference'
 import ViewToggle from './ViewToggle'
 import { getNextNumber, updateNextNumber } from '../lib/numbering'
-import { jsPDF } from 'jspdf'
-import autoTable from 'jspdf-autotable'
-
-interface WorkOrderWithDetails extends WorkOrder {
-  customer?: Customer
-  assigned_technician?: Profile
-  customer_site?: CustomerSite
-  assignments?: WorkOrderAssignment[]
-  photos?: WorkOrderPhoto[]
-  purchase_orders?: PurchaseOrder[]
-  truck_inventory?: any[]
-}
-
-interface WorkOrderAssignment {
-  id: string
-  work_order_id: string
-  tech_id: string
-  is_primary: boolean
-  technician: Profile
-}
-
-interface WorkOrderPhoto {
-  id: string
-  work_order_id: string
-  photo_url: string
-  caption?: string
-  uploaded_by?: string
-  created_at: string
-  uploader?: Profile
-}
-
-interface PurchaseOrder {
-  id: string
-  po_number: string
-  vendor?: {
-    name: string
-  }
-  total_amount: number
-  status: string
-  created_at: string
-}
 
 export default function WorkOrders() {
   const { viewType, setViewType } = useViewPreference('workOrders')
-  const [workOrders, setWorkOrders] = useState<WorkOrderWithDetails[]>([])
+  const [workOrders, setWorkOrders] = useState<WorkOrder[]>([])
   const [customers, setCustomers] = useState<Customer[]>([])
   const [technicians, setTechnicians] = useState<Profile[]>([])
+  const [projects, setProjects] = useState<Project[]>([])
   const [customerSites, setCustomerSites] = useState<CustomerSite[]>([])
-  const [projects, setProjects] = useState<any[]>([])
   const [departments, setDepartments] = useState<any[]>([])
   const [loading, setLoading] = useState(true)
   const [showForm, setShowForm] = useState(false)
+  const [editingWorkOrder, setEditingWorkOrder] = useState<WorkOrder | null>(null)
+  const [selectedWorkOrder, setSelectedWorkOrder] = useState<WorkOrder | null>(null)
   const [showAssignModal, setShowAssignModal] = useState(false)
-  const [editingWorkOrder, setEditingWorkOrder] = useState<WorkOrderWithDetails | null>(null)
-  const [selectedWorkOrder, setSelectedWorkOrder] = useState<WorkOrderWithDetails | null>(null)
+  const [selectedWorkOrderForAssign, setSelectedWorkOrderForAssign] = useState<WorkOrder | null>(null)
+  const [selectedTechnicians, setSelectedTechnicians] = useState<string[]>([])
+  const [primaryTechnician, setPrimaryTechnician] = useState<string>('')
   const [searchTerm, setSearchTerm] = useState('')
   const [statusFilter, setStatusFilter] = useState('')
   const [priorityFilter, setPriorityFilter] = useState('')
   const [currentUser, setCurrentUser] = useState<any>(null)
-  const [selectedTechnicians, setSelectedTechnicians] = useState<string[]>([])
-  const [primaryTechnician, setPrimaryTechnician] = useState<string>('')
   const [loadingSites, setLoadingSites] = useState(false)
+
+  // Photo upload states
+  const [showPhotoModal, setShowPhotoModal] = useState(false)
+  const [selectedWorkOrderForPhotos, setSelectedWorkOrderForPhotos] = useState<WorkOrder | null>(null)
+  const [workOrderPhotos, setWorkOrderPhotos] = useState<any[]>([])
+  const [uploadingPhoto, setUploadingPhoto] = useState(false)
+
+  // Truck inventory states
+  const [showTruckInventoryModal, setShowTruckInventoryModal] = useState(false)
+  const [selectedWorkOrderForInventory, setSelectedWorkOrderForInventory] = useState<WorkOrder | null>(null)
+  const [inventoryItems, setInventoryItems] = useState<any[]>([])
+  const [truckInventoryUsed, setTruckInventoryUsed] = useState<any[]>([])
+  const [newInventoryUsage, setNewInventoryUsage] = useState({
+    inventory_item_id: '',
+    quantity_used: '',
+    notes: ''
+  })
+
+  // Convert to invoice states
   const [showInvoiceModal, setShowInvoiceModal] = useState(false)
-  const [selectedWorkOrderForInvoice, setSelectedWorkOrderForInvoice] = useState<WorkOrderWithDetails | null>(null)
+  const [selectedWorkOrderForInvoice, setSelectedWorkOrderForInvoice] = useState<WorkOrder | null>(null)
   const [invoiceFormData, setInvoiceFormData] = useState({
     subtotal: '',
     tax_rate: '0',
@@ -101,7 +57,7 @@ export default function WorkOrders() {
     wo_number: '',
     customer_id: '',
     customer_site_id: '',
-    project_id: '',
+    assigned_to: '',
     department_id: '',
     title: '',
     description: '',
@@ -110,7 +66,7 @@ export default function WorkOrders() {
     scheduled_date: '',
     work_type: '',
     notes: '',
-    resolution_notes: ''
+    project_id: ''
   })
 
   useEffect(() => {
@@ -170,74 +126,29 @@ export default function WorkOrders() {
             *,
             customer:customers(*),
             assigned_technician:profiles!work_orders_assigned_to_fkey(*),
-            customer_site:customer_sites(*),
             project:projects(*),
-            assigned_dept:departments!department_id(*)
+            assigned_dept:departments!department_id(*),
+            assignments:work_order_assignments(
+              id,
+              tech_id,
+              is_primary,
+              technician:profiles!tech_id(*)
+            ),
+            customer_site:customer_sites(*)
           `)
           .order('created_at', { ascending: false }),
         supabase.from('customers').select('*').order('first_name'),
-        supabase.from('profiles').select('*').in('role', ['tech', 'admin', 'manager']).eq('is_active', true).order('first_name'),
+        supabase.from('profiles').select('*').in('role', ['tech', 'admin', 'manager']).order('first_name'),
         supabase.from('projects').select('*').order('project_name'),
-        supabase.from('departments').select('*').eq('is_active', true).order('name')
+        supabase.from('departments').select('*').order('name')
       ])
 
-      // Load additional details for each work order
-      const workOrdersWithDetails = await Promise.all(
-        (workOrdersResult.data || []).map(async (wo) => {
-          // Load assignments
-          const { data: assignments } = await supabase
-            .from('work_order_assignments')
-            .select(`
-              *,
-              technician:profiles!tech_id(*)
-            `)
-            .eq('work_order_id', wo.id)
+      if (workOrdersResult.error) {
+        console.error('Work orders query error:', workOrdersResult.error)
+        throw workOrdersResult.error
+      }
 
-          // Load photos
-          const { data: photos } = await supabase
-            .from('work_order_photos')
-            .select(`
-              *,
-              uploader:profiles!uploaded_by(first_name, last_name)
-            `)
-            .eq('work_order_id', wo.id)
-            .order('created_at', { ascending: false })
-
-          // Load purchase orders
-          const { data: purchaseOrders } = await supabase
-            .from('purchase_orders')
-            .select(`
-              id,
-              po_number,
-              total_amount,
-              status,
-              created_at,
-        .in('status', ['approved', 'pending'])
-            `)
-            .eq('work_order_id', wo.id)
-            .order('created_at', { ascending: false })
-
-          // Load truck inventory
-      console.log('Time entries for work order:', workOrder.wo_number, timeEntries)
-            .from('truck_inventory')
-            .select(`
-              id,
-              quantity_used,
-              inventory_item:inventory_items(name, sku, unit_price)
-            `)
-            .eq('work_order_id', wo.id)
-
-          return {
-            ...wo,
-            assignments: assignments || [],
-            photos: photos || [],
-            purchase_orders: purchaseOrders || [],
-            truck_inventory: truckInventory || []
-          }
-        })
-      )
-
-      setWorkOrders(workOrdersWithDetails)
+      setWorkOrders(workOrdersResult.data || [])
       setCustomers(customersResult.data || [])
       setTechnicians(techniciansResult.data || [])
       setProjects(projectsResult.data || [])
@@ -270,6 +181,57 @@ export default function WorkOrders() {
     }
   }
 
+  const loadWorkOrderPhotos = async (workOrderId: string) => {
+    try {
+      const { data, error } = await supabase
+        .from('work_order_photos')
+        .select(`
+          *,
+          uploaded_by_user:profiles!uploaded_by(first_name, last_name)
+        `)
+        .eq('work_order_id', workOrderId)
+        .order('created_at', { ascending: false })
+
+      if (error) throw error
+      setWorkOrderPhotos(data || [])
+    } catch (error) {
+      console.error('Error loading work order photos:', error)
+    }
+  }
+
+  const loadInventoryItems = async () => {
+    try {
+      const { data, error } = await supabase
+        .from('inventory_items')
+        .select('*')
+        .order('name')
+
+      if (error) throw error
+      setInventoryItems(data || [])
+    } catch (error) {
+      console.error('Error loading inventory items:', error)
+    }
+  }
+
+  const loadTruckInventory = async (workOrderId: string) => {
+    try {
+      const { data, error } = await supabase
+        .from('truck_inventory')
+        .select(`
+          *,
+          inventory_item:inventory_items(*),
+          used_by_user:profiles!used_by(first_name, last_name)
+        `)
+        .eq('work_order_id', workOrderId)
+        .order('created_at', { ascending: false })
+
+      if (error) throw error
+      setTruckInventoryUsed(data || [])
+    } catch (error) {
+      console.error('Error loading truck inventory:', error)
+    }
+  }
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
     setLoading(true)
@@ -292,7 +254,7 @@ export default function WorkOrders() {
         wo_number: formData.wo_number,
         customer_id: formData.customer_id,
         customer_site_id: formData.customer_site_id || null,
-        project_id: formData.project_id || null,
+        assigned_to: formData.assigned_to || null,
         department_id: formData.department_id || null,
         title: formData.title,
         description: formData.description || null,
@@ -301,7 +263,7 @@ export default function WorkOrders() {
         scheduled_date: formData.scheduled_date || null,
         work_type: formData.work_type || null,
         notes: formData.notes || null,
-        resolution_notes: formData.resolution_notes || null
+        project_id: formData.project_id || null
       }
 
       if (editingWorkOrder) {
@@ -340,7 +302,7 @@ export default function WorkOrders() {
       wo_number: '',
       customer_id: '',
       customer_site_id: '',
-      project_id: '',
+      assigned_to: '',
       department_id: '',
       title: '',
       description: '',
@@ -349,27 +311,27 @@ export default function WorkOrders() {
       scheduled_date: '',
       work_type: '',
       notes: '',
-      resolution_notes: ''
+      project_id: ''
     })
     setCustomerSites([])
   }
 
-  const startEdit = (workOrder: WorkOrderWithDetails) => {
+  const startEdit = (workOrder: WorkOrder) => {
     setEditingWorkOrder(workOrder)
     setFormData({
       wo_number: workOrder.wo_number,
       customer_id: workOrder.customer_id,
       customer_site_id: workOrder.customer_site_id || '',
-      project_id: workOrder.project_id || '',
+      assigned_to: workOrder.assigned_to || '',
       department_id: workOrder.department_id || '',
       title: workOrder.title,
       description: workOrder.description || '',
       priority: workOrder.priority,
       status: workOrder.status,
-      scheduled_date: workOrder.scheduled_date ? workOrder.scheduled_date.slice(0, 16) : '',
+      scheduled_date: workOrder.scheduled_date || '',
       work_type: workOrder.work_type || '',
       notes: workOrder.notes || '',
-      resolution_notes: workOrder.resolution_notes || ''
+      project_id: workOrder.project_id || ''
     })
     
     // Load customer sites for the selected customer
@@ -413,15 +375,25 @@ export default function WorkOrders() {
     }
   }
 
-  const openAssignModal = (workOrder: WorkOrderWithDetails) => {
-    setSelectedWorkOrder(workOrder)
-    setSelectedTechnicians(workOrder.assignments?.map(a => a.tech_id) || [])
-    setPrimaryTechnician(workOrder.assignments?.find(a => a.is_primary)?.tech_id || '')
+  const openAssignModal = (workOrder: WorkOrder) => {
+    setSelectedWorkOrderForAssign(workOrder)
+    
+    // Pre-populate with existing assignments
+    if (workOrder.assignments && workOrder.assignments.length > 0) {
+      const techIds = workOrder.assignments.map(a => a.tech_id)
+      const primary = workOrder.assignments.find(a => a.is_primary)
+      setSelectedTechnicians(techIds)
+      setPrimaryTechnician(primary?.tech_id || '')
+    } else {
+      setSelectedTechnicians([])
+      setPrimaryTechnician('')
+    }
+    
     setShowAssignModal(true)
   }
 
-  const handleMultiAssign = async () => {
-    if (!selectedWorkOrder || selectedTechnicians.length === 0) return
+  const handleAssignTechnicians = async () => {
+    if (!selectedWorkOrderForAssign || selectedTechnicians.length === 0) return
 
     try {
       // Get current user's company_id
@@ -437,32 +409,178 @@ export default function WorkOrders() {
       if (!profile) throw new Error('User profile not found')
 
       // Remove existing assignments
-      await supabase
+      const { error: deleteError } = await supabase
         .from('work_order_assignments')
         .delete()
-        .eq('work_order_id', selectedWorkOrder.id)
+        .eq('work_order_id', selectedWorkOrderForAssign.id)
+
+      if (deleteError) throw deleteError
 
       // Add new assignments
       const assignments = selectedTechnicians.map(techId => ({
-        work_order_id: selectedWorkOrder.id,
+        work_order_id: selectedWorkOrderForAssign.id,
         tech_id: techId,
         is_primary: techId === primaryTechnician,
         company_id: profile.company_id
       }))
 
-      const { error } = await supabase
+      const { error: insertError } = await supabase
         .from('work_order_assignments')
         .insert(assignments)
 
-      if (error) throw error
+      if (insertError) throw insertError
 
       setShowAssignModal(false)
-      setSelectedWorkOrder(null)
+      setSelectedWorkOrderForAssign(null)
       setSelectedTechnicians([])
       setPrimaryTechnician('')
       loadData()
     } catch (error) {
       console.error('Error assigning technicians:', error)
+      alert('Error assigning technicians')
+    }
+  }
+
+  const handlePhotoUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0]
+    if (!file || !selectedWorkOrderForPhotos) return
+
+    setUploadingPhoto(true)
+
+    try {
+      // Get current user's company_id
+      const { data: { user } } = await supabase.auth.getUser()
+      if (!user) throw new Error('User not authenticated')
+      
+      const { data: profile } = await supabase
+        .from('profiles')
+        .select('company_id')
+        .eq('id', user.id)
+        .single()
+      
+      if (!profile) throw new Error('User profile not found')
+
+      // Upload to Supabase Storage
+      const fileExt = file.name.split('.').pop()
+      const fileName = `${selectedWorkOrderForPhotos.id}/${Date.now()}.${fileExt}`
+
+      const { error: uploadError } = await supabase.storage
+        .from('work-order-photos')
+        .upload(fileName, file)
+
+      if (uploadError) throw uploadError
+
+      // Get public URL
+      const { data: { publicUrl } } = supabase.storage
+        .from('work-order-photos')
+        .getPublicUrl(fileName)
+
+      // Save photo record
+      const { error: insertError } = await supabase
+        .from('work_order_photos')
+        .insert([{
+          work_order_id: selectedWorkOrderForPhotos.id,
+          company_id: profile.company_id,
+          photo_url: publicUrl,
+          uploaded_by: user.id
+        }])
+
+      if (insertError) throw insertError
+
+      // Reload photos
+      loadWorkOrderPhotos(selectedWorkOrderForPhotos.id)
+    } catch (error) {
+      console.error('Error uploading photo:', error)
+      alert('Error uploading photo')
+    } finally {
+      setUploadingPhoto(false)
+      // Reset file input
+      e.target.value = ''
+    }
+  }
+
+  const deletePhoto = async (photoId: string) => {
+    if (!confirm('Are you sure you want to delete this photo?')) return
+
+    try {
+      const { error } = await supabase
+        .from('work_order_photos')
+        .delete()
+        .eq('id', photoId)
+
+      if (error) throw error
+
+      // Reload photos
+      if (selectedWorkOrderForPhotos) {
+        loadWorkOrderPhotos(selectedWorkOrderForPhotos.id)
+      }
+    } catch (error) {
+      console.error('Error deleting photo:', error)
+    }
+  }
+
+  const handleInventorySubmit = async (e: React.FormEvent) => {
+    e.preventDefault()
+    if (!selectedWorkOrderForInventory) return
+
+    try {
+      // Get current user's company_id
+      const { data: { user } } = await supabase.auth.getUser()
+      if (!user) throw new Error('User not authenticated')
+      
+      const { data: profile } = await supabase
+        .from('profiles')
+        .select('company_id')
+        .eq('id', user.id)
+        .single()
+      
+      if (!profile) throw new Error('User profile not found')
+
+      const { error } = await supabase
+        .from('truck_inventory')
+        .insert([{
+          work_order_id: selectedWorkOrderForInventory.id,
+          company_id: profile.company_id,
+          inventory_item_id: newInventoryUsage.inventory_item_id,
+          quantity_used: parseFloat(newInventoryUsage.quantity_used),
+          notes: newInventoryUsage.notes || null,
+          used_by: user.id
+        }])
+
+      if (error) throw error
+
+      // Reset form
+      setNewInventoryUsage({
+        inventory_item_id: '',
+        quantity_used: '',
+        notes: ''
+      })
+
+      // Reload inventory
+      loadTruckInventory(selectedWorkOrderForInventory.id)
+    } catch (error) {
+      console.error('Error adding inventory usage:', error)
+      alert('Error adding inventory usage')
+    }
+  }
+
+  const deleteInventoryUsage = async (id: string) => {
+    if (!confirm('Are you sure you want to delete this inventory usage?')) return
+
+    try {
+      const { error } = await supabase
+        .from('truck_inventory')
+        .delete()
+        .eq('id', id)
+
+      if (error) throw error
+
+      // Reload inventory
+      if (selectedWorkOrderForInventory) {
+        loadTruckInventory(selectedWorkOrderForInventory.id)
+      }
+    } catch (error) {
+      console.error('Error deleting inventory usage:', error)
     }
   }
 
@@ -482,14 +600,128 @@ export default function WorkOrders() {
       
       if (!profile) throw new Error('User profile not found')
 
-      const subtotal = parseFloat(invoiceFormData.subtotal) || 0
+      // Calculate labor costs from time entries
+      console.log('Loading time entries for work order:', selectedWorkOrderForInvoice.id)
+      
+      const { data: timeEntries, error: timeError } = await supabase
+        .from('time_entries')
+        .select(`
+          *,
+          user:profiles(*)
+        `)
+        .eq('work_order_id', selectedWorkOrderForInvoice.id)
+        .in('status', ['approved', 'pending'])
+
+      if (timeError) {
+        console.error('Error loading time entries:', timeError)
+        throw timeError
+      }
+
+      console.log('Time entries found:', timeEntries)
+
+      // Group time entries by user
+      const userTimeMap = timeEntries?.reduce((acc, entry) => {
+        const userId = entry.user_id
+        if (!acc[userId]) {
+          acc[userId] = {
+            user: entry.user,
+            totalMinutes: 0,
+            entries: []
+          }
+        }
+        acc[userId].totalMinutes += entry.duration_minutes || 0
+        acc[userId].entries.push(entry)
+        return acc
+      }, {} as Record<string, { user: any; totalMinutes: number; entries: any[] }>) || {}
+
+      console.log('User time map:', userTimeMap)
+
+      // Calculate labor costs
+      let laborCosts = 0
+      let laborDetails = []
+
+      for (const [userId, timeData] of Object.entries(userTimeMap)) {
+        const { user, totalMinutes } = timeData
+        const totalHours = totalMinutes / 60
+
+        console.log(`Calculating for ${user?.first_name} ${user?.last_name}: ${totalHours} hours`)
+
+        // Get labor rate for this user
+        const { data: laborRate, error: rateError } = await supabase
+          .from('labor_rates')
+          .select('*')
+          .eq('company_id', profile.company_id)
+          .eq('role', user?.role || 'tech')
+          .eq('is_active', true)
+          .order('effective_date', { ascending: false })
+          .limit(1)
+          .maybeSingle()
+
+        if (rateError) {
+          console.error('Error loading labor rate:', rateError)
+        }
+
+        console.log('Labor rate found:', laborRate)
+
+        const hourlyRate = laborRate?.hourly_rate || 50 // Default rate if none found
+        const userLaborCost = totalHours * hourlyRate
+        laborCosts += userLaborCost
+
+        laborDetails.push(`${user?.first_name} ${user?.last_name}: ${totalHours.toFixed(1)} hours @ $${hourlyRate}/hr = $${userLaborCost.toFixed(2)}`)
+      }
+
+      console.log('Total labor costs:', laborCosts)
+      console.log('Labor details:', laborDetails)
+
+      // Load purchase orders for this work order
+      const { data: purchaseOrders, error: poError } = await supabase
+        .from('purchase_orders')
+        .select('id, po_number, total_amount, status, created_at')
+        .eq('work_order_id', selectedWorkOrderForInvoice.id)
+        .in('status', ['received', 'approved'])
+        .order('created_at', { ascending: false })
+
+      if (poError) {
+        console.error('Error loading purchase orders:', poError)
+        throw poError
+      }
+
+      console.log('Purchase orders found:', purchaseOrders)
+
+      // Calculate material costs
+      const materialCosts = purchaseOrders?.reduce((sum, po) => sum + (po.total_amount || 0), 0) || 0
+
+      console.log('Material costs:', materialCosts)
+
+      // Calculate total
+      const subtotal = laborCosts + materialCosts + (parseFloat(invoiceFormData.subtotal) || 0)
       const taxRate = parseFloat(invoiceFormData.tax_rate) || 0
       const taxAmount = (subtotal * taxRate) / 100
       const totalAmount = subtotal + taxAmount
 
       // Generate invoice number
       const { formattedNumber: invoiceNumber, nextSequence } = await getNextNumber('invoice')
+
+      // Prepare detailed notes
+      let detailedNotes = `Invoice for work order ${selectedWorkOrderForInvoice.wo_number}: ${selectedWorkOrderForInvoice.title}\n\n`
       
+      if (laborDetails.length > 0) {
+        detailedNotes += 'Labor Costs:\n' + laborDetails.join('\n') + '\n\n'
+      }
+      
+      if (purchaseOrders && purchaseOrders.length > 0) {
+        detailedNotes += 'Material Costs:\n'
+        purchaseOrders.forEach(po => {
+          detailedNotes += `PO ${po.po_number}: $${po.total_amount.toFixed(2)}\n`
+        })
+        detailedNotes += '\n'
+      }
+      
+      if (invoiceFormData.notes) {
+        detailedNotes += 'Additional Notes:\n' + invoiceFormData.notes
+      }
+
+      // Create invoice
       const invoiceData = {
         company_id: profile.company_id,
         customer_id: selectedWorkOrderForInvoice.customer_id,
@@ -502,7 +734,7 @@ export default function WorkOrders() {
         tax_amount: taxAmount,
         total_amount: totalAmount,
         paid_amount: 0,
-        notes: invoiceFormData.notes || `Invoice for work order ${selectedWorkOrderForInvoice.wo_number}: ${selectedWorkOrderForInvoice.title}`
+        notes: detailedNotes
       }
 
       const { error } = await supabase
@@ -514,199 +746,14 @@ export default function WorkOrders() {
       // Update the sequence number
       await updateNextNumber('invoice', nextSequence)
 
-      // Create invoice line items
-      const allLineItems = [...laborLineItems, ...materialLineItems, ...inventoryLineItems]
+      alert(`Invoice ${invoiceNumber} created successfully!\n\nLabor: $${laborCosts.toFixed(2)}\nMaterials: $${materialCosts.toFixed(2)}\nTotal: $${totalAmount.toFixed(2)}`)
       
-            console.log('Labor rate found:', laborRate)
-      if (allLineItems.length > 0) {
-        // Get the created invoice ID
-        const { data: createdInvoice } = await supabase
-          .from('invoices')
-          .select('id')
-          .eq('invoice_number', invoiceNumber)
-          .single()
-
-        if (createdInvoice) {
-          // Note: You would need to create an invoice_line_items table to store these
-          // For now, the costs are included in the invoice totals and notes
-          console.log('Line items to be added:', allLineItems)
-        }
-      }
-
-      console.log('Total labor costs:', laborCosts)
-      console.log('Labor details:', laborDetails)
-      alert(`Invoice ${invoiceNumber} created successfully!\n\nTotal: $${totalAmount.toFixed(2)}\n- Labor: $${laborCost.toFixed(2)}\n- Materials: $${materialCost.toFixed(2)}\n- Inventory: $${inventoryCost.toFixed(2)}`)
+      setShowInvoiceModal(false)
       setSelectedWorkOrderForInvoice(null)
       setInvoiceFormData({ subtotal: '', tax_rate: '0', notes: '' })
-      
-      alert(`Invoice ${invoiceNumber} created successfully from work order ${selectedWorkOrderForInvoice.wo_number}!`)
     } catch (error) {
       console.error('Error converting to invoice:', error)
-      alert('Error converting work order to invoice: ' + (error as Error).message)
-    }
-  }
-
-  const generateWorkOrderReport = async (workOrder: WorkOrderWithDetails) => {
-    try {
-      // Get company info
-      const { data: { user } } = await supabase.auth.getUser()
-      if (!user) throw new Error('User not authenticated')
-      
-      const { data: profile } = await supabase
-        .from('profiles')
-        .select('company_id')
-        .eq('id', user.id)
-        .single()
-      
-      if (!profile) throw new Error('Profile not found')
-
-      const { data: company } = await supabase
-        .from('companies')
-        .select('*')
-        .eq('id', profile.company_id)
-        .single()
-
-      // Create PDF
-      const doc = new jsPDF()
-      
-      // Header with company info
-      doc.setFontSize(20)
-      doc.setTextColor(0, 68, 108)
-      doc.text(company?.name || 'Work Order Report', 20, 25)
-      
-      // Work Order Title
-      doc.setFontSize(16)
-      doc.setTextColor(51, 51, 51)
-      doc.text(`Work Order: ${workOrder.wo_number}`, 20, 45)
-      
-      // Work Order Details
-      doc.setFontSize(12)
-      doc.setTextColor(102, 102, 102)
-      
-      let yPos = 60
-      const addLine = (label: string, value: string) => {
-        doc.text(`${label}: ${value}`, 20, yPos)
-        yPos += 8
-      }
-      
-      addLine('Title', workOrder.title)
-      addLine('Customer', workOrder.customer?.customer_type === 'residential' 
-        ? `${workOrder.customer?.first_name} ${workOrder.customer?.last_name}`
-        : workOrder.customer?.company_name || 'N/A')
-      addLine('Status', workOrder.status.toUpperCase())
-      addLine('Priority', workOrder.priority.toUpperCase())
-      addLine('Created', new Date(workOrder.created_at).toLocaleDateString())
-      
-      if (workOrder.scheduled_date) {
-        addLine('Scheduled', new Date(workOrder.scheduled_date).toLocaleDateString())
-      }
-      
-      if (workOrder.completed_date) {
-        addLine('Completed', new Date(workOrder.completed_date).toLocaleDateString())
-      }
-      
-      if (workOrder.assigned_technician) {
-        addLine('Assigned To', `${workOrder.assigned_technician.first_name} ${workOrder.assigned_technician.last_name}`)
-      }
-      
-      yPos += 10
-      
-      // Description
-      if (workOrder.description) {
-        doc.setFontSize(14)
-        doc.setTextColor(51, 51, 51)
-        doc.text('Description:', 20, yPos)
-        yPos += 10
-        
-        doc.setFontSize(10)
-        doc.setTextColor(102, 102, 102)
-        const splitDescription = doc.splitTextToSize(workOrder.description, 170)
-        doc.text(splitDescription, 20, yPos)
-        yPos += splitDescription.length * 5 + 10
-      }
-      
-      // Resolution Notes
-      if (workOrder.resolution_notes) {
-        doc.setFontSize(14)
-        doc.setTextColor(51, 51, 51)
-        doc.text('Resolution Notes:', 20, yPos)
-        yPos += 10
-        
-        doc.setFontSize(10)
-        doc.setTextColor(102, 102, 102)
-        const splitNotes = doc.splitTextToSize(workOrder.resolution_notes, 170)
-        doc.text(splitNotes, 20, yPos)
-        yPos += splitNotes.length * 5 + 15
-      }
-      
-      // Truck Inventory Table
-      if (workOrder.truck_inventory && workOrder.truck_inventory.length > 0) {
-        doc.setFontSize(14)
-        doc.setTextColor(51, 51, 51)
-        doc.text('Materials Used:', 20, yPos)
-        yPos += 10
-        
-        const inventoryData = workOrder.truck_inventory.map((item: any) => [
-          item.inventory_item?.name || 'N/A',
-          item.inventory_item?.sku || 'N/A',
-          item.quantity_used.toString(),
-          `$${item.inventory_item?.unit_price?.toFixed(2) || '0.00'}`,
-          `$${((item.inventory_item?.unit_price || 0) * item.quantity_used).toFixed(2)}`
-        ])
-        
-        autoTable(doc, {
-          startY: yPos,
-          head: [['Item', 'SKU', 'Qty', 'Unit Price', 'Total']],
-          body: inventoryData,
-          theme: 'grid',
-          headStyles: { 
-            fillColor: [0, 68, 108],
-            textColor: 255,
-            fontStyle: 'bold'
-          },
-          styles: { fontSize: 9 }
-        })
-        
-        yPos = (doc as any).lastAutoTable.finalY + 15
-        
-        // Total materials cost
-        const totalCost = workOrder.truck_inventory.reduce((sum: number, item: any) => 
-          sum + ((item.inventory_item?.unit_price || 0) * item.quantity_used), 0)
-        
-        doc.setFontSize(12)
-        doc.setTextColor(51, 51, 51)
-        doc.text(`Total Materials Cost: $${totalCost.toFixed(2)}`, 20, yPos)
-        yPos += 15
-      }
-      
-      // Purchase Orders
-      if (workOrder.purchase_orders && workOrder.purchase_orders.length > 0) {
-        doc.setFontSize(14)
-        doc.setTextColor(51, 51, 51)
-        doc.text('Related Purchase Orders:', 20, yPos)
-        yPos += 10
-        
-        workOrder.purchase_orders.forEach((po: any) => {
-          doc.setFontSize(10)
-          doc.setTextColor(102, 102, 102)
-          doc.text(`• ${po.po_number} - $${po.total_amount.toFixed(2)} (${po.status})`, 25, yPos)
-          yPos += 6
-        })
-        yPos += 10
-      }
-      
-      // Footer
-      doc.setFontSize(8)
-      doc.setTextColor(150, 150, 150)
-      doc.text(`Generated on: ${new Date().toLocaleString()}`, 20, doc.internal.pageSize.height - 20)
-      doc.text(`Page 1 of 1`, doc.internal.pageSize.width - 40, doc.internal.pageSize.height - 20)
-      
-      // Save the PDF
-      doc.save(`Work_Order_${workOrder.wo_number}_Report.pdf`)
-      
-    } catch (error) {
-      console.error('Error generating report:', error)
-      alert('Error generating work order report. Please try again.')
+      alert('Error converting to invoice: ' + (error as Error).message)
     }
   }
 
@@ -723,11 +770,11 @@ export default function WorkOrders() {
 
   const getPriorityColor = (priority: string) => {
     switch (priority) {
-      case 'urgent': return 'text-red-700 bg-red-100 border-red-200'
-      case 'high': return 'text-orange-700 bg-orange-100 border-orange-200'
-      case 'medium': return 'text-yellow-700 bg-yellow-100 border-yellow-200'
-      case 'low': return 'text-green-700 bg-green-100 border-green-200'
-      default: return 'text-gray-700 bg-gray-100 border-gray-200'
+      case 'urgent': return 'text-red-700 bg-red-100'
+      case 'high': return 'text-orange-700 bg-orange-100'
+      case 'medium': return 'text-yellow-700 bg-yellow-100'
+      case 'low': return 'text-green-700 bg-green-100'
+      default: return 'text-gray-700 bg-gray-100'
     }
   }
 
@@ -767,6 +814,46 @@ export default function WorkOrders() {
           <Plus className="w-5 h-5 mr-2" />
           Create Work Order
         </button>
+      </div>
+
+      {/* Stats */}
+      <div className="grid grid-cols-1 md:grid-cols-4 gap-6">
+        <div className="bg-white rounded-lg border border-gray-200 p-6">
+          <div className="flex items-center">
+            <CheckCircle className="w-8 h-8 text-green-600" />
+            <div className="ml-4">
+              <p className="text-sm font-medium text-gray-600">Completed</p>
+              <p className="text-2xl font-bold text-gray-900">{workOrders.filter(wo => wo.status === 'completed').length}</p>
+            </div>
+          </div>
+        </div>
+        <div className="bg-white rounded-lg border border-gray-200 p-6">
+          <div className="flex items-center">
+            <Clock className="w-8 h-8 text-blue-600" />
+            <div className="ml-4">
+              <p className="text-sm font-medium text-gray-600">In Progress</p>
+              <p className="text-2xl font-bold text-gray-900">{workOrders.filter(wo => wo.status === 'in_progress').length}</p>
+            </div>
+          </div>
+        </div>
+        <div className="bg-white rounded-lg border border-gray-200 p-6">
+          <div className="flex items-center">
+            <Calendar className="w-8 h-8 text-purple-600" />
+            <div className="ml-4">
+              <p className="text-sm font-medium text-gray-600">Scheduled</p>
+              <p className="text-2xl font-bold text-gray-900">{workOrders.filter(wo => wo.status === 'scheduled').length}</p>
+            </div>
+          </div>
+        </div>
+        <div className="bg-white rounded-lg border border-gray-200 p-6">
+          <div className="flex items-center">
+            <AlertTriangle className="w-8 h-8 text-yellow-600" />
+            <div className="ml-4">
+              <p className="text-sm font-medium text-gray-600">Open</p>
+              <p className="text-2xl font-bold text-gray-900">{workOrders.filter(wo => wo.status === 'open').length}</p>
+            </div>
+          </div>
+        </div>
       </div>
 
       {/* Filters */}
@@ -831,10 +918,10 @@ export default function WorkOrders() {
                     Status
                   </th>
                   <th className="hidden md:table-cell px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                    Scheduled
+                    Priority
                   </th>
                   <th className="hidden md:table-cell px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                    Photos/POs/Items
+                    Scheduled
                   </th>
                   <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
                     Actions
@@ -847,9 +934,6 @@ export default function WorkOrders() {
                     <td className="px-6 py-4 whitespace-nowrap">
                       <div className="text-sm font-medium text-gray-900">{workOrder.wo_number}</div>
                       <div className="text-sm text-gray-500">{workOrder.title}</div>
-                      <span className={`inline-flex px-2 py-1 text-xs font-medium rounded-full border ${getPriorityColor(workOrder.priority)}`}>
-                        {workOrder.priority}
-                      </span>
                     </td>
                     <td className="hidden md:table-cell px-6 py-4 whitespace-nowrap">
                       <div className="text-sm text-gray-900">
@@ -863,25 +947,28 @@ export default function WorkOrders() {
                       )}
                     </td>
                     <td className="hidden md:table-cell px-6 py-4 whitespace-nowrap">
-                      {workOrder.assignments && workOrder.assignments.length > 0 ? (
-                        <div className="space-y-1">
-                          {workOrder.assignments.map((assignment) => (
-                            <div key={assignment.id} className="text-sm">
-                              <span className={assignment.is_primary ? 'font-medium text-gray-900' : 'text-gray-600'}>
-                                {assignment.technician.first_name} {assignment.technician.last_name}
-                              </span>
-                              {assignment.is_primary && (
-                                <span className="ml-1 text-xs text-blue-600">(Primary)</span>
-                              )}
-                            </div>
-                          ))}
-                        </div>
-                      ) : workOrder.assigned_technician ? (
-                        <div className="text-sm text-gray-900">
-                          {workOrder.assigned_technician.first_name} {workOrder.assigned_technician.last_name}
-                        </div>
-                      ) : (
-                        <span className="text-sm text-gray-500">Unassigned</span>
+                      <div className="text-sm text-gray-900">
+                        {workOrder.assignments && workOrder.assignments.length > 0 ? (
+                          <div>
+                            {workOrder.assignments.map((assignment, index) => (
+                              <div key={assignment.id} className="flex items-center">
+                                <span className={`${assignment.is_primary ? 'font-semibold' : ''}`}>
+                                  {assignment.technician?.first_name} {assignment.technician?.last_name}
+                                </span>
+                                {assignment.is_primary && (
+                                  <span className="ml-1 text-xs text-blue-600">(Primary)</span>
+                                )}
+                              </div>
+                            ))}
+                          </div>
+                        ) : workOrder.assigned_technician ? (
+                          `${workOrder.assigned_technician.first_name} ${workOrder.assigned_technician.last_name}`
+                        ) : (
+                          'Unassigned'
+                        )}
+                      </div>
+                      {workOrder.assigned_dept && (
+                        <div className="text-xs text-gray-500">{workOrder.assigned_dept.name}</div>
                       )}
                     </td>
                     <td className="px-6 py-4 whitespace-nowrap">
@@ -898,41 +985,16 @@ export default function WorkOrders() {
                         <option value="cancelled">Cancelled</option>
                       </select>
                     </td>
+                    <td className="hidden md:table-cell px-6 py-4 whitespace-nowrap">
+                      <span className={`inline-flex px-2 py-1 text-xs font-medium rounded-full ${getPriorityColor(workOrder.priority)}`}>
+                        {workOrder.priority}
+                      </span>
+                    </td>
                     <td className="hidden md:table-cell px-6 py-4 whitespace-nowrap text-sm text-gray-900">
                       {workOrder.scheduled_date ? new Date(workOrder.scheduled_date).toLocaleDateString() : 'Not scheduled'}
                     </td>
-                    <td className="hidden md:table-cell px-6 py-4 whitespace-nowrap">
-                      <div className="flex space-x-3 text-xs text-gray-500">
-                        <span className="flex items-center">
-                          <Camera className="w-3 h-3 mr-1" />
-                          {workOrder.photos?.length || 0}
-                        </span>
-                        <span className="flex items-center">
-                          <ShoppingCart className="w-3 h-3 mr-1" />
-                          {workOrder.purchase_orders?.length || 0}
-                        </span>
-                        <span className="flex items-center">
-                          <Truck className="w-3 h-3 mr-1" />
-                          {workOrder.truck_inventory?.length || 0}
-                        </span>
-                      </div>
-                    </td>
                     <td className="px-6 py-4 whitespace-nowrap text-sm font-medium">
                       <div className="flex space-x-2">
-                        <button
-                          onClick={() => generateWorkOrderReport(workOrder)}
-                          className="text-green-600 hover:text-green-800 p-1.5 transition-all duration-200 hover:bg-green-100 rounded-full hover:shadow-sm transform hover:scale-110"
-                          title="Generate Report"
-                        >
-                          <FileText className="w-4 h-4" />
-                        </button>
-                        <button
-                          onClick={() => setSelectedWorkOrder(workOrder)}
-                          className="text-blue-600 hover:text-blue-800 p-1.5 transition-all duration-200 hover:bg-blue-100 rounded-full hover:shadow-sm transform hover:scale-110"
-                          title="View Work Order"
-                        >
-                          <Eye className="w-4 h-4" />
-                        </button>
                         {workOrder.status === 'completed' && (
                           <button
                             onClick={() => {
@@ -942,32 +1004,59 @@ export default function WorkOrders() {
                             className="text-green-600 hover:text-green-800 p-1.5 transition-all duration-200 hover:bg-green-100 rounded-full hover:shadow-sm transform hover:scale-110"
                             title="Convert to Invoice"
                           >
-                            <ArrowRight className="w-4 h-4" />
+                            <DollarSign className="w-4 h-4" />
                           </button>
                         )}
+                        <button
+                          onClick={() => {
+                            setSelectedWorkOrderForPhotos(workOrder)
+                            loadWorkOrderPhotos(workOrder.id)
+                            setShowPhotoModal(true)
+                          }}
+                          className="text-purple-600 hover:text-purple-800 p-1.5 transition-all duration-200 hover:bg-purple-100 rounded-full hover:shadow-sm transform hover:scale-110"
+                          title="Manage Photos"
+                        >
+                          <Camera className="w-4 h-4" />
+                        </button>
+                        <button
+                          onClick={() => {
+                            setSelectedWorkOrderForInventory(workOrder)
+                            loadInventoryItems()
+                            loadTruckInventory(workOrder.id)
+                            setShowTruckInventoryModal(true)
+                          }}
+                          className="text-orange-600 hover:text-orange-800 p-1.5 transition-all duration-200 hover:bg-orange-100 rounded-full hover:shadow-sm transform hover:scale-110"
+                          title="Manage Inventory"
+                        >
+                          <Package className="w-4 h-4" />
+                        </button>
                         {(currentUser?.profile?.role === 'admin' || currentUser?.profile?.role === 'manager' || currentUser?.profile?.role === 'office') && (
-                          <>
-                            <button
-                              onClick={() => openAssignModal(workOrder)}
-                              className="text-purple-600 hover:text-purple-800 p-1.5 transition-all duration-200 hover:bg-purple-100 rounded-full hover:shadow-sm transform hover:scale-110"
-                              title="Assign Technicians"
-                            >
-                              <Users className="w-4 h-4" />
-                            </button>
-                            <button
-                              onClick={() => startEdit(workOrder)}
-                              className="text-blue-600 hover:text-blue-800 p-1.5 transition-all duration-200 hover:bg-blue-100 rounded-full hover:shadow-sm transform hover:scale-110"
-                            >
-                              <Edit className="w-4 h-4" />
-                            </button>
-                            <button
-                              onClick={() => deleteWorkOrder(workOrder.id)}
-                              className="text-red-600 hover:text-red-800 p-1.5 transition-all duration-200 hover:bg-red-100 rounded-full hover:shadow-sm transform hover:scale-110"
-                            >
-                              <Trash2 className="w-4 h-4" />
-                            </button>
-                          </>
+                          <button
+                            onClick={() => openAssignModal(workOrder)}
+                            className="text-blue-600 hover:text-blue-800 p-1.5 transition-all duration-200 hover:bg-blue-100 rounded-full hover:shadow-sm transform hover:scale-110"
+                            title="Assign Technicians"
+                          >
+                            <Users className="w-4 h-4" />
+                          </button>
                         )}
+                        <button
+                          onClick={() => setSelectedWorkOrder(workOrder)}
+                          className="text-blue-600 hover:text-blue-800 p-1.5 transition-all duration-200 hover:bg-blue-100 rounded-full hover:shadow-sm transform hover:scale-110"
+                        >
+                          <Eye className="w-4 h-4" />
+                        </button>
+                        <button
+                          onClick={() => startEdit(workOrder)}
+                          className="text-blue-600 hover:text-blue-800 p-1.5 transition-all duration-200 hover:bg-blue-100 rounded-full hover:shadow-sm transform hover:scale-110"
+                        >
+                          <Edit className="w-4 h-4" />
+                        </button>
+                        <button
+                          onClick={() => deleteWorkOrder(workOrder.id)}
+                          className="text-red-600 hover:text-red-800 p-1.5 transition-all duration-200 hover:bg-red-100 rounded-full hover:shadow-sm transform hover:scale-110"
+                        >
+                          <Trash2 className="w-4 h-4" />
+                        </button>
                       </div>
                     </td>
                   </tr>
@@ -979,14 +1068,19 @@ export default function WorkOrders() {
           <div className="p-6">
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
               {filteredWorkOrders.map((workOrder) => (
-                <div key={workOrder.id} className={`border-2 rounded-lg p-6 hover:shadow-md transition-shadow cursor-pointer ${getPriorityColor(workOrder.priority)}`}>
+                <div key={workOrder.id} className="border border-gray-200 rounded-lg p-6 hover:shadow-md transition-shadow">
                   <div className="flex items-start justify-between mb-4">
                     <div className="flex-1">
                       <h3 className="text-lg font-semibold text-gray-900 mb-1">{workOrder.wo_number}</h3>
                       <p className="text-sm text-gray-600 mb-2">{workOrder.title}</p>
-                      <span className={`inline-flex px-2 py-1 text-xs font-medium rounded-full ${getStatusColor(workOrder.status)}`}>
-                        {workOrder.status.replace('_', ' ').toUpperCase()}
-                      </span>
+                      <div className="flex space-x-2">
+                        <span className={`inline-flex px-2 py-1 text-xs font-medium rounded-full ${getStatusColor(workOrder.status)}`}>
+                          {workOrder.status.replace('_', ' ').toUpperCase()}
+                        </span>
+                        <span className={`inline-flex px-2 py-1 text-xs font-medium rounded-full ${getPriorityColor(workOrder.priority)}`}>
+                          {workOrder.priority.toUpperCase()}
+                        </span>
+                      </div>
                     </div>
                   </div>
                   
@@ -1003,8 +1097,36 @@ export default function WorkOrders() {
                     
                     {workOrder.customer_site && (
                       <div className="flex items-center text-sm text-gray-600">
-                        <MapPin className="w-4 h-4 mr-3" />
+                        <Building2 className="w-4 h-4 mr-3" />
                         <span>{workOrder.customer_site.site_name}</span>
+                      </div>
+                    )}
+                    
+                    {workOrder.assignments && workOrder.assignments.length > 0 ? (
+                      <div className="flex items-center text-sm text-gray-600">
+                        <Users className="w-4 h-4 mr-3" />
+                        <div>
+                          {workOrder.assignments.map((assignment, index) => (
+                            <div key={assignment.id} className="flex items-center">
+                              <span className={`${assignment.is_primary ? 'font-semibold' : ''}`}>
+                                {assignment.technician?.first_name} {assignment.technician?.last_name}
+                              </span>
+                              {assignment.is_primary && (
+                                <span className="ml-1 text-xs text-blue-600">(Primary)</span>
+                              )}
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    ) : workOrder.assigned_technician ? (
+                      <div className="flex items-center text-sm text-gray-600">
+                        <User className="w-4 h-4 mr-3" />
+                        <span>{workOrder.assigned_technician.first_name} {workOrder.assigned_technician.last_name}</span>
+                      </div>
+                    ) : (
+                      <div className="flex items-center text-sm text-gray-600">
+                        <User className="w-4 h-4 mr-3" />
+                        <span>Unassigned</span>
                       </div>
                     )}
                     
@@ -1014,67 +1136,26 @@ export default function WorkOrders() {
                         <span>{new Date(workOrder.scheduled_date).toLocaleDateString()}</span>
                       </div>
                     )}
-
-                    {workOrder.assignments && workOrder.assignments.length > 0 && (
-                      <div className="flex items-center text-sm text-gray-600">
-                        <Users className="w-4 h-4 mr-3" />
-                        <div>
-                          {workOrder.assignments.map((assignment, index) => (
-                            <span key={assignment.id} className={assignment.is_primary ? 'font-medium' : ''}>
-                              {assignment.technician.first_name} {assignment.technician.last_name}
-                              {assignment.is_primary && ' (Primary)'}
-                              {index < workOrder.assignments!.length - 1 && ', '}
-                            </span>
-                          ))}
-                        </div>
-                      </div>
-                    )}
-
-                    <div className="flex items-center justify-between text-xs text-gray-500">
-                      <span className="flex items-center">
-                        <Camera className="w-3 h-3 mr-1" />
-                        {workOrder.photos?.length || 0} photos
-                      </span>
-                      <span className="flex items-center">
-                        <ShoppingCart className="w-3 h-3 mr-1" />
-                        {workOrder.purchase_orders?.length || 0} POs
-                      </span>
-                      <span className="flex items-center">
-                        <Truck className="w-3 h-3 mr-1" />
-                        {workOrder.truck_inventory?.length || 0} items
-                      </span>
-                    </div>
                   </div>
                   
                   <div className="flex justify-between items-center pt-4 border-t border-gray-200">
+                    <div className="text-sm text-gray-500">
+                      {workOrder.project && `Project: ${workOrder.project.project_name}`}
+                    </div>
                     <div className="flex space-x-2">
                       <button
-                        onClick={() => generateWorkOrderReport(workOrder)}
-                        className="inline-flex items-center px-3 py-1 bg-green-100 text-green-700 rounded-md hover:bg-green-200 transition-colors text-sm"
+                        onClick={() => setSelectedWorkOrder(workOrder)}
+                        className="text-blue-600 hover:text-blue-800 text-sm font-medium"
                       >
-                        <FileText className="w-4 h-4 mr-1" />
-                        Report
+                        View
                       </button>
-                      {workOrder.status === 'completed' && (
-                        <button
-                          onClick={() => {
-                            setSelectedWorkOrderForInvoice(workOrder)
-                            setShowInvoiceModal(true)
-                          }}
-                          className="inline-flex items-center px-3 py-1 bg-green-100 text-green-700 rounded-md hover:bg-green-200 transition-colors text-sm"
-                        >
-                          <ArrowRight className="w-4 h-4 mr-1" />
-                          Invoice
-                        </button>
-                      )}
+                      <button
+                        onClick={() => startEdit(workOrder)}
+                        className="text-blue-600 hover:text-blue-800 text-sm font-medium"
+                      >
+                        Edit
+                      </button>
                     </div>
-                    <button 
-                      onClick={() => setSelectedWorkOrder(workOrder)}
-                      className="text-blue-600 hover:text-blue-800 text-sm font-medium flex items-center"
-                    >
-                      View Details
-                      <Eye className="w-4 h-4 ml-1" />
-                    </button>
                   </div>
                 </div>
               ))}
@@ -1083,7 +1164,7 @@ export default function WorkOrders() {
         )}
       </div>
 
-      {/* Work Order Form Modal */}
+      {/* Form Modal */}
       {showForm && (
         <div className="fixed inset-0 bg-gray-600 bg-opacity-50 flex items-center justify-center p-4 z-50">
           <div className="bg-white rounded-xl shadow-xl max-w-4xl w-full max-h-screen overflow-y-auto">
@@ -1162,17 +1243,17 @@ export default function WorkOrders() {
 
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-2">
-                    Project
+                    Assigned Technician
                   </label>
                   <select
-                    value={formData.project_id}
-                    onChange={(e) => setFormData({ ...formData, project_id: e.target.value })}
+                    value={formData.assigned_to}
+                    onChange={(e) => setFormData({ ...formData, assigned_to: e.target.value })}
                     className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
                   >
-                    <option value="">No Project</option>
-                    {projects.map((project) => (
-                      <option key={project.id} value={project.id}>
-                        {project.project_number} - {project.project_name}
+                    <option value="">Unassigned</option>
+                    {technicians.map((tech) => (
+                      <option key={tech.id} value={tech.id}>
+                        {tech.first_name} {tech.last_name} ({tech.role})
                       </option>
                     ))}
                   </select>
@@ -1191,6 +1272,24 @@ export default function WorkOrders() {
                     {departments.map((dept) => (
                       <option key={dept.id} value={dept.id}>
                         {dept.name}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-2">
+                    Project
+                  </label>
+                  <select
+                    value={formData.project_id}
+                    onChange={(e) => setFormData({ ...formData, project_id: e.target.value })}
+                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                  >
+                    <option value="">No Project</option>
+                    {projects.map((project) => (
+                      <option key={project.id} value={project.id}>
+                        {project.project_name}
                       </option>
                     ))}
                   </select>
@@ -1250,7 +1349,7 @@ export default function WorkOrders() {
                     value={formData.work_type}
                     onChange={(e) => setFormData({ ...formData, work_type: e.target.value })}
                     className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                    placeholder="e.g., Installation, Repair, Maintenance"
+                    placeholder="e.g., HVAC Installation, Plumbing Repair"
                   />
                 </div>
 
@@ -1277,19 +1376,6 @@ export default function WorkOrders() {
                     className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
                   />
                 </div>
-
-                <div className="md:col-span-2">
-                  <label className="block text-sm font-medium text-gray-700 mb-2">
-                    Resolution Notes
-                  </label>
-                  <textarea
-                    value={formData.resolution_notes}
-                    onChange={(e) => setFormData({ ...formData, resolution_notes: e.target.value })}
-                    rows={3}
-                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                    placeholder="Notes about work performed, issues resolved, etc."
-                  />
-                </div>
               </div>
 
               <div className="flex justify-end space-x-3 pt-6 border-t border-gray-200">
@@ -1314,17 +1400,14 @@ export default function WorkOrders() {
       )}
 
       {/* Work Order Detail Modal */}
-      {selectedWorkOrder && !showAssignModal && (
+      {selectedWorkOrder && (
         <div className="fixed inset-0 bg-gray-600 bg-opacity-50 flex items-center justify-center p-4 z-50">
-          <div className="bg-white rounded-xl shadow-xl max-w-6xl w-full max-h-screen overflow-y-auto">
+          <div className="bg-white rounded-xl shadow-xl max-w-4xl w-full max-h-screen overflow-y-auto">
             <div className="p-6 border-b border-gray-200">
               <div className="flex items-center justify-between">
-                <div>
-                  <h3 className="text-xl font-semibold text-gray-900">
-                    Work Order {selectedWorkOrder.wo_number}
-                  </h3>
-                  <p className="text-gray-600">{selectedWorkOrder.title}</p>
-                </div>
+                <h3 className="text-xl font-semibold text-gray-900">
+                  Work Order {selectedWorkOrder.wo_number}
+                </h3>
                 <button
                   onClick={() => setSelectedWorkOrder(null)}
                   className="text-gray-400 hover:text-gray-600"
@@ -1335,304 +1418,141 @@ export default function WorkOrders() {
             </div>
             
             <div className="p-6">
-              <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
-                {/* Left Column */}
-                <div className="space-y-6">
-                  {/* Basic Information */}
-                  <div>
-                    <h4 className="text-lg font-medium text-gray-900 mb-4">Work Order Information</h4>
-                    <div className="space-y-3">
-                      <div className="flex justify-between">
-                        <span className="text-sm font-medium text-gray-700">Status:</span>
-                        <span className={`inline-flex px-2 py-1 text-xs font-medium rounded-full ${getStatusColor(selectedWorkOrder.status)}`}>
-                          {selectedWorkOrder.status.replace('_', ' ').toUpperCase()}
-                        </span>
-                      </div>
-                      <div className="flex justify-between">
-                        <span className="text-sm font-medium text-gray-700">Priority:</span>
-                        <span className={`inline-flex px-2 py-1 text-xs font-medium rounded-full border ${getPriorityColor(selectedWorkOrder.priority)}`}>
-                          {selectedWorkOrder.priority.toUpperCase()}
-                        </span>
-                      </div>
-                      {selectedWorkOrder.scheduled_date && (
-                        <div className="flex justify-between">
-                          <span className="text-sm font-medium text-gray-700">Scheduled:</span>
-                          <span className="text-sm text-gray-900">
-                            {new Date(selectedWorkOrder.scheduled_date).toLocaleString()}
-                          </span>
-                        </div>
-                      )}
-                      {selectedWorkOrder.work_type && (
-                        <div className="flex justify-between">
-                          <span className="text-sm font-medium text-gray-700">Work Type:</span>
-                          <span className="text-sm text-gray-900">{selectedWorkOrder.work_type}</span>
-                        </div>
-                      )}
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
+                <div>
+                  <h4 className="text-lg font-medium text-gray-900 mb-4">Work Order Information</h4>
+                  <div className="space-y-3">
+                    <div className="flex justify-between">
+                      <span className="text-sm font-medium text-gray-700">Title:</span>
+                      <span className="text-sm text-gray-900">{selectedWorkOrder.title}</span>
                     </div>
-                  </div>
-
-                  {/* Customer Information */}
-                  <div>
-                    <h4 className="text-lg font-medium text-gray-900 mb-4">Customer Information</h4>
-                    <div className="space-y-3">
+                    <div className="flex justify-between">
+                      <span className="text-sm font-medium text-gray-700">Status:</span>
+                      <span className={`inline-flex px-2 py-1 text-xs font-medium rounded-full ${getStatusColor(selectedWorkOrder.status)}`}>
+                        {selectedWorkOrder.status.replace('_', ' ').toUpperCase()}
+                      </span>
+                    </div>
+                    <div className="flex justify-between">
+                      <span className="text-sm font-medium text-gray-700">Priority:</span>
+                      <span className={`inline-flex px-2 py-1 text-xs font-medium rounded-full ${getPriorityColor(selectedWorkOrder.priority)}`}>
+                        {selectedWorkOrder.priority.toUpperCase()}
+                      </span>
+                    </div>
+                    {selectedWorkOrder.scheduled_date && (
                       <div className="flex justify-between">
-                        <span className="text-sm font-medium text-gray-700">Customer:</span>
+                        <span className="text-sm font-medium text-gray-700">Scheduled:</span>
                         <span className="text-sm text-gray-900">
-                          {selectedWorkOrder.customer?.customer_type === 'residential' 
-                            ? `${selectedWorkOrder.customer?.first_name} ${selectedWorkOrder.customer?.last_name}`
-                            : selectedWorkOrder.customer?.company_name
-                          }
+                          {new Date(selectedWorkOrder.scheduled_date).toLocaleString()}
                         </span>
                       </div>
-                      {selectedWorkOrder.customer_site && (
-                        <div className="flex justify-between">
-                          <span className="text-sm font-medium text-gray-700">Site:</span>
-                          <span className="text-sm text-gray-900">{selectedWorkOrder.customer_site.site_name}</span>
-                        </div>
-                      )}
-                      {selectedWorkOrder.customer?.email && (
-                        <div className="flex justify-between">
-                          <span className="text-sm font-medium text-gray-700">Email:</span>
-                          <span className="text-sm text-gray-900">{selectedWorkOrder.customer.email}</span>
-                        </div>
-                      )}
-                      {selectedWorkOrder.customer?.phone && (
-                        <div className="flex justify-between">
-                          <span className="text-sm font-medium text-gray-700">Phone:</span>
-                          <span className="text-sm text-gray-900">{selectedWorkOrder.customer.phone}</span>
-                        </div>
-                      )}
-                    </div>
-                  </div>
-
-                  {/* Assigned Technicians */}
-                  <div>
-                    <h4 className="text-lg font-medium text-gray-900 mb-4">Assigned Technicians</h4>
-                    {selectedWorkOrder.assignments && selectedWorkOrder.assignments.length > 0 ? (
-                      <div className="space-y-2">
-                        {selectedWorkOrder.assignments.map((assignment) => (
-                          <div key={assignment.id} className="flex items-center justify-between p-3 bg-gray-50 rounded-lg">
-                            <div className="flex items-center space-x-3">
-                              <div className="w-8 h-8 bg-blue-100 rounded-full flex items-center justify-center">
-                                <User className="w-4 h-4 text-blue-600" />
-                              </div>
-                              <div>
-                                <p className="text-sm font-medium text-gray-900">
-                                  {assignment.technician.first_name} {assignment.technician.last_name}
-                                </p>
-                                <p className="text-xs text-gray-500">{assignment.technician.role}</p>
-                              </div>
-                            </div>
-                            {assignment.is_primary && (
-                              <span className="inline-flex px-2 py-1 text-xs font-medium rounded-full bg-blue-100 text-blue-800">
-                                Primary
-                              </span>
-                            )}
-                          </div>
-                        ))}
+                    )}
+                    {selectedWorkOrder.work_type && (
+                      <div className="flex justify-between">
+                        <span className="text-sm font-medium text-gray-700">Work Type:</span>
+                        <span className="text-sm text-gray-900">{selectedWorkOrder.work_type}</span>
                       </div>
-                    ) : selectedWorkOrder.assigned_technician ? (
-                      <div className="flex items-center space-x-3 p-3 bg-gray-50 rounded-lg">
-                        <div className="w-8 h-8 bg-blue-100 rounded-full flex items-center justify-center">
-                          <User className="w-4 h-4 text-blue-600" />
-                        </div>
-                        <div>
-                          <p className="text-sm font-medium text-gray-900">
-                            {selectedWorkOrder.assigned_technician.first_name} {selectedWorkOrder.assigned_technician.last_name}
-                          </p>
-                          <p className="text-xs text-gray-500">{selectedWorkOrder.assigned_technician.role}</p>
-                        </div>
-                      </div>
-                    ) : (
-                      <p className="text-gray-500 text-center py-4">No technicians assigned</p>
                     )}
                   </div>
-                </div>
 
-                {/* Right Column */}
-                <div className="space-y-6">
-                  {/* Description */}
                   {selectedWorkOrder.description && (
-                    <div>
-                      <h4 className="text-lg font-medium text-gray-900 mb-4">Description</h4>
+                    <div className="mt-6">
+                      <h5 className="text-md font-medium text-gray-900 mb-3">Description</h5>
                       <div className="bg-gray-50 rounded-lg p-4">
                         <p className="text-sm text-gray-700">{selectedWorkOrder.description}</p>
                       </div>
                     </div>
                   )}
+                </div>
 
-                  {/* Resolution Notes */}
-                  {selectedWorkOrder.resolution_notes && (
-                    <div>
-                      <h4 className="text-lg font-medium text-gray-900 mb-4">Resolution Notes</h4>
-                      <div className="bg-green-50 rounded-lg p-4">
-                        <p className="text-sm text-gray-700">{selectedWorkOrder.resolution_notes}</p>
+                <div>
+                  <h4 className="text-lg font-medium text-gray-900 mb-4">Customer & Assignment</h4>
+                  <div className="space-y-3">
+                    <div className="flex justify-between">
+                      <span className="text-sm font-medium text-gray-700">Customer:</span>
+                      <span className="text-sm text-gray-900">
+                        {selectedWorkOrder.customer?.customer_type === 'residential' 
+                          ? `${selectedWorkOrder.customer?.first_name} ${selectedWorkOrder.customer?.last_name}`
+                          : selectedWorkOrder.customer?.company_name
+                        }
+                      </span>
+                    </div>
+                    {selectedWorkOrder.customer_site && (
+                      <div className="flex justify-between">
+                        <span className="text-sm font-medium text-gray-700">Site:</span>
+                        <span className="text-sm text-gray-900">{selectedWorkOrder.customer_site.site_name}</span>
+                      </div>
+                    )}
+                    <div className="flex justify-between">
+                      <span className="text-sm font-medium text-gray-700">Assigned To:</span>
+                      <span className="text-sm text-gray-900">
+                        {selectedWorkOrder.assignments && selectedWorkOrder.assignments.length > 0 ? (
+                          <div>
+                            {selectedWorkOrder.assignments.map((assignment) => (
+                              <div key={assignment.id}>
+                                {assignment.technician?.first_name} {assignment.technician?.last_name}
+                                {assignment.is_primary && <span className="text-blue-600"> (Primary)</span>}
+                              </div>
+                            ))}
+                          </div>
+                        ) : selectedWorkOrder.assigned_technician ? (
+                          `${selectedWorkOrder.assigned_technician.first_name} ${selectedWorkOrder.assigned_technician.last_name}`
+                        ) : (
+                          'Unassigned'
+                        )}
+                      </span>
+                    </div>
+                    {selectedWorkOrder.project && (
+                      <div className="flex justify-between">
+                        <span className="text-sm font-medium text-gray-700">Project:</span>
+                        <span className="text-sm text-gray-900">{selectedWorkOrder.project.project_name}</span>
+                      </div>
+                    )}
+                  </div>
+
+                  {selectedWorkOrder.customer && (
+                    <div className="mt-6">
+                      <h5 className="text-md font-medium text-gray-900 mb-3">Customer Contact</h5>
+                      <div className="space-y-2">
+                        {selectedWorkOrder.customer.email && (
+                          <div className="flex items-center text-sm text-gray-600">
+                            <span className="font-medium mr-2">Email:</span>
+                            <span>{selectedWorkOrder.customer.email}</span>
+                          </div>
+                        )}
+                        {selectedWorkOrder.customer.phone && (
+                          <div className="flex items-center text-sm text-gray-600">
+                            <span className="font-medium mr-2">Phone:</span>
+                            <span>{selectedWorkOrder.customer.phone}</span>
+                          </div>
+                        )}
+                        {selectedWorkOrder.customer.address && (
+                          <div className="flex items-center text-sm text-gray-600">
+                            <span className="font-medium mr-2">Address:</span>
+                            <span>{selectedWorkOrder.customer.address}</span>
+                          </div>
+                        )}
                       </div>
                     </div>
                   )}
-
-                  {/* Photos */}
-                  <div>
-                    <h4 className="text-lg font-medium text-gray-900 mb-4">
-                      Photos ({selectedWorkOrder.photos?.length || 0})
-                    </h4>
-                    {selectedWorkOrder.photos && selectedWorkOrder.photos.length > 0 ? (
-                      <div className="grid grid-cols-2 gap-4">
-                        {selectedWorkOrder.photos.map((photo) => (
-                          <div key={photo.id} className="relative group">
-                            <img
-                              src={photo.photo_url}
-                              alt={photo.caption || 'Work order photo'}
-                              className="w-full h-32 object-cover rounded-lg border border-gray-200"
-                            />
-                            {photo.caption && (
-                              <div className="absolute bottom-0 left-0 right-0 bg-black bg-opacity-75 text-white text-xs p-2 rounded-b-lg">
-                                {photo.caption}
-                              </div>
-                            )}
-                            <div className="absolute top-2 right-2 bg-black bg-opacity-75 text-white text-xs px-2 py-1 rounded">
-                              {photo.uploader ? `${photo.uploader.first_name} ${photo.uploader.last_name}` : 'Unknown'}
-                            </div>
-                          </div>
-                        ))}
-                      </div>
-                    ) : (
-                      <div className="text-center py-8 text-gray-500">
-                        <Camera className="w-12 h-12 mx-auto mb-4 text-gray-300" />
-                        <p>No photos uploaded</p>
-                      </div>
-                    )}
-                  </div>
-
-                  {/* Purchase Orders */}
-                  <div>
-                    <h4 className="text-lg font-medium text-gray-900 mb-4">
-                      Purchase Orders ({selectedWorkOrder.purchase_orders?.length || 0})
-                    </h4>
-                    {selectedWorkOrder.purchase_orders && selectedWorkOrder.purchase_orders.length > 0 ? (
-                      <div className="space-y-3">
-                        {selectedWorkOrder.purchase_orders.map((po) => (
-                          <div key={po.id} className="border border-gray-200 rounded-lg p-4">
-                            <div className="flex items-center justify-between">
-                              <div>
-                                <h5 className="font-medium text-gray-900">{po.po_number}</h5>
-                                <p className="text-sm text-gray-600">{po.vendor?.name}</p>
-                                <p className="text-xs text-gray-500">
-                                  Created: {new Date(po.created_at).toLocaleDateString()}
-                                </p>
-                              </div>
-                              <div className="text-right">
-                                <p className="font-medium text-gray-900">${po.total_amount.toFixed(2)}</p>
-                                <span className={`inline-flex px-2 py-1 text-xs font-medium rounded-full ${
-                                  po.status === 'received' ? 'bg-green-100 text-green-800' :
-                                  po.status === 'approved' ? 'bg-blue-100 text-blue-800' :
-                                  po.status === 'sent' ? 'bg-purple-100 text-purple-800' :
-                                  'bg-yellow-100 text-yellow-800'
-                                }`}>
-                                  {po.status}
-                                </span>
-                              </div>
-                            </div>
-                          </div>
-                        ))}
-                      </div>
-                    ) : (
-                      <div className="text-center py-8 text-gray-500">
-                        <Package className="w-12 h-12 mx-auto mb-4 text-gray-300" />
-                        <p>No purchase orders created</p>
-                      </div>
-                    )}
-                  </div>
                 </div>
               </div>
 
-              {/* Truck Inventory Section */}
-              <div className="mb-6">
-                <h4 className="text-lg font-medium text-gray-900 mb-3">Materials Used ({selectedWorkOrder.truck_inventory?.length || 0})</h4>
-                
-                {selectedWorkOrder.truck_inventory && selectedWorkOrder.truck_inventory.length > 0 ? (
-                  <div className="space-y-3">
-                    {selectedWorkOrder.truck_inventory.map((item: any) => (
-                      <div key={item.id} className="border border-gray-200 rounded-lg p-4">
-                        <div className="flex items-center justify-between">
-                          <div>
-                            <h5 className="font-medium text-gray-900">{item.inventory_item?.name}</h5>
-                            <p className="text-sm text-gray-600">SKU: {item.inventory_item?.sku}</p>
-                            <p className="text-sm text-gray-600">Quantity Used: {item.quantity_used}</p>
-                            {item.notes && (
-                              <p className="text-sm text-gray-500 mt-1">{item.notes}</p>
-                            )}
-                          </div>
-                          <div className="text-right">
-                            <p className="font-medium text-gray-900">
-                              ${((item.inventory_item?.unit_price || 0) * item.quantity_used).toFixed(2)}
-                            </p>
-                            <p className="text-sm text-gray-500">
-                              ${item.inventory_item?.unit_price?.toFixed(2)} each
-                            </p>
-                          </div>
-                        </div>
-                      </div>
-                    ))}
-                    <div className="border-t border-gray-200 pt-3">
-                      <div className="flex justify-between items-center">
-                        <span className="font-medium text-gray-900">Total Materials Cost:</span>
-                        <span className="font-bold text-lg text-green-600">
-                          ${selectedWorkOrder.truck_inventory.reduce((sum: number, item: any) => 
-                            sum + ((item.inventory_item?.unit_price || 0) * item.quantity_used), 0
-                          ).toFixed(2)}
-                        </span>
-                      </div>
-                    </div>
-                  </div>
-                ) : (
-                  <div className="text-center py-8 text-gray-500">
-                    <Package className="w-12 h-12 mx-auto mb-4 text-gray-300" />
-                    <p>No materials used yet</p>
-                  </div>
-                )}
-              </div>
-
-              {/* Notes */}
               {selectedWorkOrder.notes && (
                 <div className="mt-8">
-                  <h4 className="text-lg font-medium text-gray-900 mb-4">Notes</h4>
+                  <h5 className="text-md font-medium text-gray-900 mb-3">Notes</h5>
                   <div className="bg-gray-50 rounded-lg p-4">
                     <p className="text-sm text-gray-700">{selectedWorkOrder.notes}</p>
                   </div>
                 </div>
               )}
 
-              {/* Action Buttons */}
-              <div className="flex justify-between items-center pt-6 border-t border-gray-200">
-                <div className="flex space-x-3">
-                  <button
-                    onClick={() => generateWorkOrderReport(selectedWorkOrder)}
-                    className="px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 transition-colors"
-                  >
-                    <FileText className="w-4 h-4 mr-2 inline" />
-                    Generate Report
-                  </button>
-                  {selectedWorkOrder.status === 'completed' && (
-                    <button
-                      onClick={() => {
-                        setSelectedWorkOrderForInvoice(selectedWorkOrder)
-                        setShowInvoiceModal(true)
-                      }}
-                      className="px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 transition-colors"
-                    >
-                      Convert to Invoice
-                    </button>
-                  )}
-                  {(currentUser?.profile?.role === 'admin' || currentUser?.profile?.role === 'manager' || currentUser?.profile?.role === 'office') && (
-                    <button
-                      onClick={() => startEdit(selectedWorkOrder)}
-                      className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors"
-                    >
-                      Edit Work Order
-                    </button>
-                  )}
-                </div>
+              <div className="flex justify-end space-x-3 mt-8 pt-6 border-t border-gray-200">
+                <button
+                  onClick={() => startEdit(selectedWorkOrder)}
+                  className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors"
+                >
+                  Edit Work Order
+                </button>
                 <button
                   onClick={() => setSelectedWorkOrder(null)}
                   className="px-4 py-2 border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-50 transition-colors"
@@ -1645,93 +1565,96 @@ export default function WorkOrders() {
         </div>
       )}
 
-      {/* Multi-Assignment Modal */}
-      {showAssignModal && selectedWorkOrder && (
+      {/* Assign Technicians Modal */}
+      {showAssignModal && selectedWorkOrderForAssign && (
         <div className="fixed inset-0 bg-gray-600 bg-opacity-50 flex items-center justify-center p-4 z-50">
           <div className="bg-white rounded-xl shadow-xl max-w-2xl w-full">
             <div className="p-6 border-b border-gray-200">
-              <div className="flex items-center justify-between">
-                <h3 className="text-lg font-semibold text-gray-900">
-                  Assign Technicians to {selectedWorkOrder.wo_number}
-                </h3>
-                <button
-                  onClick={() => setShowAssignModal(false)}
-                  className="text-gray-400 hover:text-gray-600"
-                >
-                  <X className="w-6 h-6" />
-                </button>
-              </div>
+              <h3 className="text-lg font-semibold text-gray-900">
+                Assign Technicians - {selectedWorkOrderForAssign.wo_number}
+              </h3>
             </div>
             
             <div className="p-6">
-              <div className="space-y-4">
-                <div>
-                  <h4 className="text-md font-medium text-gray-900 mb-3">Select Technicians</h4>
-                  <div className="space-y-2 max-h-64 overflow-y-auto">
-                    {technicians.map((tech) => (
-                      <div
-                        key={tech.id}
-                        className={`flex items-center justify-between p-3 border rounded-lg cursor-pointer transition-colors ${
-                          selectedTechnicians.includes(tech.id)
-                            ? 'border-blue-300 bg-blue-50'
-                            : 'border-gray-200 hover:bg-gray-50'
-                        }`}
-                        onClick={() => {
-                          if (selectedTechnicians.includes(tech.id)) {
-                            setSelectedTechnicians(selectedTechnicians.filter(id => id !== tech.id))
-                            if (primaryTechnician === tech.id) {
-                              setPrimaryTechnician('')
-                            }
-                          } else {
-                            setSelectedTechnicians([...selectedTechnicians, tech.id])
+              <div className="mb-6">
+                <h4 className="text-md font-medium text-gray-900 mb-4">Select Technicians</h4>
+                <div className="space-y-2 max-h-64 overflow-y-auto">
+                  {technicians.map((tech) => (
+                    <div
+                      key={tech.id}
+                      className={`flex items-center justify-between p-3 border rounded-lg cursor-pointer transition-colors ${
+                        selectedTechnicians.includes(tech.id)
+                          ? 'border-blue-300 bg-blue-50'
+                          : 'border-gray-200 hover:bg-gray-50'
+                      }`}
+                      onClick={() => {
+                        if (selectedTechnicians.includes(tech.id)) {
+                          setSelectedTechnicians(selectedTechnicians.filter(id => id !== tech.id))
+                          if (primaryTechnician === tech.id) {
+                            setPrimaryTechnician('')
                           }
-                        }}
-                      >
-                        <div className="flex items-center space-x-3">
-                          <div className="w-8 h-8 bg-blue-100 rounded-full flex items-center justify-center">
-                            <User className="w-4 h-4 text-blue-600" />
-                          </div>
-                          <div>
-                            <p className="text-sm font-medium text-gray-900">
-                              {tech.first_name} {tech.last_name}
-                            </p>
-                            <p className="text-xs text-gray-500">{tech.role}</p>
-                          </div>
+                        } else {
+                          setSelectedTechnicians([...selectedTechnicians, tech.id])
+                        }
+                      }}
+                    >
+                      <div className="flex items-center space-x-3">
+                        <div className="w-8 h-8 bg-blue-100 rounded-full flex items-center justify-center">
+                          <span className="text-blue-600 font-medium text-sm">
+                            {tech.first_name[0]}{tech.last_name[0]}
+                          </span>
                         </div>
+                        <div>
+                          <p className="text-sm font-medium text-gray-900">
+                            {tech.first_name} {tech.last_name}
+                          </p>
+                          <p className="text-xs text-gray-500 capitalize">{tech.role}</p>
+                        </div>
+                      </div>
+                      <div className="flex items-center space-x-2">
+                        {selectedTechnicians.includes(tech.id) && (
+                          <button
+                            onClick={(e) => {
+                              e.stopPropagation()
+                              setPrimaryTechnician(tech.id)
+                            }}
+                            className={`px-2 py-1 text-xs rounded ${
+                              primaryTechnician === tech.id
+                                ? 'bg-blue-600 text-white'
+                                : 'bg-gray-200 text-gray-700 hover:bg-gray-300'
+                            }`}
+                          >
+                            {primaryTechnician === tech.id ? 'Primary' : 'Set Primary'}
+                          </button>
+                        )}
                         <input
                           type="checkbox"
                           checked={selectedTechnicians.includes(tech.id)}
                           onChange={() => {}}
                           className="h-4 w-4 text-blue-600 focus:ring-blue-500 border-gray-300 rounded"
+                          onClick={(e) => e.stopPropagation()}
                         />
                       </div>
-                    ))}
-                  </div>
+                    </div>
+                  ))}
                 </div>
-
-                {selectedTechnicians.length > 1 && (
-                  <div>
-                    <h4 className="text-md font-medium text-gray-900 mb-3">Primary Technician</h4>
-                    <select
-                      value={primaryTechnician}
-                      onChange={(e) => setPrimaryTechnician(e.target.value)}
-                      className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                    >
-                      <option value="">Select Primary Technician</option>
-                      {selectedTechnicians.map((techId) => {
-                        const tech = technicians.find(t => t.id === techId)
-                        return tech ? (
-                          <option key={tech.id} value={tech.id}>
-                            {tech.first_name} {tech.last_name}
-                          </option>
-                        ) : null
-                      })}
-                    </select>
-                  </div>
-                )}
               </div>
 
-              <div className="flex justify-end space-x-3 mt-6">
+              {selectedTechnicians.length > 0 && (
+                <div className="mb-6 p-4 bg-green-50 rounded-lg">
+                  <h5 className="text-sm font-medium text-green-900 mb-2">
+                    Selected Technicians ({selectedTechnicians.length})
+                  </h5>
+                  <div className="text-sm text-green-800">
+                    {selectedTechnicians.map(techId => {
+                      const tech = technicians.find(t => t.id === techId)
+                      return tech ? `${tech.first_name} ${tech.last_name}${primaryTechnician === techId ? ' (Primary)' : ''}` : ''
+                    }).join(', ')}
+                  </div>
+                </div>
+              )}
+
+              <div className="flex justify-end space-x-3">
                 <button
                   onClick={() => setShowAssignModal(false)}
                   className="px-4 py-2 text-gray-700 bg-gray-100 rounded-lg hover:bg-gray-200 transition-colors"
@@ -1739,7 +1662,7 @@ export default function WorkOrders() {
                   Cancel
                 </button>
                 <button
-                  onClick={handleMultiAssign}
+                  onClick={handleAssignTechnicians}
                   disabled={selectedTechnicians.length === 0}
                   className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
                 >
@@ -1751,113 +1674,302 @@ export default function WorkOrders() {
         </div>
       )}
 
+      {/* Photo Management Modal */}
+      {showPhotoModal && selectedWorkOrderForPhotos && (
+        <div className="fixed inset-0 bg-gray-600 bg-opacity-50 flex items-center justify-center p-4 z-50">
+          <div className="bg-white rounded-xl shadow-xl max-w-4xl w-full max-h-screen overflow-y-auto">
+            <div className="p-6 border-b border-gray-200">
+              <div className="flex items-center justify-between">
+                <h3 className="text-lg font-semibold text-gray-900">
+                  Photos - {selectedWorkOrderForPhotos.wo_number}
+                </h3>
+                <button
+                  onClick={() => setShowPhotoModal(false)}
+                  className="text-gray-400 hover:text-gray-600"
+                >
+                  <X className="w-6 h-6" />
+                </button>
+              </div>
+            </div>
+            
+            <div className="p-6">
+              {/* Upload Section */}
+              <div className="mb-6">
+                <label className="block text-sm font-medium text-gray-700 mb-2">
+                  Upload Photo
+                </label>
+                <input
+                  type="file"
+                  accept="image/*"
+                  onChange={handlePhotoUpload}
+                  disabled={uploadingPhoto}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                />
+                {uploadingPhoto && (
+                  <p className="text-sm text-blue-600 mt-2">Uploading photo...</p>
+                )}
+              </div>
+
+              {/* Photos Grid */}
+              {workOrderPhotos.length > 0 ? (
+                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+                  {workOrderPhotos.map((photo) => (
+                    <div key={photo.id} className="border border-gray-200 rounded-lg overflow-hidden">
+                      <img
+                        src={photo.photo_url}
+                        alt={photo.caption || 'Work order photo'}
+                        className="w-full h-48 object-cover"
+                      />
+                      <div className="p-4">
+                        {photo.caption && (
+                          <p className="text-sm text-gray-900 mb-2">{photo.caption}</p>
+                        )}
+                        <div className="flex items-center justify-between">
+                          <div className="text-xs text-gray-500">
+                            {photo.uploaded_by_user && 
+                              `${photo.uploaded_by_user.first_name} ${photo.uploaded_by_user.last_name}`
+                            }
+                            <br />
+                            {new Date(photo.created_at).toLocaleDateString()}
+                          </div>
+                          <button
+                            onClick={() => deletePhoto(photo.id)}
+                            className="text-red-600 hover:text-red-800 text-sm"
+                          >
+                            Delete
+                          </button>
+                        </div>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              ) : (
+                <div className="text-center py-12">
+                  <Camera className="w-12 h-12 text-gray-400 mx-auto mb-4" />
+                  <h3 className="text-lg font-medium text-gray-900 mb-2">No photos uploaded</h3>
+                  <p className="text-gray-600">Upload photos to document the work performed</p>
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Truck Inventory Modal */}
+      {showTruckInventoryModal && selectedWorkOrderForInventory && (
+        <div className="fixed inset-0 bg-gray-600 bg-opacity-50 flex items-center justify-center p-4 z-50">
+          <div className="bg-white rounded-xl shadow-xl max-w-4xl w-full max-h-screen overflow-y-auto">
+            <div className="p-6 border-b border-gray-200">
+              <div className="flex items-center justify-between">
+                <h3 className="text-lg font-semibold text-gray-900">
+                  Inventory Used - {selectedWorkOrderForInventory.wo_number}
+                </h3>
+                <button
+                  onClick={() => setShowTruckInventoryModal(false)}
+                  className="text-gray-400 hover:text-gray-600"
+                >
+                  <X className="w-6 h-6" />
+                </button>
+              </div>
+            </div>
+            
+            <div className="p-6">
+              {/* Add Inventory Usage Form */}
+              <form onSubmit={handleInventorySubmit} className="mb-6 p-4 bg-gray-50 rounded-lg">
+                <h4 className="text-md font-medium text-gray-900 mb-4">Add Inventory Usage</h4>
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-2">
+                      Inventory Item
+                    </label>
+                    <select
+                      value={newInventoryUsage.inventory_item_id}
+                      onChange={(e) => setNewInventoryUsage({ ...newInventoryUsage, inventory_item_id: e.target.value })}
+                      className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                      required
+                    >
+                      <option value="">Select Item</option>
+                      {inventoryItems.map((item) => (
+                        <option key={item.id} value={item.id}>
+                          {item.name} (Stock: {item.quantity})
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-2">
+                      Quantity Used
+                    </label>
+                    <input
+                      type="number"
+                      step="0.01"
+                      min="0"
+                      value={newInventoryUsage.quantity_used}
+                      onChange={(e) => setNewInventoryUsage({ ...newInventoryUsage, quantity_used: e.target.value })}
+                      className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                      required
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-2">
+                      Notes
+                    </label>
+                    <input
+                      type="text"
+                      value={newInventoryUsage.notes}
+                      onChange={(e) => setNewInventoryUsage({ ...newInventoryUsage, notes: e.target.value })}
+                      className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                      placeholder="Optional notes"
+                    />
+                  </div>
+                </div>
+                <div className="mt-4">
+                  <button
+                    type="submit"
+                    className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors"
+                  >
+                    Add Usage
+                  </button>
+                </div>
+              </form>
+
+              {/* Inventory Usage List */}
+              {truckInventoryUsed.length > 0 ? (
+                <div className="overflow-x-auto">
+                  <table className="w-full">
+                    <thead className="bg-gray-50">
+                      <tr>
+                        <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                          Item
+                        </th>
+                        <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                          Quantity Used
+                        </th>
+                        <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                          Used By
+                        </th>
+                        <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                          Date
+                        </th>
+                        <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                          Actions
+                        </th>
+                      </tr>
+                    </thead>
+                    <tbody className="bg-white divide-y divide-gray-200">
+                      {truckInventoryUsed.map((usage) => (
+                        <tr key={usage.id}>
+                          <td className="px-6 py-4 whitespace-nowrap">
+                            <div className="text-sm font-medium text-gray-900">
+                              {usage.inventory_item?.name}
+                            </div>
+                            <div className="text-sm text-gray-500">
+                              SKU: {usage.inventory_item?.sku}
+                            </div>
+                          </td>
+                          <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
+                            {usage.quantity_used}
+                          </td>
+                          <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
+                            {usage.used_by_user?.first_name} {usage.used_by_user?.last_name}
+                          </td>
+                          <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
+                            {new Date(usage.created_at).toLocaleDateString()}
+                          </td>
+                          <td className="px-6 py-4 whitespace-nowrap text-sm font-medium">
+                            <button
+                              onClick={() => deleteInventoryUsage(usage.id)}
+                              className="text-red-600 hover:text-red-800"
+                            >
+                              Delete
+                            </button>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              ) : (
+                <div className="text-center py-12">
+                  <Package className="w-12 h-12 text-gray-400 mx-auto mb-4" />
+                  <h3 className="text-lg font-medium text-gray-900 mb-2">No inventory used</h3>
+                  <p className="text-gray-600">Track inventory items used for this work order</p>
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Convert to Invoice Modal */}
       {showInvoiceModal && selectedWorkOrderForInvoice && (
         <div className="fixed inset-0 bg-gray-600 bg-opacity-50 flex items-center justify-center p-4 z-50">
-          <div className="bg-white rounded-xl shadow-xl max-w-md w-full">
+          <div className="bg-white rounded-xl shadow-xl max-w-2xl w-full">
             <div className="p-6 border-b border-gray-200">
               <h3 className="text-lg font-semibold text-gray-900">
-                Convert Work Order to Invoice
+                Convert to Invoice - {selectedWorkOrderForInvoice.wo_number}
               </h3>
-              <p className="text-sm text-gray-600 mt-1">
-                {selectedWorkOrderForInvoice.wo_number} - {selectedWorkOrderForInvoice.title}
-              </p>
             </div>
             
-            <div className="p-6 space-y-4">
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-2">
-                  Customer
-                </label>
-                <div className="px-3 py-2 bg-gray-50 border border-gray-200 rounded-lg text-sm text-gray-900">
-                  {selectedWorkOrderForInvoice.customer?.customer_type === 'residential' 
-                    ? `${selectedWorkOrderForInvoice.customer?.first_name} ${selectedWorkOrderForInvoice.customer?.last_name}`
-                    : selectedWorkOrderForInvoice.customer?.company_name
-                  }
+            <div className="p-6">
+              <div className="space-y-4">
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-2">
+                    Additional Amount (Optional)
+                  </label>
+                  <input
+                    type="number"
+                    step="0.01"
+                    min="0"
+                    value={invoiceFormData.subtotal}
+                    onChange={(e) => setInvoiceFormData({ ...invoiceFormData, subtotal: e.target.value })}
+                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                    placeholder="0.00"
+                  />
+                  <p className="text-xs text-gray-500 mt-1">
+                    Labor and material costs will be calculated automatically
+                  </p>
+                </div>
+
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-2">
+                    Tax Rate (%)
+                  </label>
+                  <input
+                    type="number"
+                    step="0.01"
+                    min="0"
+                    max="100"
+                    value={invoiceFormData.tax_rate}
+                    onChange={(e) => setInvoiceFormData({ ...invoiceFormData, tax_rate: e.target.value })}
+                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-2">
+                    Additional Notes
+                  </label>
+                  <textarea
+                    value={invoiceFormData.notes}
+                    onChange={(e) => setInvoiceFormData({ ...invoiceFormData, notes: e.target.value })}
+                    rows={3}
+                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                    placeholder="Any additional notes for the invoice..."
+                  />
                 </div>
               </div>
 
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-2">
-                  Subtotal *
-                </label>
-                <input
-                  type="number"
-                  step="0.01"
-                  min="0"
-                  value={invoiceFormData.subtotal}
-                  onChange={(e) => setInvoiceFormData({ ...invoiceFormData, subtotal: e.target.value })}
-                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                  placeholder="0.00"
-                  required
-                />
-              </div>
-
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-2">
-                  Tax Rate (%)
-                </label>
-                <input
-                  type="number"
-                  step="0.01"
-                  min="0"
-                  max="100"
-                  value={invoiceFormData.tax_rate}
-                  onChange={(e) => setInvoiceFormData({ ...invoiceFormData, tax_rate: e.target.value })}
-                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                  placeholder="0.00"
-                />
-              </div>
-
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-2">
-                  Notes
-                </label>
-                <textarea
-                  value={invoiceFormData.notes}
-                  onChange={(e) => setInvoiceFormData({ ...invoiceFormData, notes: e.target.value })}
-                  rows={3}
-                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                  placeholder="Additional notes for the invoice..."
-                />
-              </div>
-
-              {/* Invoice Preview */}
-              {invoiceFormData.subtotal && (
-                <div className="bg-gray-50 rounded-lg p-4">
-                  <h4 className="text-sm font-medium text-gray-900 mb-2">Invoice Preview</h4>
-                  <div className="space-y-1 text-sm">
-                    <div className="flex justify-between">
-                      <span>Subtotal:</span>
-                      <span>${parseFloat(invoiceFormData.subtotal || '0').toFixed(2)}</span>
-                    </div>
-                    <div className="flex justify-between">
-                      <span>Tax ({invoiceFormData.tax_rate}%):</span>
-                      <span>${((parseFloat(invoiceFormData.subtotal || '0') * parseFloat(invoiceFormData.tax_rate || '0')) / 100).toFixed(2)}</span>
-                    </div>
-                    <div className="flex justify-between font-medium pt-1 border-t border-gray-200">
-                      <span>Total:</span>
-                      <span>${(parseFloat(invoiceFormData.subtotal || '0') + ((parseFloat(invoiceFormData.subtotal || '0') * parseFloat(invoiceFormData.tax_rate || '0')) / 100)).toFixed(2)}</span>
-                    </div>
-                  </div>
-                </div>
-              )}
-
-              <div className="flex justify-end space-x-3 pt-4">
+              <div className="flex justify-end space-x-3 mt-6">
                 <button
-                  onClick={() => {
-                    setShowInvoiceModal(false)
-                    setSelectedWorkOrderForInvoice(null)
-                    setInvoiceFormData({ subtotal: '', tax_rate: '0', notes: '' })
-                  }}
+                  onClick={() => setShowInvoiceModal(false)}
                   className="px-4 py-2 text-gray-700 bg-gray-100 rounded-lg hover:bg-gray-200 transition-colors"
                 >
                   Cancel
                 </button>
                 <button
                   onClick={convertToInvoice}
-                  disabled={!invoiceFormData.subtotal}
-                  className="px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+                  className="px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 transition-colors"
                 >
                   Create Invoice
                 </button>
