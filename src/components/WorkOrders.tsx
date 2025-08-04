@@ -425,7 +425,7 @@ export default function WorkOrders() {
         subtotal: subtotal,
         tax_rate: 0,
         tax_amount: 0,
-        total_amount: totalCost,
+        total_amount: subtotal,
         paid_amount: 0,
         notes: notes
       }
