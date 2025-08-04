@@ -423,9 +423,9 @@ export default function WorkOrders() {
         issue_date: new Date().toISOString().split('T')[0],
         due_date: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString().split('T')[0], // 30 days from now
         subtotal: subtotal,
-        tax_rate: taxRate,
-        tax_amount: taxAmount,
-        total_amount: totalAmount,
+        tax_rate: 0,
+        tax_amount: 0,
+        total_amount: totalCost,
         paid_amount: 0,
         notes: notes
       }
