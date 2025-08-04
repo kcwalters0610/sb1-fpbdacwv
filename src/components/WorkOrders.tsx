@@ -502,7 +502,6 @@ export default function WorkOrders() {
         tax_amount: taxAmount,
         total_amount: totalAmount,
         paid_amount: 0,
-          console.log(`Calculating for ${user?.first_name} ${user?.last_name}: ${totalHours} hours`)
         notes: invoiceFormData.notes || `Invoice for work order ${selectedWorkOrderForInvoice.wo_number}: ${selectedWorkOrderForInvoice.title}`
       }
 
