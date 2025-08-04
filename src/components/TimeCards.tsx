@@ -398,24 +398,48 @@ export default function TimeCards() {
       }
       
       if (!acc[entry.user_id][date]) {
-        acc[entry.user_id][date] = { regular: 0, overtime: 0 }
+        acc[entry.user_id][date] = { regular: 0, overtime: 0, double_time: 0 }
       }
       
-      const dailyTotal = acc[entry.user_id][date].regular + acc[entry.user_id][date].overtime + hours
+      const dailyTotal = acc[entry.user_id][date].regular + acc[entry.user_id][date].overtime + acc[entry.user_id][date].double_time + hours
       
       if (dailyTotal <= 8) {
         acc[entry.user_id][date].regular += hours
-      } else if (acc[entry.user_id][date].regular < 8) {
-        const regularHours = 8 - acc[entry.user_id][date].regular
-        const overtimeHours = hours - regularHours
-        acc[entry.user_id][date].regular += regularHours
-        acc[entry.user_id][date].overtime += overtimeHours
+      } else if (dailyTotal <= 12) {
+        if (acc[entry.user_id][date].regular < 8) {
+          const regularHours = Math.min(8 - acc[entry.user_id][date].regular, hours)
+          const overtimeHours = hours - regularHours
+          acc[entry.user_id][date].regular += regularHours
+          acc[entry.user_id][date].overtime += overtimeHours
+        } else {
+          acc[entry.user_id][date].overtime += hours
+        }
       } else {
-        acc[entry.user_id][date].overtime += hours
+        if (acc[entry.user_id][date].regular < 8) {
+          const regularHours = Math.min(8 - acc[entry.user_id][date].regular, hours)
+          const remainingHours = hours - regularHours
+          acc[entry.user_id][date].regular += regularHours
+          
+          if (acc[entry.user_id][date].overtime < 4) {
+            const overtimeHours = Math.min(4 - acc[entry.user_id][date].overtime, remainingHours)
+            const doubleTimeHours = remainingHours - overtimeHours
+            acc[entry.user_id][date].overtime += overtimeHours
+            acc[entry.user_id][date].double_time += doubleTimeHours
+          } else {
+            acc[entry.user_id][date].double_time += remainingHours
+          }
+        } else if (acc[entry.user_id][date].overtime < 4) {
+          const overtimeHours = Math.min(4 - acc[entry.user_id][date].overtime, hours)
+          const doubleTimeHours = hours - overtimeHours
+          acc[entry.user_id][date].overtime += overtimeHours
+          acc[entry.user_id][date].double_time += doubleTimeHours
+        } else {
+          acc[entry.user_id][date].double_time += hours
+        }
       }
       
       return acc
-    }, {} as Record<string, Record<string, { regular: number; overtime: number }>>)
+    }, {} as Record<string, Record<string, { regular: number; overtime: number; double_time: number }>>)
     
     return breakdown
   }
@@ -635,10 +659,10 @@ export default function TimeCards() {
                         </div>
                         <div className="text-sm text-gray-500">{entry.user?.role}</div>
                       </td>
-                    <td className="hidden md:table-cell px-6 py-4 whitespace-nowrap">
-                      <div className="text-sm text-gray-900">
-                        {new Date(entry.start_time).toLocaleDateString()}
-                      </div>
+                      <td className="hidden md:table-cell px-6 py-4 whitespace-nowrap">
+                        <div className="text-sm text-gray-900">
+                          {new Date(entry.start_time).toLocaleDateString()}
+                        </div>
                         <div className="text-sm text-gray-500">
                           {new Date(entry.start_time).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })} - 
                           {entry.end_time && new Date(entry.end_time).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
@@ -897,8 +921,7 @@ export default function TimeCards() {
                         
                         const existingRegular = userBreakdown.regular
                         const existingOvertime = userBreakdown.overtime
-                        const existingDoubleTime = userBreakdown.double_time
-                        const totalExisting = existingRegular + existingOvertime + existingDoubleTime
+                        const totalExisting = existingRegular + existingOvertime
                         
                         if (totalExisting <= 8) {
                           return (
@@ -906,51 +929,24 @@ export default function TimeCards() {
                               Regular
                             </span>
                           )
-                        } else if (totalExisting <= 12) {
-                          if (existingRegular < 8) {
-                            const regularPortion = Math.min(8 - existingRegular, hours)
-                            const overtimePortion = hours - regularPortion
-                            return (
-                              <div className="space-y-1">
-                                <span className="inline-flex px-2 py-1 text-xs font-semibold rounded-full bg-green-100 text-green-800">
-                                  {regularPortion.toFixed(1)}h Regular
-                                </span>
-                                <span className="inline-flex px-2 py-1 text-xs font-semibold rounded-full bg-orange-100 text-orange-800">
-                                  {overtimePortion.toFixed(1)}h Overtime
-                                </span>
-                              </div>
-                            )
-                          } else {
-                            return (
-                              <span className="inline-flex px-2 py-1 text-xs font-semibold rounded-full bg-orange-100 text-orange-800">
-                                Overtime
-                              </span>
-                            )
-                          }
-                        } else {
-                          // Complex calculation for entries that span multiple time types
+                        } else if (existingRegular < 8) {
                           const regularPortion = 8 - existingRegular
-                          const overtimePortion = Math.min(4 - existingOvertime, hours - Math.max(0, regularPortion))
-                          const doubleTimePortion = hours - Math.max(0, regularPortion) - Math.max(0, overtimePortion)
-                          
+                          const overtimePortion = hours - regularPortion
                           return (
                             <div className="space-y-1">
-                              {regularPortion > 0 && (
-                                <span className="inline-flex px-2 py-1 text-xs font-semibold rounded-full bg-green-100 text-green-800">
-                                  {regularPortion.toFixed(1)}h Regular
-                                </span>
-                              )}
-                              {overtimePortion > 0 && (
-                                <span className="inline-flex px-2 py-1 text-xs font-semibold rounded-full bg-orange-100 text-orange-800">
-                                  {overtimePortion.toFixed(1)}h Overtime
-                                </span>
-                              )}
-                              {doubleTimePortion > 0 && (
-                                <span className="inline-flex px-2 py-1 text-xs font-semibold rounded-full bg-red-100 text-red-800">
-                                  {doubleTimePortion.toFixed(1)}h Double Time
-                                </span>
-                              )}
+                              <span className="inline-flex px-2 py-1 text-xs font-semibold rounded-full bg-green-100 text-green-800">
+                                {regularPortion.toFixed(1)}h Regular
+                              </span>
+                              <span className="inline-flex px-2 py-1 text-xs font-semibold rounded-full bg-orange-100 text-orange-800">
+                                {overtimePortion.toFixed(1)}h Overtime
+                              </span>
                             </div>
+                          )
+                        } else {
+                          return (
+                            <span className="inline-flex px-2 py-1 text-xs font-semibold rounded-full bg-orange-100 text-orange-800">
+                              Overtime
+                            </span>
                           )
                         }
                       })()}
