@@ -75,7 +75,8 @@ export default function TimeCards() {
     end_time: '',
     duration_minutes: 0,
     description: '',
-    entry_type: 'work' as 'work' | 'pto' | 'sick' | 'holiday'
+    entry_type: 'work' as 'work' | 'pto' | 'sick' | 'holiday',
+    time_type: 'regular' as 'regular' | 'overtime'
   })
 
   useEffect(() => {
@@ -327,7 +328,8 @@ export default function TimeCards() {
       end_time: '',
       duration_minutes: 0,
       description: '',
-      entry_type: 'work'
+      entry_type: 'work',
+      time_type: 'regular'
     })
     setEditingEntry(null)
   }
@@ -340,7 +342,8 @@ export default function TimeCards() {
       end_time: entry.end_time ? entry.end_time.slice(0, 16) : '',
       duration_minutes: entry.duration_minutes,
       description: entry.description,
-      entry_type: entry.entry_type
+      entry_type: entry.entry_type,
+      time_type: 'regular' // Default to regular when editing
     })
     setEditingEntry(entry)
     setShowForm(true)
@@ -1019,6 +1022,25 @@ export default function TimeCards() {
                 </select>
               </div>
 
+              {formData.entry_type === 'work' && (
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-2">
+                    Time Type
+                  </label>
+                  <select
+                    value={formData.time_type}
+                    onChange={(e) => setFormData({ ...formData, time_type: e.target.value as any })}
+                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                    required
+                  >
+                    <option value="regular">Regular Time</option>
+                    <option value="overtime">Overtime</option>
+                  </select>
+                  <p className="text-xs text-gray-500 mt-1">
+                    Select whether this is regular time (first 8 hours) or overtime
+                  </p>
+                </div>
+              )}
               {formData.entry_type === 'work' && (
                 <>
                   <div>
