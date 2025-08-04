@@ -602,7 +602,7 @@ export default function WorkOrders() {
 
       // Calculate labor costs from time entries
       console.log('Loading time entries for work order:', selectedWorkOrderForInvoice.id)
-      
+      // Get time entries for this work order with user details
       const { data: timeEntries, error: timeError } = await supabase
         .from('time_entries')
         .select(`
@@ -669,19 +669,26 @@ export default function WorkOrders() {
 
         laborDetails.push(`${user?.first_name} ${user?.last_name}: ${totalHours.toFixed(1)} hours @ $${hourlyRate}/hr = $${userLaborCost.toFixed(2)}`)
       }
-
+        .select(`
+          *,
+          user:profiles(first_name, last_name, role)
+        `)
       console.log('Total labor costs:', laborCosts)
       console.log('Labor details:', laborDetails)
 
-      // Load purchase orders for this work order
+      // Get purchase orders for this work order with items
       const { data: purchaseOrders, error: poError } = await supabase
         .from('purchase_orders')
-        .select('id, po_number, total_amount, status, created_at')
+        .select(`
+          *,
+          items:purchase_order_items(*),
+          vendor:vendors(name)
+        `)
         .eq('work_order_id', selectedWorkOrderForInvoice.id)
         .in('status', ['received', 'approved'])
         .order('created_at', { ascending: false })
 
-      if (poError) {
+      // Get truck inventory used for this work order with item details
         console.error('Error loading purchase orders:', poError)
         throw poError
       }
@@ -696,28 +703,144 @@ export default function WorkOrders() {
       // Calculate total
       const subtotal = laborCosts + materialCosts + (parseFloat(invoiceFormData.subtotal) || 0)
       const taxRate = parseFloat(invoiceFormData.tax_rate) || 0
-      const taxAmount = (subtotal * taxRate) / 100
+        .select(`
+          *,
+          inventory_item:inventory_items(name, unit_price)
+        `)
       const totalAmount = subtotal + taxAmount
+
+      // Get labor rates for cost calculation
+      const { data: laborRates } = await supabase
+        .from('labor_rates')
+        .select('*')
+        .eq('company_id', profile.company_id)
+        .eq('is_active', true)
 
       // Generate invoice number
       const { formattedNumber: invoiceNumber, nextSequence } = await getNextNumber('invoice')
 
-      // Prepare detailed notes
-      let detailedNotes = `Invoice for work order ${selectedWorkOrderForInvoice.wo_number}: ${selectedWorkOrderForInvoice.title}\n\n`
-      
-      if (laborDetails.length > 0) {
-        detailedNotes += 'Labor Costs:\n' + laborDetails.join('\n') + '\n\n'
-      }
+      // Calculate labor costs by employee
+      const laborLineItems: any[] = []
+      const userTimeMap = (timeEntries || []).reduce((acc, entry) => {
+        const userId = entry.user_id
+        const userName = `${entry.user?.first_name || ''} ${entry.user?.last_name || ''}`.trim()
+        const userRole = entry.user?.role || 'tech'
+        
+        if (!acc[userId]) {
+          acc[userId] = { 
+            name: userName, 
+            role: userRole, 
+            hours: 0, 
+            regularHours: 0, 
+            overtimeHours: 0 
+          }
+        }
+        
+        const hours = entry.duration_minutes / 60
+        acc[userId].hours += hours
+        
+        // Simple overtime calculation (over 8 hours per day)
+        const currentRegular = acc[userId].regularHours
+        if (currentRegular < 8) {
+          const regularToAdd = Math.min(8 - currentRegular, hours)
+          const overtimeToAdd = hours - regularToAdd
+          acc[userId].regularHours += regularToAdd
+          acc[userId].overtimeHours += overtimeToAdd
+        } else {
+          acc[userId].overtimeHours += hours
+        }
+        
+        return acc
+      }, {} as Record<string, any>)
+
+      // Create labor line items
+      Object.values(userTimeMap).forEach((userData: any) => {
+        if (userData.hours > 0) {
+          // Find labor rate for this user's role
+          const laborRate = laborRates?.find(rate => 
+            rate.role === userData.role
+          ) || { hourly_rate: 75, overtime_rate: 112.5 } // Default rates
+          
+          // Add regular hours line item
+          if (userData.regularHours > 0) {
+            laborLineItems.push({
+              description: `Labor - ${userData.name} (Regular Hours)`,
+              quantity: userData.regularHours,
+              unit_price: laborRate.hourly_rate,
+              amount: userData.regularHours * laborRate.hourly_rate
+            })
+          }
+          
+          // Add overtime hours line item
+          if (userData.overtimeHours > 0) {
+            laborLineItems.push({
+              description: `Labor - ${userData.name} (Overtime Hours)`,
+              quantity: userData.overtimeHours,
+              unit_price: laborRate.overtime_rate,
+              amount: userData.overtimeHours * laborRate.overtime_rate
+            })
+          }
+        }
+      })
+
+      // Calculate purchase order costs
+      const purchaseOrderLineItems: any[] = []
+      ;(purchaseOrders || []).forEach(po => {
+        if (po.items && po.items.length > 0) {
+          po.items.forEach((item: any) => {
+            purchaseOrderLineItems.push({
+              description: `Purchase Order ${po.po_number} - ${item.description}`,
+              quantity: item.quantity,
+              unit_price: item.unit_price,
+              amount: item.amount
+            })
+          })
+        } else {
+          // If no detailed items, use the total amount
+          purchaseOrderLineItems.push({
+            description: `Purchase Order ${po.po_number} - ${po.vendor?.name || 'Vendor'}`,
+            quantity: 1,
+            unit_price: po.total_amount,
+            amount: po.total_amount
+          })
+        }
+      })
       
       if (purchaseOrders && purchaseOrders.length > 0) {
         detailedNotes += 'Material Costs:\n'
         purchaseOrders.forEach(po => {
-          detailedNotes += `PO ${po.po_number}: $${po.total_amount.toFixed(2)}\n`
+      // Calculate truck inventory costs
+      const truckInventoryLineItems: any[] = []
+      ;(truckInventoryUsed || []).forEach(item => {
+        const unitPrice = item.inventory_item?.unit_price || 0
+        truckInventoryLineItems.push({
+          description: `Truck Stock - ${item.inventory_item?.name || 'Inventory Item'}`,
+          quantity: item.quantity_used,
+          unit_price: unitPrice,
+          amount: item.quantity_used * unitPrice
         })
-        detailedNotes += '\n'
+      })
+
+      // Add resolution notes as a line item if present
+      const resolutionLineItems: any[] = []
+      if (workOrder.resolution_notes) {
+        resolutionLineItems.push({
+          description: `Work Completed: ${workOrder.resolution_notes}`,
+          quantity: 1,
+          unit_price: 0,
+          amount: 0
+        })
       }
+
+      // Combine all line items
+      const allLineItems = [
+        ...laborLineItems,
+        ...purchaseOrderLineItems,
+        ...truckInventoryLineItems,
+        ...resolutionLineItems
+      ]
       
-      if (invoiceFormData.notes) {
+      const subtotal = allLineItems.reduce((sum, item) => sum + item.amount, 0)
         detailedNotes += 'Additional Notes:\n' + invoiceFormData.notes
       }
 
@@ -734,7 +857,10 @@ export default function WorkOrders() {
         tax_amount: taxAmount,
         total_amount: totalAmount,
         paid_amount: 0,
-        notes: detailedNotes
+        notes: `Invoice for work order ${workOrder.wo_number}: ${workOrder.title}`,
+        settings: {
+          line_items: allLineItems
+        }
       }
 
       const { error } = await supabase
@@ -745,7 +871,11 @@ export default function WorkOrders() {
       
       // Update the sequence number
       await updateNextNumber('invoice', nextSequence)
-
+      const laborTotal = laborLineItems.reduce((sum, item) => sum + item.amount, 0)
+      const materialTotal = purchaseOrderLineItems.reduce((sum, item) => sum + item.amount, 0)
+      const inventoryTotal = truckInventoryLineItems.reduce((sum, item) => sum + item.amount, 0)
+      
+      alert(`Invoice ${invoiceNumber} created successfully!\n\nSummary:\nLabor: $${laborTotal.toFixed(2)} (${Object.keys(userTimeMap).length} employees)\nMaterials: $${materialTotal.toFixed(2)} (${purchaseOrders?.length || 0} POs)\nInventory: $${inventoryTotal.toFixed(2)} (${truckInventoryUsed?.length || 0} items)\nSubtotal: $${subtotal.toFixed(2)}\nTax: $${taxAmount.toFixed(2)}\nTotal: $${totalAmount.toFixed(2)}`)
       alert(`Invoice ${invoiceNumber} created successfully!\n\nLabor: $${laborCosts.toFixed(2)}\nMaterials: $${materialCosts.toFixed(2)}\nTotal: $${totalAmount.toFixed(2)}`)
       
       setShowInvoiceModal(false)
