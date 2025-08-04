@@ -853,6 +853,76 @@ export default function TimeCards() {
                       <div className="text-sm font-medium text-gray-900">
                         {formatDuration(entry.duration_minutes)}
                       </div>
+                      <div className="text-xs text-gray-500">
+                        {(() => {
+                          const userId = entry.user_id
+                          const date = new Date(entry.start_time).toDateString()
+                          const userBreakdown = timeBreakdown[userId]?.[date]
+                          const hours = entry.duration_minutes / 60
+                          
+                          if (!userBreakdown) return 'Regular'
+                          
+                          // Calculate if this entry would be overtime
+                          const existingRegular = userBreakdown.regular
+                          const existingOvertime = userBreakdown.overtime
+                          const totalExisting = existingRegular + existingOvertime
+                          
+                          if (totalExisting <= 8) {
+                            return 'Regular'
+                          } else if (existingRegular < 8) {
+                            return 'Mixed'
+                          } else {
+                            return 'Overtime'
+                          }
+                        })()}
+                      </div>
+                    </td>
+                    <td className="hidden md:table-cell px-6 py-4 whitespace-nowrap">
+                      {(() => {
+                        const userId = entry.user_id
+                        const date = new Date(entry.start_time).toDateString()
+                        const userBreakdown = timeBreakdown[userId]?.[date]
+                        const hours = entry.duration_minutes / 60
+                        
+                        if (!userBreakdown) {
+                          return (
+                            <span className="inline-flex px-2 py-1 text-xs font-semibold rounded-full bg-green-100 text-green-800">
+                              Regular
+                            </span>
+                          )
+                        }
+                        
+                        const existingRegular = userBreakdown.regular
+                        const existingOvertime = userBreakdown.overtime
+                        const totalExisting = existingRegular + existingOvertime
+                        
+                        if (totalExisting <= 8) {
+                          return (
+                            <span className="inline-flex px-2 py-1 text-xs font-semibold rounded-full bg-green-100 text-green-800">
+                              Regular
+                            </span>
+                          )
+                        } else if (existingRegular < 8) {
+                          const regularPortion = 8 - existingRegular
+                          const overtimePortion = hours - regularPortion
+                          return (
+                            <div className="space-y-1">
+                              <span className="inline-flex px-2 py-1 text-xs font-semibold rounded-full bg-green-100 text-green-800">
+                                {regularPortion.toFixed(1)}h Regular
+                              </span>
+                              <span className="inline-flex px-2 py-1 text-xs font-semibold rounded-full bg-orange-100 text-orange-800">
+                                {overtimePortion.toFixed(1)}h Overtime
+                              </span>
+                            </div>
+                          )
+                        } else {
+                          return (
+                            <span className="inline-flex px-2 py-1 text-xs font-semibold rounded-full bg-orange-100 text-orange-800">
+                              Overtime
+                            </span>
+                          )
+                        }
+                      })()}
                     </td>
                     <td className="hidden md:table-cell px-6 py-4 whitespace-nowrap">
                       <span className={`inline-flex px-2 py-1 text-xs font-semibold rounded-full ${getEntryTypeColor(entry.entry_type)}`}>
