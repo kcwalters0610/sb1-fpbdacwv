@@ -384,6 +384,49 @@ export default function TimeCards() {
   const totalHours = timeEntries.reduce((sum, entry) => sum + entry.duration_minutes, 0)
   const approvedHours = timeEntries.filter(e => e.status === 'approved').reduce((sum, entry) => sum + entry.duration_minutes, 0)
 
+  // Calculate regular and overtime hours
+  const calculateTimeBreakdown = (entries: TimeEntry[]) => {
+    const breakdown = entries.reduce((acc, entry) => {
+      const hours = entry.duration_minutes / 60
+      const date = new Date(entry.start_time).toDateString()
+      
+      if (!acc[entry.user_id]) {
+        acc[entry.user_id] = {}
+      }
+      
+      if (!acc[entry.user_id][date]) {
+        acc[entry.user_id][date] = { regular: 0, overtime: 0 }
+      }
+      
+      const dailyTotal = acc[entry.user_id][date].regular + acc[entry.user_id][date].overtime + hours
+      
+      if (dailyTotal <= 8) {
+        acc[entry.user_id][date].regular += hours
+      } else if (acc[entry.user_id][date].regular < 8) {
+        const regularHours = 8 - acc[entry.user_id][date].regular
+        const overtimeHours = hours - regularHours
+        acc[entry.user_id][date].regular += regularHours
+        acc[entry.user_id][date].overtime += overtimeHours
+      } else {
+        acc[entry.user_id][date].overtime += hours
+      }
+      
+      return acc
+    }, {} as Record<string, Record<string, { regular: number; overtime: number }>>)
+    
+    return breakdown
+  }
+
+  const timeBreakdown = calculateTimeBreakdown(timeEntries.filter(e => e.status === 'approved'))
+  
+  const totalRegularHours = Object.values(timeBreakdown).reduce((total, userDays) => {
+    return total + Object.values(userDays).reduce((userTotal, day) => userTotal + day.regular, 0)
+  }, 0)
+  
+  const totalOvertimeHours = Object.values(timeBreakdown).reduce((total, userDays) => {
+    return total + Object.values(userDays).reduce((userTotal, day) => userTotal + day.overtime, 0)
+  }, 0)
+
   // Report calculations
   const reportTotalHours = reportData.reduce((sum, entry) => sum + entry.duration_minutes, 0)
   const reportByUser = reportData.reduce((acc, entry) => {
@@ -699,13 +742,33 @@ export default function TimeCards() {
 
       {/* Stats */}
       {activeTab === 'timecards' && (
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+        <div className="grid grid-cols-1 md:grid-cols-5 gap-6">
           <div className="bg-white rounded-lg border border-gray-200 p-6">
             <div className="flex items-center">
               <Clock className="w-8 h-8 text-blue-600" />
               <div className="ml-4">
                 <p className="text-sm font-medium text-gray-600">Total Hours</p>
                 <p className="text-2xl font-bold text-gray-900">{formatDuration(totalHours)}</p>
+              </div>
+            </div>
+          </div>
+
+          <div className="bg-white rounded-lg border border-gray-200 p-6">
+            <div className="flex items-center">
+              <Clock className="w-8 h-8 text-green-600" />
+              <div className="ml-4">
+                <p className="text-sm font-medium text-gray-600">Regular Hours</p>
+                <p className="text-2xl font-bold text-gray-900">{totalRegularHours.toFixed(1)}h</p>
+              </div>
+            </div>
+          </div>
+
+          <div className="bg-white rounded-lg border border-gray-200 p-6">
+            <div className="flex items-center">
+              <Clock className="w-8 h-8 text-orange-600" />
+              <div className="ml-4">
+                <p className="text-sm font-medium text-gray-600">Overtime Hours</p>
+                <p className="text-2xl font-bold text-gray-900">{totalOvertimeHours.toFixed(1)}h</p>
               </div>
             </div>
           </div>
@@ -750,6 +813,9 @@ export default function TimeCards() {
                   </th>
                   <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
                     Duration
+                  </th>
+                  <th className="hidden md:table-cell px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                    Time Type
                   </th>
                   <th className="hidden md:table-cell px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
                     Type
