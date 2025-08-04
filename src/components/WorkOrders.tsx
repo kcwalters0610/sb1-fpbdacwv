@@ -584,6 +584,70 @@ export default function WorkOrders() {
     }
   }
 
+  const handleCreateInvoice = async () => {
+    if (!selectedWorkOrderForInvoice) return
+
+    try {
+      // Get current user's company_id
+      const { data: { user } } = await supabase.auth.getUser()
+      if (!user) throw new Error('User not authenticated')
+      
+      const { data: profile } = await supabase
+        .from('profiles')
+        .select('company_id')
+        .eq('id', user.id)
+        .single()
+      
+      if (!profile) throw new Error('User profile not found')
+
+      // Generate invoice number
+      const { formattedNumber: invoiceNumber, nextSequence } = await getNextNumber('invoice')
+      
+      // Calculate totals from work order
+      const subtotal = selectedWorkOrderForInvoice.actual_hours ? 
+        selectedWorkOrderForInvoice.actual_hours * 75 : // Default rate of $75/hour
+        500 // Default amount if no hours tracked
+      
+      const taxRate = 8.5 // Default tax rate
+      const taxAmount = (subtotal * taxRate) / 100
+      const totalAmount = subtotal + taxAmount
+
+      // Create invoice
+      const invoiceData = {
+        company_id: profile.company_id,
+        customer_id: selectedWorkOrderForInvoice.customer_id,
+        work_order_id: selectedWorkOrderForInvoice.id,
+        invoice_number: invoiceNumber,
+        status: 'draft',
+        issue_date: new Date().toISOString().split('T')[0],
+        due_date: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString().split('T')[0], // 30 days from now
+        subtotal,
+        tax_rate: taxRate,
+        tax_amount: taxAmount,
+        total_amount: totalAmount,
+        paid_amount: 0,
+        notes: `Invoice generated from Work Order ${selectedWorkOrderForInvoice.wo_number}`
+      }
+
+      const { error } = await supabase
+        .from('invoices')
+        .insert([invoiceData])
+      
+      if (error) throw error
+      
+      // Update the sequence number
+      await updateNextNumber('invoice', nextSequence)
+
+      alert(`Invoice ${invoiceNumber} created successfully!`)
+      setShowInvoiceModal(false)
+      setSelectedWorkOrderForInvoice(null)
+      
+    } catch (error) {
+      console.error('Error creating invoice:', error)
+      alert('Error creating invoice: ' + (error as Error).message)
+    }
+  }
+
   const convertToInvoice = async () => {
     if (!selectedWorkOrderForInvoice) return
 
@@ -1808,7 +1872,7 @@ export default function WorkOrders() {
                   Cancel
                 </button>
                 <button
-                  onClick={convertToInvoice}
+                  onClick={handleCreateInvoice}
                   className="px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 transition-colors"
                 >
                   Create Invoice
