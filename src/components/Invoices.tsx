@@ -38,6 +38,14 @@ export default function Invoices() {
   const [selectedInvoice, setSelectedInvoice] = useState<Invoice | null>(null)
   const [searchTerm, setSearchTerm] = useState('')
   const [statusFilter, setStatusFilter] = useState('')
+  const [showPaymentModal, setShowPaymentModal] = useState(false)
+  const [paymentForm, setPaymentForm] = useState({
+    amount: '',
+    payment_method: 'check' as 'check' | 'cash' | 'card' | 'ach' | 'wire' | 'other',
+    payment_date: new Date().toISOString().split('T')[0],
+    reference_number: '',
+    notes: ''
+  })
 
   const [formData, setFormData] = useState({
     invoice_number: '',
@@ -230,6 +238,54 @@ export default function Invoices() {
       loadData()
     } catch (error) {
       console.error('Error updating status:', error)
+    }
+  }
+
+  const submitPayment = async (e: React.FormEvent) => {
+    e.preventDefault()
+    if (!selectedInvoice) return
+    
+    setLoading(true)
+    try {
+      const paymentAmount = parseFloat(paymentForm.amount)
+      const newPaidAmount = selectedInvoice.paid_amount + paymentAmount
+      const newStatus = newPaidAmount >= selectedInvoice.total_amount ? 'paid' : selectedInvoice.status
+      
+      const updateData: any = {
+        paid_amount: newPaidAmount,
+        status: newStatus
+      }
+      
+      if (newStatus === 'paid') {
+        updateData.payment_date = paymentForm.payment_date
+      }
+      
+      // Update invoice notes with payment record
+      const paymentRecord = `Payment: $${paymentAmount.toFixed(2)} via ${paymentForm.payment_method} on ${new Date(paymentForm.payment_date).toLocaleDateString()}${paymentForm.reference_number ? ` (Ref: ${paymentForm.reference_number})` : ''}${paymentForm.notes ? ` - ${paymentForm.notes}` : ''}`
+      const updatedNotes = selectedInvoice.notes ? `${selectedInvoice.notes}\n\n${paymentRecord}` : paymentRecord
+      updateData.notes = updatedNotes
+      
+      const { error } = await supabase
+        .from('invoices')
+        .update(updateData)
+        .eq('id', selectedInvoice.id)
+      
+      if (error) throw error
+      
+      setShowPaymentModal(false)
+      setPaymentForm({
+        amount: '',
+        payment_method: 'check',
+        payment_date: new Date().toISOString().split('T')[0],
+        reference_number: '',
+        notes: ''
+      })
+      loadData()
+    } catch (error) {
+      console.error('Error recording payment:', error)
+      alert('Error recording payment: ' + (error as Error).message)
+    } finally {
+      setLoading(false)
     }
   }
 
@@ -427,6 +483,24 @@ export default function Invoices() {
                         >
                           <Eye className="w-4 h-4" />
                         </button>
+                        {invoice.status !== 'paid' && invoice.status !== 'cancelled' && (
+                          <button
+                            onClick={() => {
+                              setSelectedInvoice(invoice)
+                              setPaymentForm({
+                                amount: (invoice.total_amount - invoice.paid_amount).toString(),
+                                payment_method: 'check',
+                                payment_date: new Date().toISOString().split('T')[0],
+                                reference_number: '',
+                                notes: ''
+                              })
+                              setShowPaymentModal(true)
+                            }}
+                            className="text-green-600 hover:text-green-800 p-1.5 transition-all duration-200 hover:bg-green-100 rounded-full hover:shadow-sm transform hover:scale-110"
+                          >
+                            <DollarSign className="w-4 h-4" />
+                          </button>
+                        )}
                         <button
                           onClick={() => startEdit(invoice)}
                           className="text-blue-600 hover:text-blue-800 p-1.5 transition-all duration-200 hover:bg-blue-100 rounded-full hover:shadow-sm transform hover:scale-110"
@@ -496,6 +570,24 @@ export default function Invoices() {
                       >
                         View
                       </button>
+                      {invoice.status !== 'paid' && invoice.status !== 'cancelled' && (
+                        <button
+                          onClick={() => {
+                            setSelectedInvoice(invoice)
+                            setPaymentForm({
+                              amount: (invoice.total_amount - invoice.paid_amount).toString(),
+                              payment_method: 'check',
+                              payment_date: new Date().toISOString().split('T')[0],
+                              reference_number: '',
+                              notes: ''
+                            })
+                            setShowPaymentModal(true)
+                          }}
+                          className="text-green-600 hover:text-green-800 text-sm font-medium"
+                        >
+                          Payment
+                        </button>
+                      )}
                       <button
                         onClick={() => startEdit(invoice)}
                         className="text-blue-600 hover:text-blue-800 text-sm font-medium"
