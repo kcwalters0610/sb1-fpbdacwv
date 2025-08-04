@@ -408,9 +408,7 @@ export default function WorkOrders() {
         'Cost Breakdown:',
         ...costBreakdown,
         '',
-        `Subtotal: $${subtotal.toFixed(2)}`,
-        `Tax (${taxRate}%): $${taxAmount.toFixed(2)}`,
-        `Total: $${totalAmount.toFixed(2)}`
+        `Total: $${subtotal.toFixed(2)}`
       ].join('\n')
 
       // Create the invoice
