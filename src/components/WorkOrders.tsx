@@ -163,7 +163,7 @@ export default function WorkOrders() {
 
   const loadData = async () => {
     try {
-      const [workOrdersResult, customersResult, techniciansResult, projectsResult, departmentsResult] = await Promise.all([
+      const [workOrdersResult, customersResult, techniciansResult, departmentsResult, projectsResult] = await Promise.all([
         supabase
           .from('work_orders')
           .select(`
@@ -183,7 +183,8 @@ export default function WorkOrders() {
 
       // Load additional details for each work order
       const workOrdersWithDetails = await Promise.all(
-        (workOrdersResult.data || []).map(async (wo) => {
+        supabase.from('departments').select('*').order('name'),
+        supabase.from('projects').select('*').order('project_name')
           // Load assignments
           const { data: assignments } = await supabase
             .from('work_order_assignments')
@@ -242,6 +243,7 @@ export default function WorkOrders() {
       setTechnicians(techniciansResult.data || [])
       setProjects(projectsResult.data || [])
       setDepartments(departmentsResult.data || [])
+      setProjects(projectsResult.data || [])
     } catch (error) {
       console.error('Error loading data:', error)
     } finally {
