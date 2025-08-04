@@ -595,10 +595,6 @@ export default function WorkOrders() {
       console.error('Error creating invoice:', error)
       alert('Error creating invoice: ' + (error as Error).message)
     }
-    } catch (error) {
-      console.error('Error in generateInvoice:', error)
-      alert('Error generating invoice: ' + (error as Error).message)
-    }
   }
 
   const getStatusColor = (status: string) => {
