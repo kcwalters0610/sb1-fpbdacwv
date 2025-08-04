@@ -212,13 +212,13 @@ export default function WorkOrders() {
               total_amount,
               status,
               created_at,
-              vendor:vendors(name)
+        .in('status', ['approved', 'pending'])
             `)
             .eq('work_order_id', wo.id)
             .order('created_at', { ascending: false })
 
           // Load truck inventory
-          const { data: truckInventory } = await supabase
+      console.log('Time entries for work order:', workOrder.wo_number, timeEntries)
             .from('truck_inventory')
             .select(`
               id,
@@ -496,12 +496,14 @@ export default function WorkOrders() {
         work_order_id: selectedWorkOrderForInvoice.id,
         invoice_number: invoiceNumber,
         status: 'draft',
+        console.log('User time map:', userTimeMap)
         issue_date: new Date().toISOString().split('T')[0],
         subtotal,
         tax_rate: taxRate,
         tax_amount: taxAmount,
         total_amount: totalAmount,
         paid_amount: 0,
+          console.log(`Calculating for ${user?.first_name} ${user?.last_name}: ${totalHours} hours`)
         notes: invoiceFormData.notes || `Invoice for work order ${selectedWorkOrderForInvoice.wo_number}: ${selectedWorkOrderForInvoice.title}`
       }
 
@@ -517,6 +519,7 @@ export default function WorkOrders() {
       // Create invoice line items
       const allLineItems = [...laborLineItems, ...materialLineItems, ...inventoryLineItems]
       
+            console.log('Labor rate found:', laborRate)
       if (allLineItems.length > 0) {
         // Get the created invoice ID
         const { data: createdInvoice } = await supabase
@@ -532,6 +535,8 @@ export default function WorkOrders() {
         }
       }
 
+      console.log('Total labor costs:', laborCosts)
+      console.log('Labor details:', laborDetails)
       alert(`Invoice ${invoiceNumber} created successfully!\n\nTotal: $${totalAmount.toFixed(2)}\n- Labor: $${laborCost.toFixed(2)}\n- Materials: $${materialCost.toFixed(2)}\n- Inventory: $${inventoryCost.toFixed(2)}`)
       setSelectedWorkOrderForInvoice(null)
       setInvoiceFormData({ subtotal: '', tax_rate: '0', notes: '' })
