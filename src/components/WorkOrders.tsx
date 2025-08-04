@@ -594,6 +594,7 @@ export default function WorkOrders() {
     } catch (error) {
       console.error('Error creating invoice:', error)
       alert('Error creating invoice: ' + (error as Error).message)
+    }
   }
 
   const getStatusColor = (status: string) => {
