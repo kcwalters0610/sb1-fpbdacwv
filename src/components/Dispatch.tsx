@@ -262,6 +262,66 @@ export default function Dispatch() {
         </div>
       </div>
 
+      {/* Notification Modal */}
+      {showNotificationModal && (
+        <div className="fixed inset-0 bg-gray-600 bg-opacity-50 flex items-center justify-center p-4 z-50">
+          <div className="bg-white rounded-xl shadow-xl max-w-md w-full">
+            <div className="p-6 border-b border-gray-200">
+              <h3 className="text-lg font-semibold text-gray-900">
+                Send Notification to Technicians
+              </h3>
+              <p className="text-sm text-gray-600 mt-1">
+                Selected work orders: {selectedWorkOrders.length}
+              </p>
+            </div>
+            
+            <div className="p-6">
+              <div className="mb-4">
+                <label className="block text-sm font-medium text-gray-700 mb-2">
+                  Message *
+                </label>
+                <textarea
+                  value={notificationForm.message}
+                  onChange={(e) => setNotificationForm({ ...notificationForm, message: e.target.value })}
+                  rows={4}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                  placeholder="Enter message to send to technicians..."
+                  required
+                />
+              </div>
+
+              <div className="mb-4">
+                <h4 className="text-sm font-medium text-gray-700 mb-2">Selected Work Orders:</h4>
+                <div className="max-h-32 overflow-y-auto space-y-1">
+                  {selectedWorkOrders.map(woId => {
+                    const wo = workOrders.find(w => w.id === woId)
+                    return wo ? (
+                      <div key={woId} className="text-sm text-gray-600 bg-gray-50 px-2 py-1 rounded">
+                        {wo.wo_number} - {wo.title}
+                      </div>
+                    ) : null
+                  })}
+                </div>
+              </div>
+
+              <div className="flex justify-end space-x-3">
+                <button
+                  onClick={() => setShowNotificationModal(false)}
+                  className="px-4 py-2 text-gray-700 bg-gray-100 rounded-lg hover:bg-gray-200 transition-colors"
+                >
+                  Cancel
+                </button>
+                <button
+                  onClick={bulkNotifyTechnicians}
+                  className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors"
+                >
+                  Send Notifications
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
       {/* Dispatch Board */}
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
         {/* Unassigned Jobs */}

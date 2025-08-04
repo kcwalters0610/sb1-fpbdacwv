@@ -705,6 +705,79 @@ export default function Invoices() {
         </div>
       )}
 
+      {/* Payment Modal */}
+      {showPaymentModal && selectedInvoice && (
+        <div className="fixed inset-0 bg-gray-600 bg-opacity-50 flex items-center justify-center p-4 z-50">
+          <div className="bg-white rounded-xl shadow-xl max-w-md w-full">
+            <div className="p-6 border-b border-gray-200">
+              <h3 className="text-lg font-semibold text-gray-900">
+                Record Payment - {selectedInvoice.invoice_number}
+              </h3>
+            </div>
+            
+            <form onSubmit={submitPayment} className="p-6 space-y-4">
+              <div className="bg-gray-50 rounded-lg p-4 mb-4">
+                <div className="flex justify-between text-sm">
+                  <span>Invoice Total:</span>
+                  <span className="font-medium">${selectedInvoice.total_amount.toFixed(2)}</span>
+                </div>
+                <div className="flex justify-between text-sm">
+                  <span>Already Paid:</span>
+                  <span className="font-medium">${selectedInvoice.paid_amount.toFixed(2)}</span>
+                </div>
+                <div className="flex justify-between text-sm font-bold border-t border-gray-200 pt-2 mt-2">
+                  <span>Remaining:</span>
+                  <span>${(selectedInvoice.total_amount - selectedInvoice.paid_amount).toFixed(2)}</span>
+                </div>
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-2">
+                  Payment Amount *
+                </label>
+                <input
+                  type="number"
+                  step="0.01"
+                  min="0.01"
+                  max={selectedInvoice.total_amount - selectedInvoice.paid_amount}
+                  value={paymentForm.amount}
+                  onChange={(e) => setPaymentForm({ ...paymentForm, amount: e.target.value })}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                  required
+                />
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-2">
+                  Payment Method *
+                </label>
+                <select
+                  value={paymentForm.payment_method}
+                  onChange={(e) => setPaymentForm({ ...paymentForm, payment_method: e.target.value as any })}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                  required
+                >
+                  <option value="check">Check</option>
+                  <option value="cash">Cash</option>
+                  <option value="card">Credit/Debit Card</option>
+                  <option value="ach">ACH/Bank Transfer</option>
+                  <option value="wire">Wire Transfer</option>
+                  <option value="other">Other</option>
+                </select>
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-2">
+                  Payment Date *
+                </label>
+                <input
+                  type="date"
+                  value={paymentForm.payment_date}
+                  onChange={(e) => setPaymentForm({ ...paymentForm, payment_date: e.target.value })}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                  required
+                />
+              </div>
       {/* Invoice Detail Modal */}
       {selectedInvoice && (
         <div className="fixed inset-0 bg-gray-600 bg-opacity-50 flex items-center justify-center p-4 z-50">

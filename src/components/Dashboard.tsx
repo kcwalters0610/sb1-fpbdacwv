@@ -304,7 +304,7 @@ export default function Dashboard() {
                   axisLine={false}
                   tickLine={false}
                   tick={{ fontSize: 12, fill: '#6b7280' }}
-                  domain={[0, 4]}
+                  domain={[0, 'dataMax']}
                 />
                 <Line 
                   type="monotone" 

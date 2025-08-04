@@ -590,6 +590,17 @@ export default function MyJobs() {
         <div>
           <h1 className="text-2xl font-bold text-gray-900">My Jobs</h1>
           <p className="text-gray-600">Your assigned work orders and tasks</p>
+          {Notification.permission === 'granted' && (
+            <p className="text-xs text-green-600 flex items-center">
+              <Bell className="w-3 h-3 mr-1" />
+              Notifications enabled - you'll be notified of new assignments
+            </p>
+          )}
+          {Notification.permission === 'denied' && (
+            <p className="text-xs text-red-600">
+              Notifications disabled - enable in browser settings to get alerts for new work orders
+            </p>
+          )}
         </div>
       </div>
 
