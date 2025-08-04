@@ -669,10 +669,6 @@ export default function WorkOrders() {
 
         laborDetails.push(`${user?.first_name} ${user?.last_name}: ${totalHours.toFixed(1)} hours @ $${hourlyRate}/hr = $${userLaborCost.toFixed(2)}`)
       }
-        .order('created_at', { ascending: false })
-
-      // Get truck inventory used for this work order with item details
-        console.error('Error loading purchase orders:', poError)
         throw poError
       }
 
