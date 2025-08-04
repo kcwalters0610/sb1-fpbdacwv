@@ -37,6 +37,7 @@ export default function LaborRatesSettings() {
     role: 'tech' as 'admin' | 'manager' | 'tech' | 'office',
     hourly_rate: '',
     overtime_rate: '',
+    double_time_rate: '',
     effective_date: new Date().toISOString().split('T')[0]
   })
 
@@ -112,6 +113,7 @@ export default function LaborRatesSettings() {
         role: formData.role,
         hourly_rate: parseFloat(formData.hourly_rate),
         overtime_rate: parseFloat(formData.overtime_rate) || parseFloat(formData.hourly_rate) * 1.5,
+        double_time_rate: parseFloat(formData.double_time_rate) || parseFloat(formData.hourly_rate) * 2.0,
         effective_date: formData.effective_date,
         is_active: true
       }
@@ -147,6 +149,7 @@ export default function LaborRatesSettings() {
       role: 'tech',
       hourly_rate: '',
       overtime_rate: '',
+      double_time_rate: '',
       effective_date: new Date().toISOString().split('T')[0]
     })
   }
@@ -158,6 +161,7 @@ export default function LaborRatesSettings() {
       role: rate.role,
       hourly_rate: rate.hourly_rate.toString(),
       overtime_rate: rate.overtime_rate.toString(),
+      double_time_rate: rate.double_time_rate?.toString() || '',
       effective_date: rate.effective_date
     })
     setShowForm(true)
@@ -235,6 +239,9 @@ export default function LaborRatesSettings() {
                   Overtime Rate
                 </th>
                 <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                  Double Time Rate
+                </th>
+                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
                   Effective Date
                 </th>
                 <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
@@ -261,6 +268,9 @@ export default function LaborRatesSettings() {
                   </td>
                   <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
                     ${rate.overtime_rate.toFixed(2)}
+                  </td>
+                  <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
+                    ${rate.double_time_rate?.toFixed(2) || '0.00'}
                   </td>
                   <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
                     {new Date(rate.effective_date).toLocaleDateString()}
@@ -370,6 +380,24 @@ export default function LaborRatesSettings() {
                 />
                 <p className="text-xs text-gray-500 mt-1">
                   Leave empty to auto-calculate as 1.5x hourly rate
+                </p>
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-2">
+                  Double Time Rate
+                </label>
+                <input
+                  type="number"
+                  step="0.01"
+                  min="0"
+                  value={formData.double_time_rate}
+                  onChange={(e) => setFormData({ ...formData, double_time_rate: e.target.value })}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                  placeholder="50.00"
+                />
+                <p className="text-xs text-gray-500 mt-1">
+                  Leave empty to auto-calculate as 2x hourly rate
                 </p>
               </div>
 
