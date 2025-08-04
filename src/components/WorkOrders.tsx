@@ -592,6 +592,10 @@ export default function WorkOrders() {
       const { data: { user } } = await supabase.auth.getUser()
       if (!user) throw new Error('User not authenticated')
     } catch (error) {
+      console.error('Error creating invoice:', error)
+      alert('Error creating invoice: ' + (error as Error).message)
+    }
+    } catch (error) {
       console.error('Error in generateInvoice:', error)
       alert('Error generating invoice: ' + (error as Error).message)
     }
