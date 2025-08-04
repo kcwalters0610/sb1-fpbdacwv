@@ -669,12 +669,6 @@ export default function WorkOrders() {
 
         laborDetails.push(`${user?.first_name} ${user?.last_name}: ${totalHours.toFixed(1)} hours @ $${hourlyRate}/hr = $${userLaborCost.toFixed(2)}`)
       }
-          *,
-          items:purchase_order_items(*),
-          vendor:vendors(name)
-        `)
-        .eq('work_order_id', selectedWorkOrderForInvoice.id)
-        .in('status', ['received', 'approved'])
         .order('created_at', { ascending: false })
 
       // Get truck inventory used for this work order with item details
