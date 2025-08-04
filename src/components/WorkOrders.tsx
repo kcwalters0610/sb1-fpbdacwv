@@ -669,17 +669,6 @@ export default function WorkOrders() {
 
         laborDetails.push(`${user?.first_name} ${user?.last_name}: ${totalHours.toFixed(1)} hours @ $${hourlyRate}/hr = $${userLaborCost.toFixed(2)}`)
       }
-        .select(`
-          *,
-          user:profiles(first_name, last_name, role)
-        `)
-      console.log('Total labor costs:', laborCosts)
-      console.log('Labor details:', laborDetails)
-
-      // Get purchase orders for this work order with items
-      const { data: purchaseOrders, error: poError } = await supabase
-        .from('purchase_orders')
-        .select(`
           *,
           items:purchase_order_items(*),
           vendor:vendors(name)
