@@ -496,7 +496,6 @@ export default function WorkOrders() {
         work_order_id: selectedWorkOrderForInvoice.id,
         invoice_number: invoiceNumber,
         status: 'draft',
-        console.log('User time map:', userTimeMap)
         issue_date: new Date().toISOString().split('T')[0],
         subtotal,
         tax_rate: taxRate,
