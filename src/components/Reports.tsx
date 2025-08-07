@@ -118,8 +118,8 @@ export default function Reports() {
           assigned_technician:profiles!work_orders_assigned_to_fkey(*)
         `)
         .eq('company_id', profile.company_id)
-        .gte('created_at', dateRange.startDate)
-        .lte('created_at', dateRange.endDate)
+        .gte('created_at', dateRange.startDate + 'T00:00:00')
+        .lte('created_at', dateRange.endDate + 'T23:59:59')
         .order('created_at', { ascending: false })
 
       setWorkOrders(workOrdersData || [])
@@ -132,8 +132,8 @@ export default function Reports() {
           customer:customers(*)
         `)
         .eq('company_id', profile.company_id)
-        .gte('issue_date', dateRange.startDate)
-        .lte('issue_date', dateRange.endDate)
+        .gte('issue_date', dateRange.startDate + 'T00:00:00')
+        .lte('issue_date', dateRange.endDate + 'T23:59:59')
         .order('issue_date', { ascending: false })
 
       setInvoices(invoicesData || [])
@@ -147,8 +147,8 @@ export default function Reports() {
           work_order:work_orders(*)
         `)
         .eq('company_id', profile.company_id)
-        .gte('start_time', dateRange.startDate)
-        .lte('start_time', dateRange.endDate)
+        .gte('start_time', dateRange.startDate + 'T00:00:00')
+        .lte('start_time', dateRange.endDate + 'T23:59:59')
         .order('start_time', { ascending: false })
 
       setTimeEntries(timeEntriesData || [])
