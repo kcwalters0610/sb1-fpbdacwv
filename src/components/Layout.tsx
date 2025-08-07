@@ -125,7 +125,10 @@ export default function Layout({ children, currentPage, onPageChange }: LayoutPr
         .single()
       
       if (profile) {
-        const plan = profile.company?.subscription_plan || 'starter'
+        const dbPlan = profile.company?.subscription_plan
+        const plan = (dbPlan === 'starter' || dbPlan === 'pro' || dbPlan === 'business') 
+          ? dbPlan 
+          : 'starter'
         setUserPlan(plan as SubscriptionPlan)
         setCurrentUser({ ...user, profile })
       }
