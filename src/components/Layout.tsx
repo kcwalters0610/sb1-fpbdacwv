@@ -301,19 +301,15 @@ export default function Layout({ children, currentPage, onPageChange }: LayoutPr
             <Menu className="h-6 w-6" />
           </button>
           <div className="flex-1 flex justify-between items-center">
-    { name: 'Work Orders', href: 'work-orders', icon: ClipboardList },
             <div></div>
-    { name: 'Customers', href: 'customers', icon: Users },
-                  year: 'numeric', 
-    { name: 'Purchase Orders', href: 'purchase-orders', icon: ShoppingCart },
-                  month: 'long', 
-    { name: 'Vendors', href: 'vendors', icon: Store },
-                  day: 'numeric' 
-    { name: 'Inventory', href: 'inventory', icon: Package },
-                })}
-    { name: 'Maintenance', href: 'maintenance', icon: Tool },
-              </div>
+            <div className="text-sm text-gray-500">
+              {new Date().toLocaleDateString('en-US', {
+                year: 'numeric',
+                month: 'long',
+                day: 'numeric'
+              })}
             </div>
+          </div>
           </div>
         </div>
 
