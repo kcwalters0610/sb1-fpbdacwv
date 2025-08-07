@@ -64,10 +64,6 @@ export default function Invoices() {
   }, [])
 
   useEffect(() => {
-    // Check for overdue invoices and update status
-    checkOverdueInvoices()
-  }, [invoices])
-  useEffect(() => {
     // Generate invoice number when form opens
     if (showForm && !editingInvoice) {
       generateInvoiceNumber()
@@ -80,35 +76,6 @@ export default function Invoices() {
       setFormData(prev => ({ ...prev, invoice_number: invoiceNumber }))
     } catch (error) {
       console.error('Error generating invoice number:', error)
-    }
-  }
-
-  const checkOverdueInvoices = async () => {
-    try {
-      const today = new Date().toISOString().split('T')[0]
-      const overdueInvoices = invoices.filter(invoice => 
-        invoice.due_date && 
-        invoice.due_date < today && 
-        invoice.status === 'sent' &&
-        invoice.paid_amount < invoice.total_amount
-      )
-
-      if (overdueInvoices.length > 0) {
-        const overdueIds = overdueInvoices.map(inv => inv.id)
-        const { error } = await supabase
-          .from('invoices')
-          .update({ status: 'overdue' })
-          .in('id', overdueIds)
-
-        if (error) throw error
-        
-        // Reload data to reflect status changes
-        if (overdueIds.length > 0) {
-          loadData()
-        }
-      }
-    } catch (error) {
-      console.error('Error checking overdue invoices:', error)
     }
   }
 
@@ -519,16 +486,6 @@ export default function Invoices() {
                         {invoice.status !== 'paid' && invoice.status !== 'cancelled' && (
                           <button
                             onClick={() => {
-                              setSelectedInvoice(invoice)
-                              setPaymentForm({
-                                amount: (invoice.total_amount - invoice.paid_amount).toString(),
-                                payment_method: 'check',
-                                payment_date: new Date().toISOString().split('T')[0],
-                                reference_number: '',
-                                notes: ''
-                              })
-                              setShowPaymentModal(true)
-                            }}
                               setSelectedInvoice(invoice)
                               setPaymentForm({
                                 amount: (invoice.total_amount - invoice.paid_amount).toString(),
