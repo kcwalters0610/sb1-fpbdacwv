@@ -314,7 +314,7 @@ export default function Layout({ children, currentPage, onPageChange }: LayoutPr
         </div>
 
         {/* Page content */}
-        <main className="py-6 px-4 sm:px-6 lg:px-8 overflow-x-auto">
+        <main className={`py-6 px-4 sm:px-6 lg:px-8 overflow-x-auto transition-all duration-300 ${sidebarOpen ? 'md:ml-0' : ''}`}>
           {children}
         </main>
     </div>
