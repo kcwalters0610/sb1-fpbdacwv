@@ -14,11 +14,13 @@ import {
   Globe,
   Database,
   Wrench,
-  DollarSign
+  DollarSign,
+  Check
 } from 'lucide-react'
 import { supabase } from '../lib/supabase'
 import TeamMemberSettings from './TeamMemberSettings'
 import LaborRatesSettings from './LaborRatesSettings'
+import { SubscriptionPlan, SUBSCRIPTION_PLANS } from '../lib/subscriptionPlans'
 
 interface CompanySettings {
   logo_url?: string
@@ -49,6 +51,7 @@ export default function Settings() {
   const [saving, setSaving] = useState(false)
   const [currentUser, setCurrentUser] = useState<any>(null)
   const [company, setCompany] = useState<any>(null)
+  const [userPlan, setUserPlan] = useState<SubscriptionPlan>('starter')
   const [workTypes, setWorkTypes] = useState<string[]>(['Installation', 'Maintenance', 'Repair', 'Other'])
   const [newWorkType, setNewWorkType] = useState('')
   const [editingWorkType, setEditingWorkType] = useState<{ index: number; value: string } | null>(null)
@@ -152,6 +155,7 @@ export default function Settings() {
 
       if (companyData) {
         setCompany(companyData)
+        setUserPlan(companyData.subscription_plan || 'starter')
         setCompanyForm({
           name: companyData.name || '',
           email: companyData.email || '',
@@ -462,6 +466,7 @@ export default function Settings() {
     { id: 'password', name: 'Password', icon: Shield },
     ...(currentUser?.profile?.role === 'admin' ? [
       { id: 'company', name: 'Company', icon: Building2 },
+      { id: 'subscription', name: 'Subscription', icon: SettingsIcon },
       { id: 'work-types', name: 'Work Types', icon: Wrench },
       { id: 'numbering', name: 'Document Numbering', icon: Hash },
       { id: 'labor-rates', name: 'Labor Rates', icon: DollarSign },
@@ -822,6 +827,97 @@ export default function Settings() {
                       {saving ? 'Updating...' : 'Update Password'}
                     </button>
                   </div>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* Subscription Settings */}
+          {activeTab === 'subscription' && currentUser?.profile?.role === 'admin' && (
+            <div className="space-y-6">
+              <div>
+                <h3 className="text-lg font-semibold text-gray-900 mb-2">Current Subscription</h3>
+                <p className="text-gray-600 mb-6">
+                  Manage your subscription plan and billing preferences.
+                </p>
+
+                <div className="bg-blue-50 border border-blue-200 rounded-lg p-6 mb-6">
+                  <div className="flex items-center justify-between">
+                    <div>
+                      <h4 className="text-lg font-semibold text-blue-900">
+                        {SUBSCRIPTION_PLANS[userPlan].name} Plan
+                      </h4>
+                      <p className="text-blue-700">{SUBSCRIPTION_PLANS[userPlan].price}</p>
+                    </div>
+                    <div className="text-right">
+                      <span className="inline-flex px-3 py-1 bg-blue-100 text-blue-800 rounded-full text-sm font-medium">
+                        Active
+                      </span>
+                    </div>
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+                  {Object.entries(SUBSCRIPTION_PLANS).map(([planKey, plan]) => {
+                    const isCurrentPlan = planKey === userPlan
+                    const canUpgrade = (
+                      (userPlan === 'starter' && (planKey === 'pro' || planKey === 'business')) ||
+                      (userPlan === 'pro' && planKey === 'business')
+                    )
+                    
+                    return (
+                      <div
+                        key={planKey}
+                        className={`border rounded-lg p-6 ${
+                          isCurrentPlan
+                            ? 'border-blue-500 bg-blue-50'
+                            : 'border-gray-200'
+                        }`}
+                      >
+                        <div className="text-center mb-4">
+                          <h5 className="text-lg font-semibold text-gray-900">{plan.name}</h5>
+                          <p className="text-2xl font-bold text-gray-900">{plan.price}</p>
+                        </div>
+                        
+                        <ul className="space-y-2 mb-6">
+                          {plan.features.slice(0, 4).map((feature, index) => (
+                            <li key={index} className="flex items-start text-sm">
+                              <Check className="w-4 h-4 text-green-500 mr-2 mt-0.5 flex-shrink-0" />
+                              <span className="text-gray-700">{feature}</span>
+                            </li>
+                          ))}
+                          {plan.features.length > 4 && (
+                            <li className="text-sm text-gray-500">
+                              +{plan.features.length - 4} more features
+                            </li>
+                          )}
+                        </ul>
+                        
+                        {isCurrentPlan ? (
+                          <button
+                            disabled
+                            className="w-full py-2 px-4 bg-gray-100 text-gray-500 rounded-lg font-medium cursor-not-allowed"
+                          >
+                            Current Plan
+                          </button>
+                        ) : canUpgrade ? (
+                          <button
+                            onClick={() => alert(`Upgrade to ${plan.name} would be handled with payment processing`)}
+                            className="w-full py-2 px-4 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors font-medium"
+                          >
+                            Upgrade to {plan.name}
+                          </button>
+                        ) : (
+                          <button
+                            disabled
+                            className="w-full py-2 px-4 bg-gray-100 text-gray-500 rounded-lg font-medium cursor-not-allowed"
+                          >
+                            Contact Sales
+                          </button>
+                        )}
+                      </div>
+                    )
+                  })}
                 </div>
               </div>
             </div>
