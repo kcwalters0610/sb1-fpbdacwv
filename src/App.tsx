@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react'
 import { supabase } from './lib/supabase'
+import { hasFeature } from './lib/subscriptionAccess'
 import Auth from './components/Auth'
 import Layout from './components/Layout'
 import Dashboard from './components/Dashboard'
@@ -31,6 +32,7 @@ function App() {
   const [session, setSession] = useState<any>(null)
   const [loading, setLoading] = useState(true)
   const [currentPage, setCurrentPage] = useState('dashboard')
+  const [hasAccessToPage, setHasAccessToPage] = useState(true)
 
   useEffect(() => {
     // Listen for navigation events
@@ -64,7 +66,60 @@ function App() {
     return () => subscription.unsubscribe()
   }, [])
 
+  useEffect(() => {
+    checkPageAccess()
+  }, [currentPage])
+
+  const checkPageAccess = async () => {
+    // Define which pages require which features
+    const pageFeatureMap: Record<string, string> = {
+      'projects': 'projects',
+      'estimates': 'estimates',
+      'inventory': 'inventory',
+      'purchase-orders': 'purchase_orders',
+      'maintenance': 'maintenance',
+      'crm': 'crm',
+      'leads': 'leads',
+      'opportunities': 'opportunities',
+      'reports': 'advanced_reports'
+    }
+
+    const requiredFeature = pageFeatureMap[currentPage]
+    if (requiredFeature) {
+      const hasAccess = await hasFeature(requiredFeature as any)
+      setHasAccessToPage(hasAccess)
+      
+      // Redirect to dashboard if no access
+      if (!hasAccess) {
+        setCurrentPage('dashboard')
+      }
+    } else {
+      setHasAccessToPage(true)
+    }
+  }
+
   const renderCurrentPage = () => {
+    // Show upgrade message for restricted pages
+    if (!hasAccessToPage) {
+      return (
+        <div className="flex items-center justify-center h-64">
+          <div className="text-center">
+            <div className="w-16 h-16 bg-yellow-100 rounded-full flex items-center justify-center mx-auto mb-4">
+              <Package className="w-8 h-8 text-yellow-600" />
+            </div>
+            <h3 className="text-lg font-medium text-gray-900 mb-2">Feature Not Available</h3>
+            <p className="text-gray-600 mb-4">This feature requires a higher subscription plan.</p>
+            <button
+              onClick={() => setCurrentPage('settings')}
+              className="inline-flex items-center px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors"
+            >
+              Upgrade Plan
+            </button>
+          </div>
+        </div>
+      )
+    }
+
     switch (currentPage) {
       case 'dashboard':
         return <Dashboard />

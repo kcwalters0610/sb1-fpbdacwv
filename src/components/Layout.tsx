@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react'
 import { ChevronLeft, ChevronRight, Cloud, CloudRain, CloudSun, MapPin, RefreshCw, Sun, Thermometer, Menu, X, Home, Users, FileText, Package, Settings, LogOut, MessageSquare, Calendar, Clock, User, Truck, Target, Building2, BarChart4, ClipboardList, Wrench, DollarSign, FolderOpen, ShoppingCart, Store, PenTool as Tool } from 'lucide-react'
 import { supabase } from '../lib/supabase'
+import { getSubscriptionFeatures } from '../lib/subscriptionAccess'
 
 interface LayoutProps {
   children: React.ReactNode
@@ -12,9 +13,10 @@ export default function Layout({ children, currentPage, onPageChange }: LayoutPr
   const [sidebarOpen, setSidebarOpen] = useState(false)
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false)
   const [currentUser, setCurrentUser] = useState<any>(null)
+  const [subscriptionFeatures, setSubscriptionFeatures] = useState<any>({})
 
   // Define which navigation items are visible to which roles
-  const getVisibleNavItems = (role: string) => {
+  const getVisibleNavItems = (role: string, features: any) => {
     // Common items for all roles
     const commonItems = [
       { name: 'Dashboard', href: 'dashboard', icon: Home },
@@ -37,20 +39,20 @@ export default function Layout({ children, currentPage, onPageChange }: LayoutPr
         name: 'Field Service', 
         children: [
           { name: 'Work Orders', href: 'work-orders', icon: ClipboardList },
-          { name: 'Projects', href: 'projects', icon: FolderOpen },
-          { name: 'Estimates', href: 'estimates', icon: FileText },
+          ...(features.projects ? [{ name: 'Projects', href: 'projects', icon: FolderOpen }] : []),
+          ...(features.estimates ? [{ name: 'Estimates', href: 'estimates', icon: FileText }] : []),
           { name: 'Customers', href: 'customers', icon: Users },
-          { name: 'Maintenance', href: 'maintenance', icon: Tool },
+          ...(features.maintenance ? [{ name: 'Maintenance', href: 'maintenance', icon: Tool }] : []),
         ]
       },
-      { 
+      ...(features.purchase_orders || features.inventory ? [{ 
         name: 'Purchasing', 
         children: [
-          { name: 'Purchase Orders', href: 'purchase-orders', icon: ShoppingCart },
+          ...(features.purchase_orders ? [{ name: 'Purchase Orders', href: 'purchase-orders', icon: ShoppingCart }] : []),
           { name: 'Vendors', href: 'vendors', icon: Store },
-          { name: 'Inventory', href: 'inventory', icon: Package },
+          ...(features.inventory ? [{ name: 'Inventory', href: 'inventory', icon: Package }] : []),
         ]
-      },
+      }] : []),
       { name: 'Invoices', href: 'invoices', icon: DollarSign },
       { 
         name: 'Employees', 
@@ -59,47 +61,51 @@ export default function Layout({ children, currentPage, onPageChange }: LayoutPr
           { name: 'Teams', href: 'teams', icon: Users },
         ]
       },
-      { 
+      ...(features.crm || features.leads || features.opportunities ? [{ 
         name: 'CRM', 
         children: [
-          { name: 'CRM Dashboard', href: 'crm', icon: BarChart4 },
-          { name: 'Leads', href: 'leads', icon: Target },
-          { name: 'Opportunities', href: 'opportunities', icon: Target },
+          ...(features.crm ? [{ name: 'CRM Dashboard', href: 'crm', icon: BarChart4 }] : []),
+          ...(features.leads ? [{ name: 'Leads', href: 'leads', icon: Target }] : []),
+          ...(features.opportunities ? [{ name: 'Opportunities', href: 'opportunities', icon: Target }] : []),
         ]
-      },
+      }] : []),
       { name: 'Reports', href: 'reports', icon: BarChart4 },
     ];
     
     // Items for office staff
     const officeItems = [
       { name: 'Work Orders', href: 'work-orders', icon: ClipboardList },
-      { name: 'Estimates', href: 'estimates', icon: FileText },
+      ...(features.estimates ? [{ name: 'Estimates', href: 'estimates', icon: FileText }] : []),
       { name: 'Invoices', href: 'invoices', icon: DollarSign },
       { name: 'Customers', href: 'customers', icon: Users },
-      { 
+      ...(features.purchase_orders ? [{ 
         name: 'Purchasing', 
         children: [
           { name: 'Purchase Orders', href: 'purchase-orders', icon: ShoppingCart },
           { name: 'Vendors', href: 'vendors', icon: Store },
         ]
-      },
-      { 
+      }] : []),
+      ...(features.crm || features.leads || features.opportunities ? [{ 
         name: 'CRM', 
         children: [
-          { name: 'CRM Dashboard', href: 'crm', icon: BarChart4 },
-          { name: 'Leads', href: 'leads', icon: Target },
-          { name: 'Opportunities', href: 'opportunities', icon: Target },
+          ...(features.crm ? [{ name: 'CRM Dashboard', href: 'crm', icon: BarChart4 }] : []),
+          ...(features.leads ? [{ name: 'Leads', href: 'leads', icon: Target }] : []),
+          ...(features.opportunities ? [{ name: 'Opportunities', href: 'opportunities', icon: Target }] : []),
         ]
-      },
+      }] : []),
     ];
     
     // Return appropriate navigation items based on role
     if (role === 'admin' || role === 'manager') {
-      return [...commonItems, { name: 'My Jobs', href: 'my-jobs', icon: ClipboardList }, ...adminManagerItems];
+      return [...commonItems, { name: 'My Jobs', href: 'my-jobs', icon: ClipboardList }, ...adminManagerItems.filter(item => 
+        !item.children || item.children.length > 0
+      )];
     }
     
     if (role === 'office') {
-      return [...commonItems, ...officeItems];
+      return [...commonItems, ...officeItems.filter(item => 
+        !item.children || item.children.length > 0
+      )];
     }
     
     // Tech role gets My Jobs
@@ -108,7 +114,17 @@ export default function Layout({ children, currentPage, onPageChange }: LayoutPr
 
   useEffect(() => {
     getCurrentUser()
+    loadSubscriptionFeatures()
   }, [])
+
+  const loadSubscriptionFeatures = async () => {
+    try {
+      const features = await getSubscriptionFeatures()
+      setSubscriptionFeatures(features)
+    } catch (error) {
+      console.error('Error loading subscription features:', error)
+    }
+  }
 
   const getCurrentUser = async () => {
     const { data: { user } } = await supabase.auth.getUser()
@@ -128,7 +144,7 @@ export default function Layout({ children, currentPage, onPageChange }: LayoutPr
 
   // Get navigation items based on user role
   const navigation = currentUser?.profile?.role 
-    ? getVisibleNavItems(currentUser.profile.role) 
+    ? getVisibleNavItems(currentUser.profile.role, subscriptionFeatures) 
     : [];
 
   return (

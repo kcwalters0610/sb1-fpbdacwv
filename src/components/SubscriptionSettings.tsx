@@ -535,7 +535,7 @@ export default function SubscriptionSettings() {
               <tr>
                 <td className="py-3 px-4 text-sm text-gray-900">CRM & Leads</td>
                 <td className="py-3 px-4 text-center text-gray-400">-</td>
-                <td className="py-3 px-4 text-center"><CheckCircle className="w-5 h-5 text-green-500 mx-auto" /></td>
+                <td className="py-3 px-4 text-center text-gray-400">-</td>
                 <td className="py-3 px-4 text-center"><CheckCircle className="w-5 h-5 text-green-500 mx-auto" /></td>
               </tr>
               <tr>
