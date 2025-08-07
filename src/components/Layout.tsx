@@ -1,7 +1,6 @@
 import React, { useState, useEffect } from 'react'
 import { ChevronLeft, ChevronRight, Cloud, CloudRain, CloudSun, MapPin, RefreshCw, Sun, Thermometer, Menu, X, Home, Users, FileText, Package, Settings, LogOut, MessageSquare, Calendar, Clock, User, Truck, Target, Building2, BarChart4, ClipboardList, Wrench, DollarSign, FolderOpen, ShoppingCart, Store, PenTool as Tool } from 'lucide-react'
 import { supabase } from '../lib/supabase'
-import { hasFeatureAccess, SubscriptionPlan } from '../lib/subscriptionPlans'
 
 interface LayoutProps {
   children: React.ReactNode
@@ -13,15 +12,14 @@ export default function Layout({ children, currentPage, onPageChange }: LayoutPr
   const [sidebarOpen, setSidebarOpen] = useState(false)
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false)
   const [currentUser, setCurrentUser] = useState<any>(null)
-  const [userPlan, setUserPlan] = useState<SubscriptionPlan>('starter')
 
   // Define which navigation items are visible to which roles
-  const getVisibleNavItems = (role: string, plan: SubscriptionPlan) => {
+  const getVisibleNavItems = (role: string) => {
     // Common items for all roles
     const commonItems = [
       { name: 'Dashboard', href: 'dashboard', icon: Home },
       { name: 'Time Cards', href: 'time-cards', icon: Clock },
-      ...(hasFeatureAccess(plan, 'dispatch') ? [{ name: 'Dispatch', href: 'dispatch', icon: Truck }] : []),
+      { name: 'Dispatch', href: 'dispatch', icon: Truck },
     ];
     
     // Items for techs only
@@ -39,8 +37,8 @@ export default function Layout({ children, currentPage, onPageChange }: LayoutPr
         name: 'Field Service', 
         children: [
           { name: 'Work Orders', href: 'work-orders', icon: ClipboardList },
-          ...(hasFeatureAccess(plan, 'projects') ? [{ name: 'Projects', href: 'projects', icon: FolderOpen }] : []),
-          ...(hasFeatureAccess(plan, 'estimates') ? [{ name: 'Estimates', href: 'estimates', icon: FileText }] : []),
+          { name: 'Projects', href: 'projects', icon: FolderOpen },
+          { name: 'Estimates', href: 'estimates', icon: FileText },
           { name: 'Customers', href: 'customers', icon: Users },
           { name: 'Maintenance', href: 'maintenance', icon: Tool },
         ]
@@ -53,7 +51,7 @@ export default function Layout({ children, currentPage, onPageChange }: LayoutPr
           { name: 'Inventory', href: 'inventory', icon: Package },
         ]
       },
-      ...(hasFeatureAccess(plan, 'invoices') ? [{ name: 'Invoices', href: 'invoices', icon: DollarSign }] : []),
+      { name: 'Invoices', href: 'invoices', icon: DollarSign },
       { 
         name: 'Employees', 
         children: [
@@ -61,22 +59,22 @@ export default function Layout({ children, currentPage, onPageChange }: LayoutPr
           { name: 'Teams', href: 'teams', icon: Users },
         ]
       },
-      ...(hasFeatureAccess(plan, 'crm') ? [{ 
+      { 
         name: 'CRM', 
         children: [
           { name: 'CRM Dashboard', href: 'crm', icon: BarChart4 },
           { name: 'Leads', href: 'leads', icon: Target },
           { name: 'Opportunities', href: 'opportunities', icon: Target },
         ]
-      }] : []),
-      ...(hasFeatureAccess(plan, 'reports') ? [{ name: 'Reports', href: 'reports', icon: BarChart4 }] : []),
+      },
+      { name: 'Reports', href: 'reports', icon: BarChart4 },
     ];
     
     // Items for office staff
     const officeItems = [
       { name: 'Work Orders', href: 'work-orders', icon: ClipboardList },
-      ...(hasFeatureAccess(plan, 'estimates') ? [{ name: 'Estimates', href: 'estimates', icon: FileText }] : []),
-      ...(hasFeatureAccess(plan, 'invoices') ? [{ name: 'Invoices', href: 'invoices', icon: DollarSign }] : []),
+      { name: 'Estimates', href: 'estimates', icon: FileText },
+      { name: 'Invoices', href: 'invoices', icon: DollarSign },
       { name: 'Customers', href: 'customers', icon: Users },
       { 
         name: 'Purchasing', 
@@ -85,14 +83,14 @@ export default function Layout({ children, currentPage, onPageChange }: LayoutPr
           { name: 'Vendors', href: 'vendors', icon: Store },
         ]
       },
-      ...(hasFeatureAccess(plan, 'crm') ? [{ 
+      { 
         name: 'CRM', 
         children: [
           { name: 'CRM Dashboard', href: 'crm', icon: BarChart4 },
           { name: 'Leads', href: 'leads', icon: Target },
           { name: 'Opportunities', href: 'opportunities', icon: Target },
         ]
-      }] : []),
+      },
     ];
     
     // Return appropriate navigation items based on role
@@ -117,26 +115,10 @@ export default function Layout({ children, currentPage, onPageChange }: LayoutPr
     if (user) {
       const { data: profile } = await supabase
         .from('profiles')
-        .select(`
-          *,
-          company:companies(subscription_plan)
-        `)
+        .select('*')
         .eq('id', user.id)
         .single()
-      
-      if (profile) {
-        const dbPlan = profile.company?.subscription_plan
-        // Handle both new plan names and legacy plan names
-        let plan: SubscriptionPlan = 'starter'
-        if (dbPlan === 'starter' || dbPlan === 'pro' || dbPlan === 'business') {
-          plan = dbPlan as SubscriptionPlan
-        } else if (dbPlan === 'basic') {
-          // Map legacy 'basic' plan to 'business'
-          plan = 'business'
-        }
-        setUserPlan(plan as SubscriptionPlan)
-        setCurrentUser({ ...user, profile })
-      }
+      setCurrentUser({ ...user, profile })
     }
   }
 
@@ -145,8 +127,8 @@ export default function Layout({ children, currentPage, onPageChange }: LayoutPr
   }
 
   // Get navigation items based on user role
-  const navigation = currentUser?.profile?.role
-    ? getVisibleNavItems(currentUser.profile.role, userPlan)
+  const navigation = currentUser?.profile?.role 
+    ? getVisibleNavItems(currentUser.profile.role) 
     : [];
 
   return (
