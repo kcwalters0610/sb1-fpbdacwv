@@ -32,6 +32,7 @@ interface Invoice {
     wo_number: string;
     title: string;
   };
+  payments?: Payment[];
 }
 
 interface Customer {
@@ -80,8 +81,18 @@ export default function Invoices() {
   const [selectedInvoice, setSelectedInvoice] = useState<Invoice | null>(null);
   const [showPaymentModal, setShowPaymentModal] = useState(false);
   const [showPaymentsListModal, setShowPaymentsListModal] = useState(false);
+  const [showPaymentsModal, setShowPaymentsModal] = useState(false);
+  const [selectedInvoiceForPayments, setSelectedInvoiceForPayments] = useState<Invoice | null>(null);
   const [payments, setPayments] = useState<Payment[]>([]);
+  const [showPaymentForm, setShowPaymentForm] = useState(false);
   const [editingPayment, setEditingPayment] = useState<Payment | null>(null);
+  const [paymentFormData, setPaymentFormData] = useState({
+    amount: '',
+    payment_method: 'cash',
+    payment_date: new Date().toISOString().split('T')[0],
+    reference_number: '',
+    notes: ''
+  });
   const [paymentForm, setPaymentForm] = useState<PaymentForm>({
     amount: 0,
     payment_method: 'check',
@@ -321,43 +332,25 @@ export default function Invoices() {
     setShowPaymentModal(true);
   };
 
+  const openPaymentsModal = async (invoice: Invoice) => {
+    setSelectedInvoiceForPayments(invoice);
+    await loadPayments(invoice.id);
+    setShowPaymentsModal(true);
+  };
+
   const loadPayments = async (invoiceId: string) => {
     try {
-      // For now, we'll parse payments from the invoice notes
-      // In a real system, you'd have a separate payments table
-      const invoice = invoices.find(inv => inv.id === invoiceId);
-      if (!invoice || !invoice.notes) {
-        setPayments([]);
-        return;
-      }
+      const { data, error } = await supabase
+        .from('invoice_payments')
+        .select('*')
+        .eq('invoice_id', invoiceId)
+        .order('payment_date', { ascending: false });
 
-      // Parse payment information from notes
-      const paymentLines = invoice.notes.split('\n').filter(line => 
-        line.includes('Payment:') || line.includes('payment:')
-      );
-
-      const parsedPayments: Payment[] = paymentLines.map((line, index) => {
-        // Extract payment details from the line
-        const amountMatch = line.match(/\$([0-9,]+\.?\d*)/);
-        const methodMatch = line.match(/via\s+(\w+)/);
-        const dateMatch = line.match(/on\s+(\d{4}-\d{2}-\d{2})/);
-        const refMatch = line.match(/\(Ref:\s*([^)]+)\)/);
-
-        return {
-          id: `payment-${index}`,
-          invoice_id: invoiceId,
-          amount: amountMatch ? parseFloat(amountMatch[1].replace(',', '')) : 0,
-          payment_method: methodMatch ? methodMatch[1] : 'unknown',
-          payment_date: dateMatch ? dateMatch[1] : new Date().toISOString().split('T')[0],
-          reference_number: refMatch ? refMatch[1] : '',
-          notes: line.split(' - ').slice(1).join(' - ') || '',
-          created_at: new Date().toISOString()
-        };
-      });
-
-      setPayments(parsedPayments);
+      if (error) throw error;
+      setPayments(data || []);
     } catch (error) {
       console.error('Error loading payments:', error);
+      setPayments([]);
     }
   };
 
@@ -379,39 +372,135 @@ export default function Invoices() {
     setShowPaymentModal(true);
   };
 
-  const deletePayment = async (payment: Payment) => {
+  const deletePayment = async (paymentId: string) => {
     if (!confirm('Are you sure you want to delete this payment?')) return;
-    if (!selectedInvoice) return;
+    if (!selectedInvoiceForPayments) return;
 
     try {
-      // Remove this payment from the invoice notes and recalculate totals
-      const paymentLine = `Payment: $${payment.amount} via ${payment.payment_method} on ${payment.payment_date}${payment.reference_number ? ` (Ref: ${payment.reference_number})` : ''}${payment.notes ? ` - ${payment.notes}` : ''}`;
-      
-      const updatedNotes = selectedInvoice.notes?.replace(paymentLine, '').replace(/\n\n+/g, '\n').trim() || '';
-      const newPaidAmount = selectedInvoice.paid_amount - payment.amount;
-      const newStatus = newPaidAmount <= 0 ? 'sent' : 
-                       newPaidAmount >= selectedInvoice.total_amount ? 'paid' : 
-                       selectedInvoice.status;
-
       const { error } = await supabase
-        .from('invoices')
-        .update({
-          paid_amount: Math.max(0, newPaidAmount),
-          status: newStatus,
-          payment_date: newPaidAmount <= 0 ? null : selectedInvoice.payment_date,
-          notes: updatedNotes || null
-        })
-        .eq('id', selectedInvoice.id);
+        .from('invoice_payments')
+        .delete()
+        .eq('id', paymentId);
 
       if (error) throw error;
 
-      // Refresh data
-      fetchInvoices();
-      loadPayments(selectedInvoice.id);
+      // Recalculate invoice totals
+      await recalculateInvoiceTotals(selectedInvoiceForPayments.id);
+      
+      loadPayments(selectedInvoiceForPayments.id);
+      fetchInvoices(); // Refresh main invoice list
     } catch (error) {
       console.error('Error deleting payment:', error);
-      alert('Error deleting payment. Please try again.');
+      alert('Error deleting payment');
     }
+  };
+
+  const handlePaymentSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!selectedInvoiceForPayments) return;
+
+    try {
+      const paymentData = {
+        invoice_id: selectedInvoiceForPayments.id,
+        amount: parseFloat(paymentFormData.amount),
+        payment_method: paymentFormData.payment_method,
+        payment_date: paymentFormData.payment_date,
+        reference_number: paymentFormData.reference_number || null,
+        notes: paymentFormData.notes || null
+      };
+
+      if (editingPayment) {
+        const { error } = await supabase
+          .from('invoice_payments')
+          .update(paymentData)
+          .eq('id', editingPayment.id);
+        if (error) throw error;
+      } else {
+        const { error } = await supabase
+          .from('invoice_payments')
+          .insert([paymentData]);
+        if (error) throw error;
+      }
+
+      // Recalculate invoice totals
+      await recalculateInvoiceTotals(selectedInvoiceForPayments.id);
+      
+      setShowPaymentForm(false);
+      setEditingPayment(null);
+      resetPaymentForm();
+      loadPayments(selectedInvoiceForPayments.id);
+      fetchInvoices(); // Refresh main invoice list
+    } catch (error) {
+      console.error('Error saving payment:', error);
+      alert('Error saving payment');
+    }
+  };
+
+  const recalculateInvoiceTotals = async (invoiceId: string) => {
+    try {
+      // Get all payments for this invoice
+      const { data: paymentsData, error: paymentsError } = await supabase
+        .from('invoice_payments')
+        .select('amount')
+        .eq('invoice_id', invoiceId);
+
+      if (paymentsError) throw paymentsError;
+
+      const totalPaid = (paymentsData || []).reduce((sum, payment) => sum + payment.amount, 0);
+      
+      // Get invoice total to determine status
+      const { data: invoiceData, error: invoiceError } = await supabase
+        .from('invoices')
+        .select('total_amount')
+        .eq('id', invoiceId)
+        .single();
+
+      if (invoiceError) throw invoiceError;
+
+      // Determine new status
+      let newStatus = 'sent';
+      if (totalPaid >= invoiceData.total_amount) {
+        newStatus = 'paid';
+      } else if (totalPaid > 0) {
+        newStatus = 'overdue'; // Partial payment
+      }
+
+      // Update invoice
+      const { error: updateError } = await supabase
+        .from('invoices')
+        .update({
+          paid_amount: totalPaid,
+          payment_date: totalPaid >= invoiceData.total_amount ? new Date().toISOString().split('T')[0] : null,
+          status: newStatus
+        })
+        .eq('id', invoiceId);
+
+      if (updateError) throw updateError;
+    } catch (error) {
+      console.error('Error recalculating invoice totals:', error);
+    }
+  };
+
+  const resetPaymentForm = () => {
+    setPaymentFormData({
+      amount: '',
+      payment_method: 'cash',
+      payment_date: new Date().toISOString().split('T')[0],
+      reference_number: '',
+      notes: ''
+    });
+  };
+
+  const startEditPayment = (payment: Payment) => {
+    setEditingPayment(payment);
+    setPaymentFormData({
+      amount: payment.amount.toString(),
+      payment_method: payment.payment_method,
+      payment_date: payment.payment_date,
+      reference_number: payment.reference_number || '',
+      notes: payment.notes || ''
+    });
+    setShowPaymentForm(true);
   };
 
   const submitPayment = async (e: React.FormEvent) => {
@@ -632,6 +721,15 @@ export default function Invoices() {
                     >
                       <Eye className="w-4 h-4" />
                     </button>
+                    {invoice.paid_amount > 0 && (
+                      <button
+                        onClick={() => openPaymentsModal(invoice)}
+                        className="text-purple-600 hover:text-purple-800 p-1.5 transition-all duration-200 hover:bg-purple-100 rounded-full hover:shadow-sm transform hover:scale-110"
+                        title="Manage Payments"
+                      >
+                        <DollarSign className="w-4 h-4" />
+                      </button>
+                    )}
                     {(invoice.status === 'sent' || invoice.status === 'overdue') && invoice.paid_amount < invoice.total_amount && (
                       <button
                         onClick={() => openPaymentModal(invoice)}
@@ -1119,7 +1217,7 @@ export default function Invoices() {
                             <Edit className="w-4 h-4" />
                           </button>
                           <button
-                            onClick={() => deletePayment(payment)}
+                            onClick={() => deletePayment(payment.id)}
                             className="text-red-600 hover:text-red-800 p-1"
                             title="Delete Payment"
                           >
@@ -1173,6 +1271,222 @@ export default function Invoices() {
                 </div>
               )}
             </div>
+          </div>
+        </div>
+      )}
+
+      {/* Payments Management Modal */}
+      {showPaymentsModal && selectedInvoiceForPayments && (
+        <div className="fixed inset-0 bg-gray-600 bg-opacity-50 flex items-center justify-center p-4 z-50">
+          <div className="bg-white rounded-xl shadow-xl max-w-4xl w-full max-h-screen overflow-y-auto">
+            <div className="p-6 border-b border-gray-200">
+              <div className="flex items-center justify-between">
+                <div>
+                  <h3 className="text-xl font-semibold text-gray-900">
+                    Payment History - {selectedInvoiceForPayments.invoice_number}
+                  </h3>
+                  <p className="text-sm text-gray-600">
+                    Total: ${selectedInvoiceForPayments.total_amount.toFixed(2)} | 
+                    Paid: ${selectedInvoiceForPayments.paid_amount.toFixed(2)} | 
+                    Balance: ${(selectedInvoiceForPayments.total_amount - selectedInvoiceForPayments.paid_amount).toFixed(2)}
+                  </p>
+                </div>
+                <div className="flex items-center space-x-3">
+                  <button
+                    onClick={() => {
+                      resetPaymentForm();
+                      setEditingPayment(null);
+                      setShowPaymentForm(true);
+                    }}
+                    className="inline-flex items-center px-3 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 transition-colors text-sm"
+                  >
+                    <Plus className="w-4 h-4 mr-2" />
+                    Add Payment
+                  </button>
+                  <button
+                    onClick={() => setShowPaymentsModal(false)}
+                    className="text-gray-400 hover:text-gray-600"
+                  >
+                    <X className="w-6 h-6" />
+                  </button>
+                </div>
+              </div>
+            </div>
+            
+            <div className="p-6">
+              {payments.length > 0 ? (
+                <div className="space-y-4">
+                  {payments.map((payment) => (
+                    <div key={payment.id} className="border border-gray-200 rounded-lg p-4 hover:shadow-md transition-shadow">
+                      <div className="flex items-center justify-between">
+                        <div className="flex-1">
+                          <div className="flex items-center space-x-4">
+                            <div>
+                              <p className="text-lg font-semibold text-green-600">
+                                ${payment.amount.toFixed(2)}
+                              </p>
+                              <p className="text-sm text-gray-600">
+                                {payment.payment_method.charAt(0).toUpperCase() + payment.payment_method.slice(1)}
+                              </p>
+                            </div>
+                            <div>
+                              <p className="text-sm font-medium text-gray-900">
+                                {new Date(payment.payment_date).toLocaleDateString()}
+                              </p>
+                              {payment.reference_number && (
+                                <p className="text-sm text-gray-600">
+                                  Ref: {payment.reference_number}
+                                </p>
+                              )}
+                            </div>
+                            {payment.notes && (
+                              <div className="flex-1">
+                                <p className="text-sm text-gray-600">{payment.notes}</p>
+                              </div>
+                            )}
+                          </div>
+                        </div>
+                        <div className="flex items-center space-x-2">
+                          <button
+                            onClick={() => startEditPayment(payment)}
+                            className="text-blue-600 hover:text-blue-800 p-2 hover:bg-blue-100 rounded-lg transition-colors"
+                          >
+                            <Edit className="w-4 h-4" />
+                          </button>
+                          <button
+                            onClick={() => deletePayment(payment.id)}
+                            className="text-red-600 hover:text-red-800 p-2 hover:bg-red-100 rounded-lg transition-colors"
+                          >
+                            <Trash2 className="w-4 h-4" />
+                          </button>
+                        </div>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              ) : (
+                <div className="text-center py-12">
+                  <DollarSign className="w-12 h-12 text-gray-400 mx-auto mb-4" />
+                  <h3 className="text-lg font-medium text-gray-900 mb-2">No payments recorded</h3>
+                  <p className="text-gray-600 mb-4">Add the first payment for this invoice</p>
+                  <button
+                    onClick={() => {
+                      resetPaymentForm();
+                      setEditingPayment(null);
+                      setShowPaymentForm(true);
+                    }}
+                    className="inline-flex items-center px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 transition-colors"
+                  >
+                    <Plus className="w-5 h-5 mr-2" />
+                    Add First Payment
+                  </button>
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Payment Form Modal */}
+      {showPaymentForm && (
+        <div className="fixed inset-0 bg-gray-600 bg-opacity-50 flex items-center justify-center p-4 z-50">
+          <div className="bg-white rounded-xl shadow-xl max-w-md w-full">
+            <div className="p-6 border-b border-gray-200">
+              <h3 className="text-lg font-semibold text-gray-900">
+                {editingPayment ? 'Edit Payment' : 'Add Payment'}
+              </h3>
+            </div>
+            
+            <form onSubmit={handlePaymentSubmit} className="p-6 space-y-4">
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-2">
+                  Payment Amount *
+                </label>
+                <input
+                  type="number"
+                  step="0.01"
+                  min="0"
+                  value={paymentFormData.amount}
+                  onChange={(e) => setPaymentFormData({ ...paymentFormData, amount: e.target.value })}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                  required
+                />
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-2">
+                  Payment Method *
+                </label>
+                <select
+                  value={paymentFormData.payment_method}
+                  onChange={(e) => setPaymentFormData({ ...paymentFormData, payment_method: e.target.value })}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                  required
+                >
+                  <option value="cash">Cash</option>
+                  <option value="check">Check</option>
+                  <option value="credit_card">Credit Card</option>
+                  <option value="bank_transfer">Bank Transfer</option>
+                  <option value="ach">ACH</option>
+                  <option value="other">Other</option>
+                </select>
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-2">
+                  Payment Date *
+                </label>
+                <input
+                  type="date"
+                  value={paymentFormData.payment_date}
+                  onChange={(e) => setPaymentFormData({ ...paymentFormData, payment_date: e.target.value })}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                  required
+                />
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-2">
+                  Reference Number
+                </label>
+                <input
+                  type="text"
+                  value={paymentFormData.reference_number}
+                  onChange={(e) => setPaymentFormData({ ...paymentFormData, reference_number: e.target.value })}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                  placeholder="Check #, Transaction ID, etc."
+                />
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-2">
+                  Notes
+                </label>
+                <textarea
+                  value={paymentFormData.notes}
+                  onChange={(e) => setPaymentFormData({ ...paymentFormData, notes: e.target.value })}
+                  rows={3}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                  placeholder="Additional payment notes..."
+                />
+              </div>
+
+              <div className="flex justify-end space-x-3 pt-4">
+                <button
+                  type="button"
+                  onClick={() => setShowPaymentForm(false)}
+                  className="px-4 py-2 text-gray-700 bg-gray-100 rounded-lg hover:bg-gray-200 transition-colors"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  className="px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 transition-colors"
+                >
+                  {editingPayment ? 'Update Payment' : 'Add Payment'}
+                </button>
+              </div>
+            </form>
           </div>
         </div>
       )}
