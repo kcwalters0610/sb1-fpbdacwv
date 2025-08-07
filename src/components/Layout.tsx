@@ -8,7 +8,12 @@ interface LayoutProps {
   currentPage: string
   onPageChange: (page: string) => void
 }
-
+    ...(hasFeatureAccess(plan, 'invoices') ? [{ 
+      name: 'Financial', 
+      children: [
+        { name: 'Invoices', href: 'invoices', icon: DollarSign },
+      ]
+    }] : []),
 export default function Layout({ children, currentPage, onPageChange }: LayoutProps) {
   const [sidebarOpen, setSidebarOpen] = useState(false)
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false)
@@ -302,15 +307,17 @@ export default function Layout({ children, currentPage, onPageChange }: LayoutPr
             <Menu className="h-6 w-6" />
           </button>
           <div className="flex-1 flex justify-between items-center">
+    { name: 'Work Orders', href: 'work-orders', icon: ClipboardList },
             <div></div>
-            <div className="flex items-center justify-end">
-              <div className="text-sm text-gray-600 mr-4">
-                {new Date().toLocaleDateString('en-US', { 
-                  weekday: 'long', 
+    { name: 'Customers', href: 'customers', icon: Users },
                   year: 'numeric', 
+    { name: 'Purchase Orders', href: 'purchase-orders', icon: ShoppingCart },
                   month: 'long', 
+    { name: 'Vendors', href: 'vendors', icon: Store },
                   day: 'numeric' 
+    { name: 'Inventory', href: 'inventory', icon: Package },
                 })}
+    { name: 'Maintenance', href: 'maintenance', icon: Tool },
               </div>
             </div>
           </div>
