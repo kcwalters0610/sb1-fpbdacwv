@@ -519,8 +519,6 @@ export default function Invoices() {
                         </button>
                         {invoice.status !== 'paid' && invoice.status !== 'cancelled' && (
                           <button
-                            onClick={() => {
-                              setSelectedInvoice(invoice)
                               setPaymentForm({
                                 amount: (invoice.total_amount - invoice.paid_amount).toString(),
                                 payment_method: 'check',
@@ -528,6 +526,8 @@ export default function Invoices() {
                                 reference_number: '',
                                 notes: ''
                               })
+                             setSelectedInvoice(invoice)
+                             setSelectedInvoice(invoice)
                               setShowPaymentModal(true)
                             }}
                             className="text-green-600 hover:text-green-800 p-1.5 transition-all duration-200 hover:bg-green-100 rounded-full hover:shadow-sm transform hover:scale-110"
