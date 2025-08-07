@@ -845,9 +845,9 @@ export default function Settings() {
                   <div className="flex items-center justify-between">
                     <div>
                       <h4 className="text-lg font-semibold text-blue-900">
-                        {SUBSCRIPTION_PLANS[userPlan].name} Plan
+                        {SUBSCRIPTION_PLANS[userPlan]?.name || 'Unknown Plan'} Plan
                       </h4>
-                      <p className="text-blue-700">{SUBSCRIPTION_PLANS[userPlan].price}</p>
+                      <p className="text-blue-700">{SUBSCRIPTION_PLANS[userPlan]?.price || 'Contact Sales'}</p>
                     </div>
                     <div className="text-right">
                       <span className="inline-flex px-3 py-1 bg-blue-100 text-blue-800 rounded-full text-sm font-medium">
