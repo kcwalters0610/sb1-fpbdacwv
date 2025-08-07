@@ -145,28 +145,53 @@ export default function Dashboard() {
       const startOfMonth = new Date(currentMonth.getFullYear(), currentMonth.getMonth(), 1)
       const endOfMonth = new Date(currentMonth.getFullYear(), currentMonth.getMonth() + 1, 0, 23, 59, 59)
 
+      console.log('Loading invoices for revenue calculation...')
+      console.log('Date range:', startOfMonth.toISOString(), 'to', endOfMonth.toISOString())
+
       const { data: invoicesData, error: invoicesError } = await supabase
         .from('invoices')
-        .select('total_amount, paid_amount, status, issue_date, payment_date')
+        .select('*')
         .eq('company_id', profile.company_id)
 
       if (invoicesError) {
         console.error('Error loading invoices:', invoicesError)
       }
 
+      console.log('All invoices loaded:', invoicesData)
+
       setInvoices(invoicesData || [])
 
-      // Calculate monthly revenue from invoices paid this month
-      const monthlyRevenue = (invoicesData || []).reduce((sum, invoice) => {
-        // Check if invoice was paid this month
-        if (invoice.status === 'paid' && invoice.payment_date) {
-          const paymentDate = new Date(invoice.payment_date)
-          if (paymentDate >= startOfMonth && paymentDate <= endOfMonth) {
-            return sum + (invoice.paid_amount || 0)
+      // Calculate monthly revenue - sum all paid amounts from paid invoices
+      let monthlyRevenue = 0
+      
+      if (invoicesData && invoicesData.length > 0) {
+        console.log('Calculating monthly revenue from', invoicesData.length, 'invoices')
+        
+        for (const invoice of invoicesData) {
+          console.log('Invoice:', invoice.invoice_number, 'Status:', invoice.status, 'Paid Amount:', invoice.paid_amount, 'Payment Date:', invoice.payment_date)
+          
+          if (invoice.status === 'paid' && invoice.paid_amount > 0) {
+            if (invoice.payment_date) {
+              const paymentDate = new Date(invoice.payment_date)
+              console.log('Payment date parsed:', paymentDate, 'In range?', paymentDate >= startOfMonth && paymentDate <= endOfMonth)
+              
+              if (paymentDate >= startOfMonth && paymentDate <= endOfMonth) {
+                monthlyRevenue += invoice.paid_amount
+                console.log('Added to monthly revenue:', invoice.paid_amount, 'New total:', monthlyRevenue)
+              }
+            } else {
+              // If no payment_date but status is paid, use issue_date as fallback
+              const issueDate = new Date(invoice.issue_date)
+              if (issueDate >= startOfMonth && issueDate <= endOfMonth) {
+                monthlyRevenue += invoice.paid_amount
+                console.log('Added to monthly revenue (using issue date):', invoice.paid_amount, 'New total:', monthlyRevenue)
+              }
+            }
           }
         }
-        return sum
-      }, 0)
+      }
+      
+      console.log('Final monthly revenue:', monthlyRevenue)
 
       setStats({
         totalCustomers: customersCount || 0,
