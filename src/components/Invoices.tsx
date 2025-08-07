@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { supabase } from '../lib/supabase';
-import { Plus, Search, Eye, DollarSign, FileText, Calendar, User, Building, Phone, Mail, MapPin, Edit, Trash2 } from 'lucide-react';
+import { Plus, Search, Eye, DollarSign, FileText, Calendar, User, Building, Phone, Mail, MapPin, Edit, Trash2, CreditCard, X } from 'lucide-react';
 
 interface Invoice {
   id: string;
@@ -58,6 +58,17 @@ interface PaymentForm {
   notes: string;
 }
 
+interface Payment {
+  id: string;
+  invoice_id: string;
+  amount: number;
+  payment_method: string;
+  payment_date: string;
+  reference_number?: string;
+  notes?: string;
+  created_at: string;
+}
+
 export default function Invoices() {
   const [invoices, setInvoices] = useState<Invoice[]>([]);
   const [customers, setCustomers] = useState<Customer[]>([]);
@@ -68,6 +79,9 @@ export default function Invoices() {
   const [showModal, setShowModal] = useState(false);
   const [selectedInvoice, setSelectedInvoice] = useState<Invoice | null>(null);
   const [showPaymentModal, setShowPaymentModal] = useState(false);
+  const [showPaymentsListModal, setShowPaymentsListModal] = useState(false);
+  const [payments, setPayments] = useState<Payment[]>([]);
+  const [editingPayment, setEditingPayment] = useState<Payment | null>(null);
   const [paymentForm, setPaymentForm] = useState<PaymentForm>({
     amount: 0,
     payment_method: 'check',
@@ -307,13 +321,124 @@ export default function Invoices() {
     setShowPaymentModal(true);
   };
 
+  const loadPayments = async (invoiceId: string) => {
+    try {
+      // For now, we'll parse payments from the invoice notes
+      // In a real system, you'd have a separate payments table
+      const invoice = invoices.find(inv => inv.id === invoiceId);
+      if (!invoice || !invoice.notes) {
+        setPayments([]);
+        return;
+      }
+
+      // Parse payment information from notes
+      const paymentLines = invoice.notes.split('\n').filter(line => 
+        line.includes('Payment:') || line.includes('payment:')
+      );
+
+      const parsedPayments: Payment[] = paymentLines.map((line, index) => {
+        // Extract payment details from the line
+        const amountMatch = line.match(/\$([0-9,]+\.?\d*)/);
+        const methodMatch = line.match(/via\s+(\w+)/);
+        const dateMatch = line.match(/on\s+(\d{4}-\d{2}-\d{2})/);
+        const refMatch = line.match(/\(Ref:\s*([^)]+)\)/);
+
+        return {
+          id: `payment-${index}`,
+          invoice_id: invoiceId,
+          amount: amountMatch ? parseFloat(amountMatch[1].replace(',', '')) : 0,
+          payment_method: methodMatch ? methodMatch[1] : 'unknown',
+          payment_date: dateMatch ? dateMatch[1] : new Date().toISOString().split('T')[0],
+          reference_number: refMatch ? refMatch[1] : '',
+          notes: line.split(' - ').slice(1).join(' - ') || '',
+          created_at: new Date().toISOString()
+        };
+      });
+
+      setPayments(parsedPayments);
+    } catch (error) {
+      console.error('Error loading payments:', error);
+    }
+  };
+
+  const openPaymentsListModal = (invoice: Invoice) => {
+    setSelectedInvoice(invoice);
+    loadPayments(invoice.id);
+    setShowPaymentsListModal(true);
+  };
+
+  const editPayment = (payment: Payment) => {
+    setEditingPayment(payment);
+    setPaymentForm({
+      amount: payment.amount,
+      payment_method: payment.payment_method,
+      payment_date: payment.payment_date,
+      reference_number: payment.reference_number || '',
+      notes: payment.notes || ''
+    });
+    setShowPaymentModal(true);
+  };
+
+  const deletePayment = async (payment: Payment) => {
+    if (!confirm('Are you sure you want to delete this payment?')) return;
+    if (!selectedInvoice) return;
+
+    try {
+      // Remove this payment from the invoice notes and recalculate totals
+      const paymentLine = `Payment: $${payment.amount} via ${payment.payment_method} on ${payment.payment_date}${payment.reference_number ? ` (Ref: ${payment.reference_number})` : ''}${payment.notes ? ` - ${payment.notes}` : ''}`;
+      
+      const updatedNotes = selectedInvoice.notes?.replace(paymentLine, '').replace(/\n\n+/g, '\n').trim() || '';
+      const newPaidAmount = selectedInvoice.paid_amount - payment.amount;
+      const newStatus = newPaidAmount <= 0 ? 'sent' : 
+                       newPaidAmount >= selectedInvoice.total_amount ? 'paid' : 
+                       selectedInvoice.status;
+
+      const { error } = await supabase
+        .from('invoices')
+        .update({
+          paid_amount: Math.max(0, newPaidAmount),
+          status: newStatus,
+          payment_date: newPaidAmount <= 0 ? null : selectedInvoice.payment_date,
+          notes: updatedNotes || null
+        })
+        .eq('id', selectedInvoice.id);
+
+      if (error) throw error;
+
+      // Refresh data
+      fetchInvoices();
+      loadPayments(selectedInvoice.id);
+    } catch (error) {
+      console.error('Error deleting payment:', error);
+      alert('Error deleting payment. Please try again.');
+    }
+  };
+
   const submitPayment = async (e: React.FormEvent) => {
     e.preventDefault();
     
     if (!selectedInvoice) return;
 
     try {
-      const newPaidAmount = selectedInvoice.paid_amount + paymentForm.amount;
+      let newPaidAmount;
+      let updatedNotes;
+
+      if (editingPayment) {
+        // Update existing payment
+        const oldPaymentLine = `Payment: $${editingPayment.amount} via ${editingPayment.payment_method} on ${editingPayment.payment_date}${editingPayment.reference_number ? ` (Ref: ${editingPayment.reference_number})` : ''}${editingPayment.notes ? ` - ${editingPayment.notes}` : ''}`;
+        const newPaymentLine = `Payment: $${paymentForm.amount} via ${paymentForm.payment_method} on ${paymentForm.payment_date}${paymentForm.reference_number ? ` (Ref: ${paymentForm.reference_number})` : ''}${paymentForm.notes ? ` - ${paymentForm.notes}` : ''}`;
+        
+        newPaidAmount = selectedInvoice.paid_amount - editingPayment.amount + paymentForm.amount;
+        updatedNotes = selectedInvoice.notes?.replace(oldPaymentLine, newPaymentLine) || newPaymentLine;
+      } else {
+        // Add new payment
+        newPaidAmount = selectedInvoice.paid_amount + paymentForm.amount;
+        const newPaymentLine = `Payment: $${paymentForm.amount} via ${paymentForm.payment_method} on ${paymentForm.payment_date}${paymentForm.reference_number ? ` (Ref: ${paymentForm.reference_number})` : ''}${paymentForm.notes ? ` - ${paymentForm.notes}` : ''}`;
+        updatedNotes = selectedInvoice.notes ? 
+          `${selectedInvoice.notes}\n\n${newPaymentLine}` :
+          newPaymentLine;
+      }
+
       const newStatus = newPaidAmount >= selectedInvoice.total_amount ? 'paid' : selectedInvoice.status;
       
       // Update invoice with payment
@@ -321,17 +446,16 @@ export default function Invoices() {
         .from('invoices')
         .update({
           paid_amount: newPaidAmount,
-          payment_date: newPaidAmount >= selectedInvoice.total_amount ? paymentForm.payment_date : selectedInvoice.payment_date,
+          payment_date: paymentForm.payment_date,
           status: newStatus,
-          notes: selectedInvoice.notes ? 
-            `${selectedInvoice.notes}\n\nPayment: $${paymentForm.amount} via ${paymentForm.payment_method} on ${paymentForm.payment_date}${paymentForm.reference_number ? ` (Ref: ${paymentForm.reference_number})` : ''}${paymentForm.notes ? ` - ${paymentForm.notes}` : ''}` :
-            `Payment: $${paymentForm.amount} via ${paymentForm.payment_method} on ${paymentForm.payment_date}${paymentForm.reference_number ? ` (Ref: ${paymentForm.reference_number})` : ''}${paymentForm.notes ? ` - ${paymentForm.notes}` : ''}`
+          notes: updatedNotes
         })
         .eq('id', selectedInvoice.id);
 
       if (error) throw error;
 
       setShowPaymentModal(false);
+      setEditingPayment(null);
       setSelectedInvoice(null);
       setPaymentForm({
         amount: 0,
@@ -341,6 +465,9 @@ export default function Invoices() {
         notes: ''
       });
       fetchInvoices();
+      if (showPaymentsListModal && selectedInvoice) {
+        loadPayments(selectedInvoice.id);
+      }
     } catch (error) {
       console.error('Error recording payment:', error);
     }
@@ -512,6 +639,15 @@ export default function Invoices() {
                         title="Add Payment"
                       >
                         <DollarSign className="w-4 h-4" />
+                      </button>
+                    )}
+                    {invoice.paid_amount > 0 && (
+                      <button
+                        onClick={() => openPaymentsListModal(invoice)}
+                        className="text-purple-600 hover:text-purple-900"
+                        title="View Payments"
+                      >
+                        <CreditCard className="w-4 h-4" />
                       </button>
                     )}
                     <button
@@ -788,6 +924,13 @@ export default function Invoices() {
                 Record Payment
               </h2>
               
+              {editingPayment && (
+                <div className="mb-4 p-3 bg-blue-50 border border-blue-200 rounded-lg">
+                  <p className="text-sm text-blue-700 font-medium">Editing Payment</p>
+                  <p className="text-xs text-blue-600">Original: ${editingPayment.amount} via {editingPayment.payment_method} on {editingPayment.payment_date}</p>
+                </div>
+              )}
+              
               <div className="mb-4 p-4 bg-gray-50 rounded-lg">
                 <div className="text-sm text-gray-600">Invoice: {selectedInvoice.invoice_number}</div>
                 <div className="text-sm text-gray-600">
@@ -882,6 +1025,7 @@ export default function Invoices() {
                     type="button"
                     onClick={() => {
                       setShowPaymentModal(false);
+                      setEditingPayment(null);
                       setSelectedInvoice(null);
                       setPaymentForm({
                         amount: 0,
@@ -899,10 +1043,135 @@ export default function Invoices() {
                     type="submit"
                     className="px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700"
                   >
-                    Record Payment
+                    {editingPayment ? 'Update Payment' : 'Record Payment'}
                   </button>
                 </div>
               </form>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Payments List Modal */}
+      {showPaymentsListModal && selectedInvoice && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-50">
+          <div className="bg-white rounded-lg max-w-2xl w-full max-h-[90vh] overflow-y-auto">
+            <div className="p-6">
+              <div className="flex justify-between items-start mb-6">
+                <div>
+                  <h2 className="text-xl font-bold text-gray-900">
+                    Payment History - {selectedInvoice.invoice_number}
+                  </h2>
+                  <p className="text-sm text-gray-600">
+                    Total: {formatCurrency(selectedInvoice.total_amount)} | 
+                    Paid: {formatCurrency(selectedInvoice.paid_amount)} | 
+                    Balance: {formatCurrency(selectedInvoice.total_amount - selectedInvoice.paid_amount)}
+                  </p>
+                </div>
+                <button
+                  onClick={() => {
+                    setShowPaymentsListModal(false);
+                    setSelectedInvoice(null);
+                  }}
+                  className="text-gray-400 hover:text-gray-600"
+                >
+                  <X className="w-6 h-6" />
+                </button>
+              </div>
+
+              {payments.length > 0 ? (
+                <div className="space-y-4">
+                  {payments.map((payment) => (
+                    <div key={payment.id} className="border border-gray-200 rounded-lg p-4 hover:bg-gray-50">
+                      <div className="flex justify-between items-start">
+                        <div className="flex-1">
+                          <div className="flex items-center space-x-4 mb-2">
+                            <span className="text-lg font-semibold text-gray-900">
+                              {formatCurrency(payment.amount)}
+                            </span>
+                            <span className="inline-flex px-2 py-1 text-xs font-medium rounded-full bg-blue-100 text-blue-800">
+                              {payment.payment_method}
+                            </span>
+                            <span className="text-sm text-gray-600">
+                              {new Date(payment.payment_date).toLocaleDateString()}
+                            </span>
+                          </div>
+                          
+                          {payment.reference_number && (
+                            <p className="text-sm text-gray-600 mb-1">
+                              <span className="font-medium">Reference:</span> {payment.reference_number}
+                            </p>
+                          )}
+                          
+                          {payment.notes && (
+                            <p className="text-sm text-gray-600">
+                              <span className="font-medium">Notes:</span> {payment.notes}
+                            </p>
+                          )}
+                        </div>
+                        
+                        <div className="flex space-x-2 ml-4">
+                          <button
+                            onClick={() => editPayment(payment)}
+                            className="text-blue-600 hover:text-blue-800 p-1"
+                            title="Edit Payment"
+                          >
+                            <Edit className="w-4 h-4" />
+                          </button>
+                          <button
+                            onClick={() => deletePayment(payment)}
+                            className="text-red-600 hover:text-red-800 p-1"
+                            title="Delete Payment"
+                          >
+                            <Trash2 className="w-4 h-4" />
+                          </button>
+                        </div>
+                      </div>
+                    </div>
+                  ))}
+                  
+                  <div className="pt-4 border-t border-gray-200">
+                    <button
+                      onClick={() => {
+                        setEditingPayment(null);
+                        setPaymentForm({
+                          amount: selectedInvoice.total_amount - selectedInvoice.paid_amount,
+                          payment_method: 'check',
+                          payment_date: new Date().toISOString().split('T')[0],
+                          reference_number: '',
+                          notes: ''
+                        });
+                        setShowPaymentModal(true);
+                      }}
+                      className="w-full px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 transition-colors"
+                    >
+                      Add Another Payment
+                    </button>
+                  </div>
+                </div>
+              ) : (
+                <div className="text-center py-8">
+                  <CreditCard className="w-12 h-12 text-gray-400 mx-auto mb-4" />
+                  <h3 className="text-lg font-medium text-gray-900 mb-2">No Payments Found</h3>
+                  <p className="text-gray-600 mb-4">No payment history available for this invoice.</p>
+                  <button
+                    onClick={() => {
+                      setEditingPayment(null);
+                      setPaymentForm({
+                        amount: selectedInvoice.total_amount - selectedInvoice.paid_amount,
+                        payment_method: 'check',
+                        payment_date: new Date().toISOString().split('T')[0],
+                        reference_number: '',
+                        notes: ''
+                      });
+                      setShowPaymentModal(true);
+                    }}
+                    className="px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 transition-colors"
+                  >
+                    Add First Payment
+                  </button>
+                </div>
+              )}
             </div>
           </div>
         </div>
@@ -926,6 +1195,15 @@ export default function Invoices() {
                     >
                       <DollarSign className="w-3 h-3" />
                       Payment
+                    </button>
+                  )}
+                  {selectedInvoice.paid_amount > 0 && (
+                    <button
+                      onClick={() => openPaymentsListModal(selectedInvoice)}
+                      className="bg-purple-600 text-white px-3 py-1 rounded text-sm hover:bg-purple-700 flex items-center gap-1"
+                    >
+                      <CreditCard className="w-3 h-3" />
+                      Payments
                     </button>
                   )}
                   <button
