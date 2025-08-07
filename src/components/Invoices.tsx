@@ -64,6 +64,11 @@ export default function Invoices() {
   }, [])
 
   useEffect(() => {
+    // Check for overdue invoices and update status
+    checkOverdueInvoices()
+  }, [invoices])
+  
+  useEffect(() => {
     // Generate invoice number when form opens
     if (showForm && !editingInvoice) {
       generateInvoiceNumber()
@@ -102,6 +107,10 @@ export default function Invoices() {
     } finally {
       setLoading(false)
     }
+  }
+
+  const checkOverdueInvoices = () => {
+    // Implementation for checking overdue invoices
   }
 
   const handleSubmit = async (e: React.FormEvent) => {
