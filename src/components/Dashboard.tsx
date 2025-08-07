@@ -30,6 +30,7 @@ export default function Dashboard() {
   const [workOrderStatusData, setWorkOrderStatusData] = useState<any[]>([])
   const [workOrderPriorityData, setWorkOrderPriorityData] = useState<any[]>([])
   const [loading, setLoading] = useState(true)
+  const [invoices, setInvoices] = useState<any[]>([])
 
   // Sample data for charts
   const monthlyRevenueData = [
@@ -139,11 +140,30 @@ export default function Dashboard() {
         .eq('company_id', profile.company_id)
         .eq('priority', 'low')
 
+      // Load invoices for revenue calculation
+      const currentMonth = new Date()
+      const startOfMonth = new Date(currentMonth.getFullYear(), currentMonth.getMonth(), 1)
+      const endOfMonth = new Date(currentMonth.getFullYear(), currentMonth.getMonth() + 1, 0)
+
+      const { data: invoicesData } = await supabase
+        .from('invoices')
+        .select('total_amount, paid_amount, status')
+        .eq('company_id', profile.company_id)
+        .gte('issue_date', startOfMonth.toISOString().split('T')[0])
+        .lte('issue_date', endOfMonth.toISOString().split('T')[0])
+
+      setInvoices(invoicesData || [])
+
+      // Calculate monthly revenue from paid invoices
+      const monthlyRevenue = (invoicesData || [])
+        .filter(invoice => invoice.status === 'paid')
+        .reduce((sum, invoice) => sum + (invoice.paid_amount || 0), 0)
+
       setStats({
         totalCustomers: customersCount || 0,
         activeWorkOrders: activeOrders || 0,
         totalInvoices: invoicesCount || 0,
-        monthlyRevenue: 0, // Would calculate from actual invoice data
+        monthlyRevenue: monthlyRevenue,
         completedOrders: completedOrders || 0,
         pendingOrders: pendingOrders || 0,
         overdueInvoices: overdueInvoices || 0,
