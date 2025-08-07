@@ -317,7 +317,6 @@ export default function Layout({ children, currentPage, onPageChange }: LayoutPr
         <main className="py-6 px-4 sm:px-6 lg:px-8 overflow-x-auto">
           {children}
         </main>
-      </div>
     </div>
   )
 }
