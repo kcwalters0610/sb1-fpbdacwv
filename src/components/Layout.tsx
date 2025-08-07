@@ -8,12 +8,6 @@ interface LayoutProps {
   currentPage: string
   onPageChange: (page: string) => void
 }
-    ...(hasFeatureAccess(plan, 'invoices') ? [{ 
-      name: 'Financial', 
-      children: [
-        { name: 'Invoices', href: 'invoices', icon: DollarSign },
-      ]
-    }] : []),
 export default function Layout({ children, currentPage, onPageChange }: LayoutProps) {
   const [sidebarOpen, setSidebarOpen] = useState(false)
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false)
