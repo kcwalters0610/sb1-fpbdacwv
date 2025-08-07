@@ -143,21 +143,30 @@ export default function Dashboard() {
       // Load invoices for revenue calculation
       const currentMonth = new Date()
       const startOfMonth = new Date(currentMonth.getFullYear(), currentMonth.getMonth(), 1)
-      const endOfMonth = new Date(currentMonth.getFullYear(), currentMonth.getMonth() + 1, 0)
+      const endOfMonth = new Date(currentMonth.getFullYear(), currentMonth.getMonth() + 1, 0, 23, 59, 59)
 
-      const { data: invoicesData } = await supabase
+      const { data: invoicesData, error: invoicesError } = await supabase
         .from('invoices')
-        .select('total_amount, paid_amount, status')
+        .select('total_amount, paid_amount, status, issue_date, payment_date')
         .eq('company_id', profile.company_id)
-        .gte('issue_date', startOfMonth.toISOString().split('T')[0])
-        .lte('issue_date', endOfMonth.toISOString().split('T')[0])
+
+      if (invoicesError) {
+        console.error('Error loading invoices:', invoicesError)
+      }
 
       setInvoices(invoicesData || [])
 
-      // Calculate monthly revenue from paid invoices
-      const monthlyRevenue = (invoicesData || [])
-        .filter(invoice => invoice.status === 'paid')
-        .reduce((sum, invoice) => sum + (invoice.paid_amount || 0), 0)
+      // Calculate monthly revenue from invoices paid this month
+      const monthlyRevenue = (invoicesData || []).reduce((sum, invoice) => {
+        // Check if invoice was paid this month
+        if (invoice.status === 'paid' && invoice.payment_date) {
+          const paymentDate = new Date(invoice.payment_date)
+          if (paymentDate >= startOfMonth && paymentDate <= endOfMonth) {
+            return sum + (invoice.paid_amount || 0)
+          }
+        }
+        return sum
+      }, 0)
 
       setStats({
         totalCustomers: customersCount || 0,
