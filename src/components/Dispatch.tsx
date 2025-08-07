@@ -177,26 +177,6 @@ export default function Dispatch() {
     }
   }
 
-  const bulkNotifyTechnicians = async () => {
-    try {
-      // In a real implementation, this would send notifications to technicians
-      // For now, we'll just close the modal and clear selections
-      console.log('Sending notifications for work orders:', selectedWorkOrders)
-      console.log('Message:', notificationForm.message)
-      
-      // Reset form and close modal
-      setNotificationForm({ message: '' })
-      setSelectedWorkOrders([])
-      setShowNotificationModal(false)
-      
-      // Show success message (you could add a toast notification here)
-      alert('Notifications sent successfully!')
-    } catch (error) {
-      console.error('Error sending notifications:', error)
-      alert('Error sending notifications')
-    }
-  }
-
   const getStatusColor = (status: string) => {
     switch (status) {
       case 'open': return 'bg-gray-100 text-gray-800'
