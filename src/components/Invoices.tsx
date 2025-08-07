@@ -377,17 +377,50 @@ export default function Invoices() {
     if (!selectedInvoiceForPayments) return;
 
     try {
-      const { error } = await supabase
-        .from('invoice_payments')
-        .delete()
-        .eq('id', paymentId);
+      if (paymentId.startsWith('virtual-')) {
+        // Deleting the virtual payment - clear the invoice payment data
+        const { error } = await supabase
+          .from('invoices')
+          .update({
+            paid_amount: 0,
+            payment_date: null,
+            status: 'sent'
+          })
+          .eq('id', selectedInvoiceForPayments.id)
+        if (error) throw error
+      } else {
+        // Delete from new payment system
+        const { error } = await supabase
+          .from('invoice_payments')
+          .delete()
+          .eq('id', paymentId)
+        if (error) throw error
 
-      if (error) throw error;
+        // Recalculate invoice totals
+        const { data: allPayments } = await supabase
+          .from('invoice_payments')
+          .select('amount')
+          .eq('invoice_id', selectedInvoiceForPayments.id)
 
-      // Recalculate invoice totals
-      await recalculateInvoiceTotals(selectedInvoiceForPayments.id);
-      
-      loadPayments(selectedInvoiceForPayments.id);
+        const totalPaid = (allPayments || []).reduce((sum, payment) => sum + payment.amount, 0)
+        const newStatus = totalPaid >= selectedInvoiceForPayments.total_amount ? 'paid' : 
+                         totalPaid > 0 ? 'sent' : 'draft'
+
+        // Update invoice
+        const { error: invoiceError } = await supabase
+          .from('invoices')
+          .update({
+            paid_amount: totalPaid,
+            payment_date: totalPaid >= selectedInvoiceForPayments.total_amount ? new Date().toISOString().split('T')[0] : null,
+            status: newStatus
+          })
+          .eq('id', selectedInvoiceForPayments.id)
+
+        if (invoiceError) throw invoiceError
+      }
+
+      // Refresh payment history and invoice list
+      openPaymentHistory(selectedInvoiceForPayments)
       fetchInvoices(); // Refresh main invoice list
     } catch (error) {
       console.error('Error deleting payment:', error);
@@ -400,31 +433,66 @@ export default function Invoices() {
     if (!selectedInvoiceForPayments) return;
 
     try {
-      const paymentData = {
-        invoice_id: selectedInvoiceForPayments.id,
-        amount: parseFloat(paymentFormData.amount),
-        payment_method: paymentFormData.payment_method,
-        payment_date: paymentFormData.payment_date,
-        reference_number: paymentFormData.reference_number || null,
-        notes: paymentFormData.notes || null
-      };
-
-      if (editingPayment) {
+      const paymentAmount = parseFloat(paymentFormData.amount)
+      
+      if (editingPayment && editingPayment.id.startsWith('virtual-')) {
+        // Editing the virtual payment - update the invoice directly
         const { error } = await supabase
-          .from('invoice_payments')
-          .update(paymentData)
-          .eq('id', editingPayment.id);
-        if (error) throw error;
+          .from('invoices')
+          .update({
+            paid_amount: paymentAmount,
+            payment_date: paymentFormData.payment_date,
+            status: paymentAmount >= selectedInvoiceForPayments.total_amount ? 'paid' : 'sent'
+          })
+          .eq('id', selectedInvoiceForPayments.id)
+        if (error) throw error
       } else {
-        const { error } = await supabase
+        // Handle new payment system
+        const paymentData = {
+          invoice_id: selectedInvoiceForPayments.id,
+          amount: paymentAmount,
+          payment_method: paymentFormData.payment_method,
+          payment_date: paymentFormData.payment_date,
+          reference_number: paymentFormData.reference_number || null,
+          notes: paymentFormData.notes || null
+        }
+
+        if (editingPayment) {
+          const { error } = await supabase
+            .from('invoice_payments')
+            .update(paymentData)
+            .eq('id', editingPayment.id)
+          if (error) throw error
+        } else {
+          const { error } = await supabase
+            .from('invoice_payments')
+            .insert([paymentData])
+          if (error) throw error
+        }
+
+        // Recalculate invoice totals
+        const { data: allPayments } = await supabase
           .from('invoice_payments')
-          .insert([paymentData]);
-        if (error) throw error;
+          .select('amount')
+          .eq('invoice_id', selectedInvoiceForPayments.id)
+
+        const totalPaid = (allPayments || []).reduce((sum, payment) => sum + payment.amount, 0)
+        const newStatus = totalPaid >= selectedInvoiceForPayments.total_amount ? 'paid' : 
+                         totalPaid > 0 ? 'sent' : selectedInvoiceForPayments.status
+
+        // Update invoice
+        const { error: invoiceError } = await supabase
+          .from('invoices')
+          .update({
+            paid_amount: totalPaid,
+            payment_date: totalPaid >= selectedInvoiceForPayments.total_amount ? paymentFormData.payment_date : null,
+            status: newStatus
+          })
+          .eq('id', selectedInvoiceForPayments.id)
+
+        if (invoiceError) throw invoiceError
       }
 
-      // Recalculate invoice totals
-      await recalculateInvoiceTotals(selectedInvoiceForPayments.id);
-      
       setShowPaymentForm(false);
       setEditingPayment(null);
       resetPaymentForm();
