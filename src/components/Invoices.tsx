@@ -84,6 +84,35 @@ export default function Invoices() {
     }
   }
 
+  const checkOverdueInvoices = async () => {
+    try {
+      const today = new Date().toISOString().split('T')[0]
+      const overdueInvoices = invoices.filter(invoice => 
+        invoice.due_date && 
+        invoice.due_date < today && 
+        invoice.status === 'sent' &&
+        invoice.paid_amount < invoice.total_amount
+      )
+
+      if (overdueInvoices.length > 0) {
+        const overdueIds = overdueInvoices.map(inv => inv.id)
+        const { error } = await supabase
+          .from('invoices')
+          .update({ status: 'overdue' })
+          .in('id', overdueIds)
+
+        if (error) throw error
+        
+        // Reload data to reflect status changes
+        if (overdueIds.length > 0) {
+          loadData()
+        }
+      }
+    } catch (error) {
+      console.error('Error checking overdue invoices:', error)
+    }
+  }
+
   const loadData = async () => {
     try {
       const [invoicesResult, customersResult, workOrdersResult] = await Promise.all([
@@ -107,10 +136,6 @@ export default function Invoices() {
     } finally {
       setLoading(false)
     }
-  }
-
-  const checkOverdueInvoices = () => {
-    // Implementation for checking overdue invoices
   }
 
   const handleSubmit = async (e: React.FormEvent) => {
