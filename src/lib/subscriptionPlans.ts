@@ -103,6 +103,10 @@ export const SUBSCRIPTION_PLANS: Record<SubscriptionPlan, PlanFeatures> = {
 }
 
 export const hasFeatureAccess = (userPlan: SubscriptionPlan, requiredPage: string): boolean => {
+  // Handle case where userPlan might be undefined or invalid
+  if (!userPlan || !SUBSCRIPTION_PLANS[userPlan]) {
+    return SUBSCRIPTION_PLANS['starter'].allowedPages.includes(requiredPage)
+  }
   return SUBSCRIPTION_PLANS[userPlan].allowedPages.includes(requiredPage)
 }
 

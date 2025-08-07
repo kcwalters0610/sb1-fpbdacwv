@@ -126,9 +126,14 @@ export default function Layout({ children, currentPage, onPageChange }: LayoutPr
       
       if (profile) {
         const dbPlan = profile.company?.subscription_plan
-        const plan = (dbPlan === 'starter' || dbPlan === 'pro' || dbPlan === 'business') 
-          ? dbPlan 
-          : 'starter'
+        // Handle both new plan names and legacy plan names
+        let plan: SubscriptionPlan = 'starter'
+        if (dbPlan === 'starter' || dbPlan === 'pro' || dbPlan === 'business') {
+          plan = dbPlan as SubscriptionPlan
+        } else if (dbPlan === 'basic') {
+          // Map legacy 'basic' plan to 'business'
+          plan = 'business'
+        }
         setUserPlan(plan as SubscriptionPlan)
         setCurrentUser({ ...user, profile })
       }

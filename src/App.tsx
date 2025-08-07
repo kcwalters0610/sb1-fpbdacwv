@@ -92,8 +92,10 @@ function App() {
         
         const planFromDB = profile?.company?.subscription_plan
         // Validate the plan exists in our SUBSCRIPTION_PLANS, default to 'starter' if not
-        if (planFromDB && ['starter', 'pro', 'business'].includes(planFromDB)) {
-          setUserPlan(planFromDB as SubscriptionPlan)
+        if (planFromDB && ['starter', 'pro', 'business', 'basic'].includes(planFromDB)) {
+          // Map 'basic' to 'business' for backwards compatibility
+          const mappedPlan = planFromDB === 'basic' ? 'business' : planFromDB
+          setUserPlan(mappedPlan as SubscriptionPlan)
         } else {
           setUserPlan('starter')
         }
