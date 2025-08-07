@@ -170,22 +170,32 @@ export default function Dashboard() {
         for (const invoice of invoicesData) {
           console.log('Invoice:', invoice.invoice_number, 'Status:', invoice.status, 'Paid Amount:', invoice.paid_amount, 'Payment Date:', invoice.payment_date)
           
-          if (invoice.status === 'paid' && invoice.paid_amount > 0) {
+          // For invoices with payments, check if payment was made this month
+          if (invoice.paid_amount > 0) {
+            let includeInRevenue = false
+            
             if (invoice.payment_date) {
               const paymentDate = new Date(invoice.payment_date)
-              console.log('Payment date parsed:', paymentDate, 'In range?', paymentDate >= startOfMonth && paymentDate <= endOfMonth)
+              console.log('Payment date parsed:', paymentDate, 'Current month range:', startOfMonth, 'to', endOfMonth)
               
               if (paymentDate >= startOfMonth && paymentDate <= endOfMonth) {
-                monthlyRevenue += invoice.paid_amount
-                console.log('Added to monthly revenue:', invoice.paid_amount, 'New total:', monthlyRevenue)
+                includeInRevenue = true
+                console.log('Payment date is in current month')
               }
-            } else {
+            } else if (invoice.status === 'paid') {
               // If no payment_date but status is paid, use issue_date as fallback
               const issueDate = new Date(invoice.issue_date)
+              console.log('No payment date, using issue date:', issueDate)
+              
               if (issueDate >= startOfMonth && issueDate <= endOfMonth) {
-                monthlyRevenue += invoice.paid_amount
-                console.log('Added to monthly revenue (using issue date):', invoice.paid_amount, 'New total:', monthlyRevenue)
+                includeInRevenue = true
+                console.log('Issue date is in current month')
               }
+            }
+            
+            if (includeInRevenue) {
+              monthlyRevenue += invoice.paid_amount
+              console.log('Added to monthly revenue:', invoice.paid_amount, 'New total:', monthlyRevenue)
             }
           }
         }
