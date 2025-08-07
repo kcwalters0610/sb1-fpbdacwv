@@ -160,7 +160,8 @@ export default function Dashboard() {
         console.error('Error loading invoices:', invoicesError)
       }
 
-      console.log('All invoices loaded:', invoicesData)
+      console.log('All invoices loaded:', invoicesData?.length || 0, 'invoices')
+      console.log('Full invoice data:', invoicesData)
 
       setInvoices(invoicesData || [])
 
@@ -169,39 +170,64 @@ export default function Dashboard() {
       
       if (invoicesData && invoicesData.length > 0) {
         console.log('Calculating monthly revenue from', invoicesData.length, 'invoices')
+        console.log('Looking for payments in month range:', format(monthStart, 'yyyy-MM-dd'), 'to', format(monthEnd, 'yyyy-MM-dd'))
         
         for (const invoice of invoicesData) {
-          console.log('Invoice:', invoice.invoice_number, 'Status:', invoice.status, 'Paid Amount:', invoice.paid_amount, 'Payment Date:', invoice.payment_date)
+          console.log('=== Processing Invoice ===')
+          console.log('Invoice Number:', invoice.invoice_number)
+          console.log('Status:', invoice.status)
+          console.log('Total Amount:', invoice.total_amount)
+          console.log('Paid Amount:', invoice.paid_amount)
+          console.log('Payment Date:', invoice.payment_date)
+          console.log('Issue Date:', invoice.issue_date)
           
           // For invoices with payments, check if payment was made this month
           if (invoice.paid_amount > 0) {
+            console.log('Invoice has paid amount:', invoice.paid_amount)
             let includeInRevenue = false
             
             if (invoice.payment_date) {
               const paymentDate = new Date(invoice.payment_date)
-              console.log('Payment date parsed:', paymentDate, 'Selected month range:', monthStart, 'to', monthEnd)
+              console.log('Payment date parsed:', paymentDate.toISOString())
+              console.log('Month start:', monthStart.toISOString())
+              console.log('Month end:', monthEnd.toISOString())
+              console.log('Payment date >= month start:', paymentDate >= monthStart)
+              console.log('Payment date <= month end:', paymentDate <= monthEnd)
               
               if (paymentDate >= monthStart && paymentDate <= monthEnd) {
                 includeInRevenue = true
                 console.log('Payment date is in selected month')
+              } else {
+                console.log('Payment date is NOT in selected month')
               }
             } else if (invoice.status === 'paid') {
               // If no payment_date but status is paid, use issue_date as fallback
               const issueDate = new Date(invoice.issue_date)
-              console.log('No payment date, using issue date:', issueDate)
+              console.log('No payment date, using issue date:', issueDate.toISOString())
               
               if (issueDate >= monthStart && issueDate <= monthEnd) {
                 includeInRevenue = true
                 console.log('Issue date is in selected month')
+              } else {
+                console.log('Issue date is NOT in selected month')
               }
+            } else {
+              console.log('Invoice not marked as paid, status:', invoice.status)
             }
             
             if (includeInRevenue) {
               monthlyRevenue += invoice.paid_amount
               console.log('Added to monthly revenue:', invoice.paid_amount, 'New total:', monthlyRevenue)
+            } else {
+              console.log('NOT added to monthly revenue')
             }
+          } else {
+            console.log('Invoice has no paid amount')
           }
+          console.log('=== End Invoice Processing ===')
         }
+      } else {
+        console.log('No invoices found for company')
       }
       
       console.log('Final monthly revenue:', monthlyRevenue)
