@@ -11,12 +11,16 @@ import {
   User,
   Wrench,
   DollarSign,
-  FileText
+  FileText,
+  ChevronLeft,
+  ChevronRight
 } from 'lucide-react'
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, ResponsiveContainer, PieChart, Pie, Cell } from 'recharts'
 import { supabase, WorkOrder, Customer, Profile, InventoryItem } from '../lib/supabase'
+import { format, startOfMonth, endOfMonth, addMonths, subMonths } from 'date-fns'
 
 export default function Dashboard() {
+  const [selectedMonth, setSelectedMonth] = useState(new Date())
   const [stats, setStats] = useState({
     totalCustomers: 0,
     activeWorkOrders: 0,
@@ -45,7 +49,7 @@ export default function Dashboard() {
 
   useEffect(() => {
     loadDashboardData()
-  }, [])
+  }, [selectedMonth])
 
   const loadDashboardData = async () => {
     try {
@@ -141,12 +145,11 @@ export default function Dashboard() {
         .eq('priority', 'low')
 
       // Load invoices for revenue calculation
-      const currentMonth = new Date()
-      const startOfMonth = new Date(currentMonth.getFullYear(), currentMonth.getMonth(), 1)
-      const endOfMonth = new Date(currentMonth.getFullYear(), currentMonth.getMonth() + 1, 0, 23, 59, 59)
+      const monthStart = startOfMonth(selectedMonth)
+      const monthEnd = endOfMonth(selectedMonth)
 
-      console.log('Loading invoices for revenue calculation...')
-      console.log('Date range:', startOfMonth.toISOString(), 'to', endOfMonth.toISOString())
+      console.log('Loading invoices for revenue calculation for month:', format(selectedMonth, 'MMMM yyyy'))
+      console.log('Date range:', monthStart.toISOString(), 'to', monthEnd.toISOString())
 
       const { data: invoicesData, error: invoicesError } = await supabase
         .from('invoices')
@@ -176,20 +179,20 @@ export default function Dashboard() {
             
             if (invoice.payment_date) {
               const paymentDate = new Date(invoice.payment_date)
-              console.log('Payment date parsed:', paymentDate, 'Current month range:', startOfMonth, 'to', endOfMonth)
+              console.log('Payment date parsed:', paymentDate, 'Selected month range:', monthStart, 'to', monthEnd)
               
-              if (paymentDate >= startOfMonth && paymentDate <= endOfMonth) {
+              if (paymentDate >= monthStart && paymentDate <= monthEnd) {
                 includeInRevenue = true
-                console.log('Payment date is in current month')
+                console.log('Payment date is in selected month')
               }
             } else if (invoice.status === 'paid') {
               // If no payment_date but status is paid, use issue_date as fallback
               const issueDate = new Date(invoice.issue_date)
               console.log('No payment date, using issue date:', issueDate)
               
-              if (issueDate >= startOfMonth && issueDate <= endOfMonth) {
+              if (issueDate >= monthStart && issueDate <= monthEnd) {
                 includeInRevenue = true
-                console.log('Issue date is in current month')
+                console.log('Issue date is in selected month')
               }
             }
             
@@ -241,6 +244,17 @@ export default function Dashboard() {
     }
   }
 
+  const navigateMonth = (direction: 'prev' | 'next') => {
+    if (direction === 'prev') {
+      setSelectedMonth(subMonths(selectedMonth, 1))
+    } else {
+      setSelectedMonth(addMonths(selectedMonth, 1))
+    }
+  }
+
+  const goToCurrentMonth = () => {
+    setSelectedMonth(new Date())
+  }
   if (loading) {
     return (
       <div className="flex items-center justify-center h-64">
@@ -251,6 +265,47 @@ export default function Dashboard() {
 
   return (
     <div className="space-y-6">
+      {/* Header with Date Picker */}
+      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
+        <div>
+          <h1 className="text-2xl font-bold text-gray-900">Dashboard</h1>
+          <p className="text-gray-600">Overview of your business performance</p>
+        </div>
+        
+        {/* Month Navigation */}
+        <div className="flex items-center space-x-4">
+          <div className="flex items-center bg-white rounded-lg border border-gray-300 shadow-sm">
+            <button
+              onClick={() => navigateMonth('prev')}
+              className="p-2 hover:bg-gray-50 rounded-l-lg transition-colors"
+            >
+              <ChevronLeft className="w-5 h-5 text-gray-600" />
+            </button>
+            
+            <div className="px-4 py-2 border-x border-gray-300">
+              <div className="text-sm font-medium text-gray-900">
+                {format(selectedMonth, 'MMMM yyyy')}
+              </div>
+              <div className="text-xs text-gray-500">Revenue Period</div>
+            </div>
+            
+            <button
+              onClick={() => navigateMonth('next')}
+              className="p-2 hover:bg-gray-50 rounded-r-lg transition-colors"
+            >
+              <ChevronRight className="w-5 h-5 text-gray-600" />
+            </button>
+          </div>
+          
+          <button
+            onClick={goToCurrentMonth}
+            className="px-3 py-2 text-sm bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors"
+          >
+            Current Month
+          </button>
+        </div>
+      </div>
+
       {/* Top Stats Row - Enhanced with hover effects */}
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 animate-fade-in">
         <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-6 hover-card-effect">
@@ -296,8 +351,8 @@ export default function Dashboard() {
           <div className="flex items-center justify-between">
             <div>
               <p className="text-sm font-medium text-gray-600">Monthly Revenue</p>
-              <p className="text-3xl font-bold bg-clip-text text-transparent bg-gradient-to-r from-green-600 to-green-400">${stats.monthlyRevenue}</p>
-              <p className="text-sm text-gray-500 mt-1">Current month</p>
+              <p className="text-3xl font-bold bg-clip-text text-transparent bg-gradient-to-r from-green-600 to-green-400">${stats.monthlyRevenue.toFixed(2)}</p>
+              <p className="text-sm text-gray-500 mt-1">{format(selectedMonth, 'MMMM yyyy')}</p>
             </div>
             <div className="p-3 bg-green-100 rounded-full shadow-sm">
               <DollarSign className="w-6 h-6 text-green-600" />
