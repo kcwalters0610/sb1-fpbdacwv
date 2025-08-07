@@ -291,9 +291,9 @@ export default function Layout({ children, currentPage, onPageChange }: LayoutPr
       </div>
 
       {/* Main content */}
-      <div className={`transition-all duration-300 ${sidebarCollapsed ? 'md:ml-20' : 'md:ml-64'} ${sidebarOpen ? 'ml-64' : 'ml-0'} md:ml-${sidebarCollapsed ? '20' : '64'}`}>
+      <div className={`transition-all duration-300 ${sidebarOpen ? 'md:ml-64' : 'md:ml-0'} ${sidebarCollapsed ? 'md:ml-20' : 'md:ml-64'}`}>
         {/* Top bar */}
-        <div className={`sticky top-0 z-10 flex items-center justify-between h-16 bg-white shadow-sm px-4 lg:px-6 transition-all duration-300`}>
+        <div className="sticky top-0 z-10 flex items-center justify-between h-16 bg-white shadow-sm px-4 lg:px-6">
           <button
             className="md:hidden text-gray-500 hover:text-gray-700 mr-2"
             onClick={() => setSidebarOpen(true)}
@@ -314,7 +314,7 @@ export default function Layout({ children, currentPage, onPageChange }: LayoutPr
         </div>
 
         {/* Page content */}
-        <main className="py-6 px-4 sm:px-6 lg:px-8 overflow-x-auto">
+        <main className="py-6 px-4 sm:px-6 lg:px-8">
           {children}
         </main>
     </div>
