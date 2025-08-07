@@ -242,3 +242,45 @@ export type DepartmentMember = {
   user_id: string
   created_at: string
 }
+
+export type SubscriptionPlan = {
+  id: string
+  name: string
+  description?: string
+  monthly_price: number
+  user_limit: number
+  overage_price: number
+  features: any
+  is_active: boolean
+  created_at: string
+  updated_at: string
+}
+
+export type CompanySubscription = {
+  id: string
+  company_id: string
+  plan_id: string
+  status: 'active' | 'cancelled' | 'past_due' | 'suspended'
+  current_period_start: string
+  current_period_end: string
+  trial_end?: string
+  cancelled_at?: string
+  created_at: string
+  updated_at: string
+  plan?: SubscriptionPlan
+}
+
+export type SubscriptionUsage = {
+  id: string
+  company_id: string
+  billing_period_start: string
+  billing_period_end: string
+  active_users: number
+  plan_user_limit: number
+  overage_users: number
+  base_amount: number
+  overage_amount: number
+  total_amount: number
+  created_at: string
+  updated_at: string
+}

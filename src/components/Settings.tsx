@@ -19,6 +19,7 @@ import {
 import { supabase } from '../lib/supabase'
 import TeamMemberSettings from './TeamMemberSettings'
 import LaborRatesSettings from './LaborRatesSettings'
+import SubscriptionSettings from './SubscriptionSettings'
 
 interface CompanySettings {
   logo_url?: string
@@ -466,6 +467,7 @@ export default function Settings() {
       { id: 'numbering', name: 'Document Numbering', icon: Hash },
       { id: 'labor-rates', name: 'Labor Rates', icon: DollarSign },
       { id: 'team', name: 'Team Members', icon: Users }
+      { id: 'subscription', name: 'Subscription', icon: SettingsIcon }
     ] : [])
   ]
 
@@ -1162,6 +1164,11 @@ export default function Settings() {
           {/* Labor Rates */}
           {activeTab === 'labor-rates' && (
             <LaborRatesSettings />
+          )}
+
+          {/* Subscription */}
+          {activeTab === 'subscription' && (
+            <SubscriptionSettings />
           )}
         </div>
       </div>
