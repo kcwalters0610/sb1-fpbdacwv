@@ -8,6 +8,7 @@ interface LayoutProps {
   currentPage: string
   onPageChange: (page: string) => void
 }
+
 export default function Layout({ children, currentPage, onPageChange }: LayoutProps) {
   const [sidebarOpen, setSidebarOpen] = useState(false)
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false)
@@ -291,7 +292,7 @@ export default function Layout({ children, currentPage, onPageChange }: LayoutPr
       </div>
 
       {/* Main content */}
-      <div className={`transition-all duration-300 ${sidebarOpen ? 'md:ml-64' : 'md:ml-0'} ${sidebarCollapsed ? 'md:ml-20' : 'md:ml-64'}`}>
+      <div className={`transition-all duration-300 ${sidebarCollapsed ? 'md:ml-20' : 'md:ml-64'}`}>
         {/* Top bar */}
         <div className="sticky top-0 z-10 flex items-center justify-between h-16 bg-white shadow-sm px-4 lg:px-6">
           <button
@@ -302,21 +303,24 @@ export default function Layout({ children, currentPage, onPageChange }: LayoutPr
           </button>
           <div className="flex-1 flex justify-between items-center">
             <div></div>
-            <div className="text-sm text-gray-500">
-              {new Date().toLocaleDateString('en-US', {
-                year: 'numeric',
-                month: 'long',
-                day: 'numeric'
-              })}
+            <div className="flex items-center justify-end">
+              <div className="text-sm text-gray-600 mr-4">
+                {new Date().toLocaleDateString('en-US', { 
+                  weekday: 'long', 
+                  year: 'numeric', 
+                  month: 'long', 
+                  day: 'numeric' 
+                })}
+              </div>
             </div>
-          </div>
           </div>
         </div>
 
         {/* Page content */}
-        <main className="py-6 px-4 sm:px-6 lg:px-8">
+        <main className="py-6 px-4 sm:px-6 lg:px-8 overflow-x-auto">
           {children}
         </main>
+      </div>
     </div>
   )
 }
