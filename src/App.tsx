@@ -90,12 +90,18 @@ function App() {
           .eq('id', user.id)
           .single()
         
-        if (profile?.company?.subscription_plan) {
-          setUserPlan(profile.company.subscription_plan as SubscriptionPlan)
+        const planFromDB = profile?.company?.subscription_plan
+        // Validate the plan exists in our SUBSCRIPTION_PLANS, default to 'starter' if not
+        if (planFromDB && ['starter', 'pro', 'business'].includes(planFromDB)) {
+          setUserPlan(planFromDB as SubscriptionPlan)
+        } else {
+          setUserPlan('starter')
         }
       }
     } catch (error) {
       console.error('Error loading user plan:', error)
+      // Default to starter plan on error
+      setUserPlan('starter')
     }
   }
 
