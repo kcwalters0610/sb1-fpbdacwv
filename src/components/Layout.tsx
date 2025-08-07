@@ -69,7 +69,7 @@ export default function Layout({ children, currentPage, onPageChange }: LayoutPr
           ...(features.opportunities ? [{ name: 'Opportunities', href: 'opportunities', icon: Target }] : []),
         ]
       }] : []),
-      { name: 'Reports', href: 'reports', icon: BarChart4 },
+      ...(features.advanced_reports ? [{ name: 'Reports', href: 'reports', icon: BarChart4 }] : []),
     ];
     
     // Items for office staff
