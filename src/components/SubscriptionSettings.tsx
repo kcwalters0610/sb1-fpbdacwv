@@ -76,7 +76,7 @@ export default function SubscriptionSettings() {
         `)
         .eq('company_id', profile.company_id)
         .eq('status', 'active')
-        .single()
+        .maybeSingle()
 
       setCurrentSubscription(subscriptionData)
 
@@ -91,7 +91,7 @@ export default function SubscriptionSettings() {
         .eq('company_id', profile.company_id)
         .gte('billing_period_start', startOfMonth.toISOString().split('T')[0])
         .lte('billing_period_end', endOfMonth.toISOString().split('T')[0])
-        .single()
+        .maybeSingle()
 
       setUsage(usageData)
 
