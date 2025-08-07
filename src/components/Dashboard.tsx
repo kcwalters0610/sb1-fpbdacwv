@@ -181,7 +181,7 @@ export default function Dashboard() {
           console.log('Payment Date:', invoice.payment_date)
           console.log('Issue Date:', invoice.issue_date)
           
-          // For invoices with payments, check if payment was made this month
+          // For invoices with any paid amount, include in revenue calculation
           if (invoice.paid_amount > 0) {
             console.log('Invoice has paid amount:', invoice.paid_amount)
             let includeInRevenue = false
@@ -200,19 +200,17 @@ export default function Dashboard() {
               } else {
                 console.log('Payment date is NOT in selected month')
               }
-            } else if (invoice.status === 'paid') {
-              // If no payment_date but status is paid, use issue_date as fallback
+            } else {
+              // If no payment_date, check if invoice was issued in this month and has payments
               const issueDate = new Date(invoice.issue_date)
-              console.log('No payment date, using issue date:', issueDate.toISOString())
+              console.log('No payment date, checking issue date for partial payments:', issueDate.toISOString())
               
               if (issueDate >= monthStart && issueDate <= monthEnd) {
                 includeInRevenue = true
-                console.log('Issue date is in selected month')
+                console.log('Issue date is in selected month, including partial payment')
               } else {
-                console.log('Issue date is NOT in selected month')
+                console.log('Issue date is NOT in selected month, excluding partial payment')
               }
-            } else {
-              console.log('Invoice not marked as paid, status:', invoice.status)
             }
             
             if (includeInRevenue) {
