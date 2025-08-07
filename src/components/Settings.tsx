@@ -466,7 +466,7 @@ export default function Settings() {
       { id: 'work-types', name: 'Work Types', icon: Wrench },
       { id: 'numbering', name: 'Document Numbering', icon: Hash },
       { id: 'labor-rates', name: 'Labor Rates', icon: DollarSign },
-      { id: 'team', name: 'Team Members', icon: Users }
+      { id: 'team', name: 'Team Members', icon: Users },
       { id: 'subscription', name: 'Subscription', icon: SettingsIcon }
     ] : [])
   ]
