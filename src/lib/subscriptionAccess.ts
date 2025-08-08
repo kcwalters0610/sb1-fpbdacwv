@@ -1,5 +1,13 @@
 import { supabase } from './supabase'
 
+// Test companies that get free all-access pass
+const TEST_COMPANY_IDS = [
+  // Add your test company IDs here
+  // Example: 'uuid-of-test-company-1',
+  // Example: 'uuid-of-test-company-2',
+  // Example: 'uuid-of-test-company-3'
+]
+
 interface SubscriptionFeatures {
   work_orders?: boolean
   customers?: boolean
@@ -25,6 +33,28 @@ interface SubscriptionFeatures {
 let cachedFeatures: SubscriptionFeatures | null = null
 let cacheExpiry: number = 0
 
+const getAllFeatures = (): SubscriptionFeatures => ({
+  work_orders: true,
+  customers: true,
+  invoicing: true,
+  time_tracking: true,
+  basic_reports: true,
+  mobile_app: true,
+  projects: true,
+  inventory: true,
+  estimates: true,
+  purchase_orders: true,
+  advanced_reports: true,
+  maintenance: true,
+  crm: true,
+  leads: true,
+  opportunities: true,
+  multi_location: true,
+  api_access: true,
+  custom_fields: true,
+  advanced_integrations: true
+})
+
 export const getSubscriptionFeatures = async (): Promise<SubscriptionFeatures> => {
   // Return cached features if still valid (cache for 5 minutes)
   if (cachedFeatures && Date.now() < cacheExpiry) {
@@ -45,6 +75,15 @@ export const getSubscriptionFeatures = async (): Promise<SubscriptionFeatures> =
 
     if (!profile) {
       return {}
+    }
+
+    // Check if this is a test company
+    if (TEST_COMPANY_IDS.includes(profile.company_id)) {
+      console.log('Test company detected - granting all features')
+      const allFeatures = getAllFeatures()
+      cachedFeatures = allFeatures
+      cacheExpiry = Date.now() + (5 * 60 * 1000)
+      return allFeatures
     }
 
     // Get active subscription

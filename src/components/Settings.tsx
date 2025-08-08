@@ -467,7 +467,8 @@ export default function Settings() {
       { id: 'numbering', name: 'Document Numbering', icon: Hash },
       { id: 'labor-rates', name: 'Labor Rates', icon: DollarSign },
       { id: 'team', name: 'Team Members', icon: Users },
-      { id: 'subscription', name: 'Subscription', icon: SettingsIcon }
+      { id: 'subscription', name: 'Subscription', icon: SettingsIcon },
+      { id: 'test-access', name: 'Test Access', icon: Building2 }
     ] : [])
   ]
 
@@ -1169,6 +1170,59 @@ export default function Settings() {
           {/* Subscription */}
           {activeTab === 'subscription' && (
             <SubscriptionSettings />
+          )}
+
+          {/* Test Company Management - Admin Only */}
+          {activeTab === 'test-access' && currentUser?.profile?.role === 'admin' && (
+            <div className="space-y-6">
+              <div>
+                <h3 className="text-lg font-semibold text-gray-900 mb-2">Test Company Access</h3>
+                <p className="text-gray-600 mb-6">
+                  Manage companies that have free all-access passes for testing purposes.
+                </p>
+
+                <div className="bg-blue-50 border border-blue-200 rounded-lg p-4 mb-6">
+                  <div className="flex items-start">
+                    <div className="flex-shrink-0">
+                      <div className="w-8 h-8 bg-blue-100 rounded-full flex items-center justify-center">
+                        <Building2 className="w-4 h-4 text-blue-600" />
+                      </div>
+                    </div>
+                    <div className="ml-3">
+                      <h4 className="text-sm font-medium text-blue-900">Current Company ID</h4>
+                      <p className="text-sm text-blue-700 font-mono mt-1">{currentUser?.profile?.company_id}</p>
+                      <p className="text-xs text-blue-600 mt-2">
+                        Copy this ID and add it to the TEST_COMPANY_IDS array in the code to grant this company full access.
+                      </p>
+                    </div>
+                  </div>
+                </div>
+
+                <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-4">
+                  <div className="flex items-start">
+                    <div className="flex-shrink-0">
+                      <AlertTriangle className="w-5 h-5 text-yellow-600" />
+                    </div>
+                    <div className="ml-3">
+                      <h4 className="text-sm font-medium text-yellow-900">Developer Note</h4>
+                      <p className="text-sm text-yellow-700 mt-1">
+                        To add test companies, update the TEST_COMPANY_IDS array in 
+                        <code className="bg-yellow-100 px-1 rounded">src/lib/subscriptionAccess.ts</code>
+                      </p>
+                      <div className="mt-3 bg-yellow-100 rounded p-3">
+                        <p className="text-xs text-yellow-800 font-mono">
+                          const TEST_COMPANY_IDS = [<br/>
+                          &nbsp;&nbsp;'{currentUser?.profile?.company_id}', // This company<br/>
+                          &nbsp;&nbsp;'uuid-of-test-company-2',<br/>
+                          &nbsp;&nbsp;'uuid-of-test-company-3'<br/>
+                          ]
+                        </p>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
           )}
         </div>
       </div>
