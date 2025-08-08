@@ -298,7 +298,7 @@ const Auth = () => {
                </div>
              )}
            </form>
-         )}
+          )}
 
           <div className="mt-6 text-center">
             <button
@@ -312,3 +312,6 @@ const Auth = () => {
       </div>
     </div>
   )
+}
+
+export default Auth
