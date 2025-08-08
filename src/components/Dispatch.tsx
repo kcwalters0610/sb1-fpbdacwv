@@ -23,6 +23,11 @@ export default function Dispatch() {
   const [selectedDate, setSelectedDate] = useState(new Date().toISOString().split('T')[0])
   const [statusFilter, setStatusFilter] = useState('all')
   const [currentUser, setCurrentUser] = useState<any>(null)
+  const [showNotificationModal, setShowNotificationModal] = useState(false)
+  const [selectedWorkOrders, setSelectedWorkOrders] = useState<string[]>([])
+  const [notificationForm, setNotificationForm] = useState({
+    message: ''
+  })
 
   useEffect(() => {
     getCurrentUser()
@@ -149,6 +154,21 @@ export default function Dispatch() {
       loadData()
     } catch (error) {
       console.error('Error updating status:', error)
+    }
+  }
+
+  const bulkNotifyTechnicians = async () => {
+    try {
+      // TODO: Implement bulk notification functionality
+      console.log('Sending notifications for work orders:', selectedWorkOrders)
+      console.log('Message:', notificationForm.message)
+      
+      // Close modal and reset form
+      setShowNotificationModal(false)
+      setSelectedWorkOrders([])
+      setNotificationForm({ message: '' })
+    } catch (error) {
+      console.error('Error sending notifications:', error)
     }
   }
 
