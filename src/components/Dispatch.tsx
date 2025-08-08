@@ -60,18 +60,16 @@ export default function Dispatch() {
 
   useEffect(() => {
     getCurrentUser()
+    loadData()
+  }, [])
+
+  useEffect(() => {
     if (viewMode === 'board') {
       loadData()
     } else {
       loadCalendarData()
     }
-  }, [selectedDate])
-
-  useEffect(() => {
-    if (viewMode === 'calendar') {
-      loadCalendarData()
-    }
-  }, [currentMonth, viewMode])
+  }, [selectedDate, currentMonth, viewMode])
 
   const getCurrentUser = async () => {
     try {
@@ -120,8 +118,8 @@ export default function Dispatch() {
             project:projects(*),
             assigned_dept:departments!department_id(*)
           `)
-          .gte('scheduled_date', selectedDate + 'T00:00:00')
-          .lt('scheduled_date', selectedDate + 'T23:59:59')
+          .gte('scheduled_date', selectedDate + 'T00:00:00.000Z')
+          .lte('scheduled_date', selectedDate + 'T23:59:59.999Z')
           .order('scheduled_date'),
         supabase
           .from('profiles')
@@ -155,8 +153,8 @@ export default function Dispatch() {
           project:projects(*),
           assigned_dept:departments!department_id(*)
         `)
-        .gte('scheduled_date', monthStart.toISOString())
-        .lte('scheduled_date', monthEnd.toISOString())
+        .gte('scheduled_date', monthStart.toISOString().split('T')[0] + 'T00:00:00.000Z')
+        .lte('scheduled_date', monthEnd.toISOString().split('T')[0] + 'T23:59:59.999Z')
         .order('scheduled_date')
 
       setCalendarWorkOrders(ordersResult.data || [])
@@ -249,9 +247,12 @@ export default function Dispatch() {
   }
 
   const getWorkOrdersForDate = (date: Date) => {
-    return calendarWorkOrders.filter(order => 
-      order.scheduled_date && isSameDay(new Date(order.scheduled_date), date)
-    )
+    const targetDateStr = format(date, 'yyyy-MM-dd')
+    return calendarWorkOrders.filter(order => {
+      if (!order.scheduled_date) return false
+      const orderDateStr = order.scheduled_date.split('T')[0]
+      return orderDateStr === targetDateStr
+    })
   }
 
   const renderCalendarView = () => {
@@ -323,10 +324,13 @@ export default function Dispatch() {
               return (
                 <div
                   key={dayIdx}
-                  onClick={() => setSelectedDate(format(day, 'yyyy-MM-dd'))}
+                  onClick={() => {
+                    const clickedDate = format(day, 'yyyy-MM-dd')
+                    setSelectedDate(clickedDate)
+                  }}
                   className={`min-h-[120px] p-2 border border-gray-200 cursor-pointer hover:bg-gray-50 transition-colors ${
                     !isCurrentMonth ? 'bg-gray-50 text-gray-400' : 'bg-white'
-                  } ${isSelected ? 'ring-2 ring-blue-500 bg-blue-50' : ''} ${
+                  } ${format(day, 'yyyy-MM-dd') === selectedDate ? 'ring-2 ring-blue-500 bg-blue-50' : ''} ${
                     isToday ? 'bg-blue-100' : ''
                   }`}
                 >
@@ -737,9 +741,19 @@ export default function Dispatch() {
             </h3>
           </div>
           <div className="p-6">
-            {filteredOrders.length > 0 ? (
-              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-                {filteredOrders.map((order) => (
+            {(() => {
+              const selectedDateOrders = calendarWorkOrders.filter(order => {
+                if (!order.scheduled_date) return false
+                const orderDateStr = order.scheduled_date.split('T')[0]
+                return orderDateStr === selectedDate
+              }).filter(order => {
+                if (statusFilter === 'all') return true
+                return order.status === statusFilter
+              })
+              
+              return selectedDateOrders.length > 0 ? (
+                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                  {selectedDateOrders.map((order) => (
                   <div key={order.id} className={`border-2 rounded-lg p-4 ${getPriorityColor(order.priority)}`}>
                     <div className="flex items-start justify-between mb-2">
                       <div>
@@ -789,15 +803,16 @@ export default function Dispatch() {
                       </select>
                     )}
                   </div>
-                ))}
-              </div>
-            ) : (
-              <div className="text-center py-12 text-gray-500">
-                <Calendar className="w-12 h-12 mx-auto mb-4 text-gray-400" />
-                <h3 className="text-lg font-medium text-gray-900 mb-2">No work orders scheduled</h3>
-                <p>No work orders are scheduled for this date.</p>
-              </div>
-            )}
+                  ))}
+                </div>
+              ) : (
+                <div className="text-center py-12 text-gray-500">
+                  <Calendar className="w-12 h-12 mx-auto mb-4 text-gray-400" />
+                  <h3 className="text-lg font-medium text-gray-900 mb-2">No work orders scheduled</h3>
+                  <p>No work orders are scheduled for this date.</p>
+                </div>
+              )
+            })()}
           </div>
         </div>
       )}
