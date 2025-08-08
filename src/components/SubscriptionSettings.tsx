@@ -210,7 +210,6 @@ export default function SubscriptionSettings() {
                       (+{overageUsers} over)
                     </span>
                   )}
-                </span>
               </div>
               {overageUsers > 0 && (
                 <div className="flex items-center justify-between">
