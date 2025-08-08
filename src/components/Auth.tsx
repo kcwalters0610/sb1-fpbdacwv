@@ -59,7 +59,22 @@ export default function Auth() {
       setMessage('Password reset email sent! Check your inbox for instructions.')
       setShowForgotPassword(false)
     } catch (error: any) {
-      setError(error.message)
+      // Handle rate limit errors with user-friendly message
+      try {
+        const parsedError = JSON.parse(error.message)
+        if (parsedError.code === 'over_email_send_rate_limit') {
+          setError('Email send rate limit exceeded. Please wait a few minutes and try again.')
+        } else {
+          setError(parsedError.message || 'An unexpected error occurred. Please try again.')
+        }
+      } catch {
+        // If error message isn't JSON, use original message or generic message
+        if (error.message.includes('rate limit')) {
+          setError('Email send rate limit exceeded. Please wait a few minutes and try again.')
+        } else {
+          setError(error.message || 'An unexpected error occurred. Please try again.')
+        }
+      }
     } finally {
       setLoading(false)
     }
