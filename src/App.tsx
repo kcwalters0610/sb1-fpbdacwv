@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react'
 import { supabase } from './lib/supabase'
 import { hasFeature } from './lib/subscriptionAccess'
 import Auth from './components/Auth'
+import ResetPassword from './components/ResetPassword'
 import Layout from './components/Layout'
 import Dashboard from './components/Dashboard'
 import Estimates from './components/Estimates'
@@ -33,6 +34,7 @@ function App() {
   const [loading, setLoading] = useState(true)
   const [currentPage, setCurrentPage] = useState('dashboard')
   const [hasAccessToPage, setHasAccessToPage] = useState(true)
+  const [isPasswordReset, setIsPasswordReset] = useState(false)
 
   useEffect(() => {
     // Listen for navigation events
@@ -48,6 +50,24 @@ function App() {
   }, []);
 
   useEffect(() => {
+    // Check if this is a password reset flow
+    const urlParams = new URLSearchParams(window.location.search)
+    const accessToken = urlParams.get('access_token')
+    const refreshToken = urlParams.get('refresh_token')
+    const type = urlParams.get('type')
+    
+    if (type === 'recovery' && accessToken && refreshToken) {
+      // Set the session from URL parameters
+      supabase.auth.setSession({
+        access_token: accessToken,
+        refresh_token: refreshToken
+      }).then(() => {
+        setIsPasswordReset(true)
+        setLoading(false)
+      })
+      return
+    }
+
     // Get initial session
     supabase.auth.getSession().then(async ({ data: { session }, error }) => {
       if (error || !session) {
@@ -172,6 +192,11 @@ function App() {
         <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600"></div>
       </div>
     )
+  }
+
+  // Show password reset page if this is a password reset flow
+  if (isPasswordReset) {
+    return <ResetPassword />
   }
 
   if (!session) {
