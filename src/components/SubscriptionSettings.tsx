@@ -219,7 +219,6 @@ export default function SubscriptionSettings() {
                   <span className="text-sm font-medium text-red-600">
                     +${overageCost.toFixed(2)}/mo
                   </span>
-                  </span>
                   <span className="text-sm font-medium text-red-600">
                     +${overageCost.toFixed(2)}/mo
                   </span>
