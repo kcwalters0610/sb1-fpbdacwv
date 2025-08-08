@@ -14,15 +14,9 @@ export default function ResetPassword() {
   useEffect(() => {
     // Check if we have a valid session from the reset link
     const checkSession = async () => {
-      const urlParams = new URLSearchParams(window.location.search)
-      const accessToken = urlParams.get('access_token') || urlParams.get('token')
-      const type = urlParams.get('type')
-      
-      if (type !== 'recovery' || !accessToken) {
-        const { data: { session } } = await supabase.auth.getSession()
-        if (!session) {
-          setError('Invalid or expired reset link. Please request a new password reset.')
-        }
+      const { data: { session } } = await supabase.auth.getSession()
+      if (!session) {
+        setError('Invalid or expired reset link. Please request a new password reset.')
       }
     }
     

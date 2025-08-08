@@ -2,7 +2,7 @@ import React, { useState } from 'react'
 import { supabase } from '../lib/supabase'
 import { Building2, Mail, Lock, Eye, EyeOff } from 'lucide-react'
 
-const Auth = () => {
+export default function Auth() {
   const [isSignUp, setIsSignUp] = useState(false)
   const [showForgotPassword, setShowForgotPassword] = useState(false)
   const [email, setEmail] = useState('')
@@ -11,7 +11,6 @@ const Auth = () => {
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
   const [message, setMessage] = useState('')
-  const [cooldownSeconds, setCooldownSeconds] = useState(0)
 
   const handleAuth = async (e: React.FormEvent) => {
     e.preventDefault()
@@ -52,33 +51,37 @@ const Auth = () => {
       }
 
       const { error } = await supabase.auth.resetPasswordForEmail(email, {
-        redirectTo: `${window.location.origin}?type=recovery`,
+        redirectTo: `${window.location.origin}`,
       })
-      if (error) {
-        // Handle rate limit errors specifically
-        if (error.message?.includes('email rate limit exceeded') || error.message?.includes('over_email_send_rate_limit')) {
-          setError('Too many password reset requests. Please wait 3 minutes before trying again.')
-          setCooldownSeconds(180)
-          const interval = setInterval(() => {
-            setCooldownSeconds((prev) => {
-              if (prev <= 1) {
-                clearInterval(interval)
-                return 0
-              }
-              return prev - 1
-            })
-          }, 1000)
-          return
-        }
-        throw error
-      }
+
+      if (error) throw error
 
       setMessage('Password reset email sent! Check your inbox for instructions.')
       setShowForgotPassword(false)
     } catch (error: any) {
-      // Only set generic error if we haven't already handled it above
-      if (!error.message?.includes('email rate limit exceeded') && !error.message?.includes('over_email_send_rate_limit')) {
-        setError(error.message || 'An unexpected error occurred. Please try again.')
+      // Check for Supabase-specific error properties first
+      if (error.status === 429 || error.code === 'over_email_send_rate_limit') {
+        setError('Email send rate limit exceeded. Please wait a few minutes and try again.')
+      } else if (error.message === 'Failed to fetch') {
+        // Network error, likely due to rate limiting or connectivity issues
+        setError('Unable to send password reset email. Please check your connection and try again in a few minutes.')
+      } else {
+        // Handle other error formats
+        try {
+          const parsedError = JSON.parse(error.message)
+          if (parsedError.code === 'over_email_send_rate_limit') {
+            setError('Email send rate limit exceeded. Please wait a few minutes and try again.')
+          } else {
+            setError(parsedError.message || 'An unexpected error occurred. Please try again.')
+          }
+        } catch {
+          // If error message isn't JSON, use original message or generic message
+          if (error.message && error.message.includes('rate limit')) {
+            setError('Email send rate limit exceeded. Please wait a few minutes and try again.')
+          } else {
+            setError(error.message || 'An unexpected error occurred. Please try again.')
+          }
+        }
       }
     } finally {
       setLoading(false)
@@ -144,10 +147,10 @@ const Auth = () => {
 
               <button
                 type="submit"
-                disabled={loading || cooldownSeconds > 0}
+                disabled={loading}
                 className="w-full bg-gradient-to-r from-blue-600 to-blue-700 text-white py-3 px-4 rounded-lg font-medium hover:from-blue-700 hover:to-blue-800 disabled:opacity-50 disabled:cursor-not-allowed transition-all transform hover:scale-[1.02] active:scale-[0.98] shadow-md"
               >
-                {loading ? 'Sending...' : cooldownSeconds > 0 ? `Wait ${cooldownSeconds}s` : 'Send Reset Email'}
+                {loading ? 'Sending...' : 'Send Reset Email'}
               </button>
 
               <div className="text-center">
@@ -250,7 +253,7 @@ const Auth = () => {
                </div>
              )}
            </form>
-          )}
+         )}
 
           <div className="mt-6 text-center">
             <button
@@ -265,5 +268,3 @@ const Auth = () => {
     </div>
   )
 }
-
-export default Auth
