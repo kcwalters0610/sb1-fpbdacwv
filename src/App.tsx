@@ -52,16 +52,23 @@ function App() {
   useEffect(() => {
     // Check if this is a password reset flow
     const urlParams = new URLSearchParams(window.location.search)
-    const accessToken = urlParams.get('access_token')
-    const refreshToken = urlParams.get('refresh_token')
+    const accessToken = urlParams.get('access_token') || urlParams.get('token')
+    const refreshToken = urlParams.get('refresh_token') || urlParams.get('refresh_token')
     const type = urlParams.get('type')
     
-    if (type === 'recovery' && accessToken && refreshToken) {
+    if (type === 'recovery' && accessToken) {
       // Set the session from URL parameters
-      supabase.auth.setSession({
+      const sessionData: any = {
         access_token: accessToken,
-        refresh_token: refreshToken
-      }).then(() => {
+        token_type: 'bearer',
+        user: null
+      }
+      
+      if (refreshToken) {
+        sessionData.refresh_token = refreshToken
+      }
+      
+      supabase.auth.setSession(sessionData).then(() => {
         setIsPasswordReset(true)
         setLoading(false)
       })
