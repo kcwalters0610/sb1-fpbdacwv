@@ -1,7 +1,32 @@
 import React, { useState, useEffect } from 'react'
-import { Calendar, MapPin, User, Clock, Phone, AlertTriangle, CheckCircle, Truck, Filter, Navigation, ChevronLeft, ChevronRight, Grid } from 'lucide-react'
+import { 
+  Calendar, 
+  MapPin, 
+  User, 
+  Clock, 
+  Phone, 
+  AlertTriangle, 
+  CheckCircle, 
+  Truck, 
+  Filter, 
+  Navigation, 
+  ChevronLeft, 
+  ChevronRight, 
+  Grid 
+} from 'lucide-react'
 import { supabase, WorkOrder, Profile } from '../lib/supabase'
-import { format, startOfMonth, endOfMonth, addDays, startOfWeek, endOfWeek, isSameDay, isSameMonth, addMonths, subMonths } from 'date-fns'
+import { 
+  format, 
+  startOfMonth, 
+  endOfMonth, 
+  addDays, 
+  startOfWeek, 
+  endOfWeek, 
+  isSameDay, 
+  isSameMonth, 
+  addMonths, 
+  subMonths 
+} from 'date-fns'
 
 interface DispatchWorkOrder extends WorkOrder {
   assigned_technician?: Profile
