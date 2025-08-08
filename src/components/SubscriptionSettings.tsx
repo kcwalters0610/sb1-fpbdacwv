@@ -139,7 +139,12 @@ export default function SubscriptionSettings() {
     const overageUsers = Math.max(0, activeUsers - currentSubscription.plan.user_limit)
     const overageCost = overageUsers * currentSubscription.plan.overage_price
     
-    return { overageUsers, overageCost }
+    return { 
+      overageUsers, 
+      overageCost,
+      perUserCost: currentSubscription.plan.overage_price,
+      planLimit: currentSubscription.plan.user_limit
+    }
   }
 
   const getPlanIcon = (planName: string) => {
@@ -160,7 +165,7 @@ export default function SubscriptionSettings() {
     }
   }
 
-  const { overageUsers, overageCost } = calculateOverage()
+  const { overageUsers, overageCost, perUserCost, planLimit } = calculateOverage()
   const totalMonthlyCost = (currentSubscription?.plan?.monthly_price || 0) + overageCost
 
   if (loading) {
@@ -192,21 +197,38 @@ export default function SubscriptionSettings() {
             <div className="space-y-2">
               <div className="flex items-center justify-between">
                 <span className="text-sm text-gray-600">Base Plan:</span>
-                <span className="text-sm font-medium">${currentSubscription.plan?.monthly_price}/mo</span>
+                <span className="text-sm font-medium">${currentSubscription.plan?.monthly_price.toFixed(2)}/mo</span>
               </div>
               <div className="flex items-center justify-between">
                 <span className="text-sm text-gray-600">Users:</span>
-                <span className="text-sm font-medium">{activeUsers} / {currentSubscription.plan?.user_limit}</span>
+                <span className={`text-sm font-medium ${overageUsers > 0 ? 'text-red-600' : ''}`}>
+                  {activeUsers} / {planLimit}
+                </span>
+                  {activeUsers} / {planLimit}
+                  {overageUsers > 0 && (
+                    <span className="text-red-600 ml-1">
+                      (+{overageUsers} over)
+                    </span>
+                  )}
+                </span>
               </div>
               {overageUsers > 0 && (
                 <div className="flex items-center justify-between">
-                  <span className="text-sm text-red-600">Overage ({overageUsers} users):</span>
-                  <span className="text-sm font-medium text-red-600">+${overageCost}/mo</span>
+                  <span className="text-sm text-red-600">
+                    Overage ({overageUsers} × ${perUserCost}):
+                  </span>
+                  <span className="text-sm font-medium text-red-600">
+                    +${overageCost.toFixed(2)}/mo
+                  </span>
+                  </span>
+                  <span className="text-sm font-medium text-red-600">
+                    +${overageCost.toFixed(2)}/mo
+                  </span>
                 </div>
               )}
               <div className="flex items-center justify-between pt-2 border-t">
                 <span className="text-sm font-semibold text-gray-900">Total Monthly:</span>
-                <span className="text-lg font-bold text-gray-900">${totalMonthlyCost}/mo</span>
+                <span className="text-lg font-bold text-gray-900">${totalMonthlyCost.toFixed(2)}/mo</span>
               </div>
             </div>
 
@@ -238,10 +260,13 @@ export default function SubscriptionSettings() {
                 <AlertTriangle className="w-5 h-5 text-yellow-600 mr-2" />
                 <div>
                   <p className="text-sm font-medium text-yellow-800">
-                    You have {overageUsers} user{overageUsers !== 1 ? 's' : ''} over your plan limit
+                    Overage Charges: {overageUsers} user{overageUsers !== 1 ? 's' : ''} over your {planLimit}-user limit
                   </p>
                   <p className="text-sm text-yellow-700">
-                    Additional charges: ${overageCost}/month at $20/user
+                    Additional charges: {overageUsers} × ${perUserCost}/user = ${overageCost.toFixed(2)}/month
+                  </p>
+                  <p className="text-sm text-yellow-700 mt-1">
+                    <strong>Total monthly cost:</strong> ${(currentSubscription?.plan?.monthly_price || 0).toFixed(2)} (base) + ${overageCost.toFixed(2)} (overage) = ${totalMonthlyCost.toFixed(2)}
                   </p>
                 </div>
               </div>
@@ -464,17 +489,19 @@ export default function SubscriptionSettings() {
             <div className="space-y-2">
               <div className="flex justify-between">
                 <span className="text-sm text-gray-600">Base Plan:</span>
-                <span className="text-sm text-gray-900">${currentSubscription?.plan?.monthly_price || 0}</span>
+                <span className="text-sm text-gray-900">${(currentSubscription?.plan?.monthly_price || 0).toFixed(2)}</span>
               </div>
               {overageUsers > 0 && (
                 <div className="flex justify-between">
-                  <span className="text-sm text-gray-600">Overage ({overageUsers} users):</span>
-                  <span className="text-sm text-gray-900">${overageCost}</span>
+                  <span className="text-sm text-gray-600">
+                    Overage ({overageUsers} users × ${perUserCost}):
+                  </span>
+                  <span className="text-sm text-gray-900">${overageCost.toFixed(2)}</span>
                 </div>
               )}
               <div className="flex justify-between pt-2 border-t">
                 <span className="text-sm font-semibold text-gray-900">Total:</span>
-                <span className="text-sm font-bold text-gray-900">${totalMonthlyCost}</span>
+                <span className="text-sm font-bold text-gray-900">${totalMonthlyCost.toFixed(2)}</span>
               </div>
             </div>
           </div>
