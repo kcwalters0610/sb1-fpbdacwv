@@ -28,6 +28,7 @@ import CRMDashboard from './components/CRMDashboard'
 import Reports from './components/Reports'
 import Teams from './components/Teams'
 import Inventory from './components/Inventory'
+import { Package } from 'lucide-react'
 
 function App() {
   const [session, setSession] = useState<any>(null)
@@ -89,22 +90,22 @@ function App() {
 
   const initializeAuth = async () => {
 
-      // Get initial session
-      supabase.auth.getSession().then(async ({ data: { session }, error }) => {
-        if (error || !session) {
-          // Clear any stale tokens if there's an error or no session
-          await supabase.auth.signOut()
-        }
-        setSession(session)
-        setLoading(false)
-      })
+    // Get initial session
+    supabase.auth.getSession().then(async ({ data: { session }, error }) => {
+      if (error || !session) {
+        // Clear any stale tokens if there's an error or no session
+        await supabase.auth.signOut()
+      }
+      setSession(session)
+      setLoading(false)
+    })
 
-      // Listen for auth changes
-      const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
-        setSession(session)
-      })
+    // Listen for auth changes
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
+      setSession(session)
+    })
 
-      return () => subscription.unsubscribe()
+    return () => subscription.unsubscribe()
   }
 
   useEffect(() => {
