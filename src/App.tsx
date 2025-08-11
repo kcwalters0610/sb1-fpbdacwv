@@ -36,10 +36,12 @@ function App() {
   const [currentPage, setCurrentPage] = useState('dashboard')
   const [hasAccessToPage, setHasAccessToPage] = useState(true)
   const [isPasswordReset, setIsPasswordReset] = useState(false)
+  const [checkingPasswordReset, setCheckingPasswordReset] = useState(true)
 
   useEffect(() => {
     // Check if this is a password reset flow by looking for recovery tokens
     const checkPasswordReset = async () => {
+      setCheckingPasswordReset(true)
       const hash = window.location.hash
       const search = window.location.search
       
@@ -80,9 +82,9 @@ function App() {
           if (!error) {
             console.log('Password reset session set successfully')
             setIsPasswordReset(true)
-            setLoading(false)
             // Clear the URL parameters after processing
             window.history.replaceState({}, document.title, window.location.pathname)
+            setCheckingPasswordReset(false)
             return true
           } else {
             console.error('Error setting password reset session:', error)
@@ -93,6 +95,7 @@ function App() {
       } else {
         console.log('No valid recovery tokens found')
       }
+      setCheckingPasswordReset(false)
       return false
     }
     
@@ -106,6 +109,8 @@ function App() {
   }, [])
 
   const initializeAuth = async () => {
+    if (checkingPasswordReset) return
+    
     // Get initial session
     supabase.auth.getSession().then(async ({ data: { session }, error }) => {
       if (error || !session) {
