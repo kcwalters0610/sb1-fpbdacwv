@@ -29,6 +29,12 @@ export default function ResetPassword() {
     setError('')
 
     try {
+      // Check if we have a valid session first
+      const { data: { session } } = await supabase.auth.getSession()
+      if (!session) {
+        throw new Error('Invalid or expired reset link. Please request a new password reset.')
+      }
+
       if (!password) {
         throw new Error('Please enter a new password')
       }
@@ -51,7 +57,10 @@ export default function ResetPassword() {
       
       // Redirect to main app after 3 seconds
       setTimeout(() => {
-        window.location.href = '/'
+        // Sign out and redirect to login to ensure clean state
+        supabase.auth.signOut().then(() => {
+          window.location.href = '/'
+        })
       }, 3000)
 
     } catch (error: any) {
