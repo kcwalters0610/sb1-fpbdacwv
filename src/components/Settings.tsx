@@ -293,6 +293,17 @@ export default function Settings() {
 
       if (!company?.id) throw new Error('No company found')
 
+      // Check if bucket exists first
+      const { data: buckets, error: bucketsError } = await supabase.storage.listBuckets()
+      if (bucketsError) {
+        throw new Error('Unable to access storage. Please contact your administrator.')
+      }
+      
+      const bucketExists = buckets?.some(bucket => bucket.name === 'company-assets')
+      if (!bucketExists) {
+        throw new Error('Storage bucket not configured. Please contact your administrator to set up file storage.')
+      }
+
       // Get file extension
       const fileExt = file.name.split('.').pop()
       const fileName = `${company.id}/logo.${fileExt}`
@@ -331,7 +342,12 @@ export default function Settings() {
       alert('Logo uploaded successfully!')
     } catch (error) {
       console.error('Error uploading logo:', error)
-      setLogoError((error as Error).message)
+      const errorMessage = (error as Error).message
+      if (errorMessage.includes('Bucket not found')) {
+        setLogoError('Storage bucket not configured. Please contact your administrator to set up file storage.')
+      } else {
+        setLogoError(errorMessage)
+      }
     } finally {
       setSaving(false)
       // Reset file input
