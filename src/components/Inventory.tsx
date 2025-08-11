@@ -57,10 +57,31 @@ export default function Inventory() {
      
      if (!profile) throw new Error('User profile not found')
 
+     // Check for duplicate SKU if SKU is provided
+     if (formData.sku.trim()) {
+       let skuQuery = supabase
+         .from('inventory_items')
+         .select('id')
+         .eq('company_id', profile.company_id)
+         .eq('sku', formData.sku.trim())
+       
+       // If editing, exclude the current item from the check
+       if (editingItem) {
+         skuQuery = skuQuery.neq('id', editingItem.id)
+       }
+       
+       const { data: existingItems, error: skuError } = await skuQuery
+       
+       if (skuError) throw skuError
+       
+       if (existingItems && existingItems.length > 0) {
+         throw new Error('An item with this SKU already exists in your inventory')
+       }
+     }
       const itemData = {
        company_id: profile.company_id,
         name: formData.name,
-        sku: formData.sku,
+        sku: formData.sku.trim() || null,
         quantity: parseInt(formData.quantity) || 0,
         unit_price: parseFloat(formData.unit_price) || 0,
         reorder_level: parseInt(formData.reorder_level) || 10
