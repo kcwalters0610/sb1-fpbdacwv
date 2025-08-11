@@ -299,7 +299,7 @@ export default function Settings() {
         throw new Error('Unable to access storage. Please contact your administrator.')
       }
       
-      const bucketExists = buckets?.some(bucket => bucket.name === 'company-assets')
+      const bucketExists = buckets?.some(bucket => bucket.name === 'company-logos')
       if (!bucketExists) {
         throw new Error('Storage bucket not configured. Please contact your administrator to set up file storage.')
       }
@@ -310,7 +310,7 @@ export default function Settings() {
 
       // Upload to Supabase Storage
       const { error: uploadError } = await supabase.storage
-        .from('company-assets')
+        .from('company-logos')
         .upload(fileName, file, {
           upsert: true,
           contentType: file.type
@@ -320,7 +320,7 @@ export default function Settings() {
 
       // Get public URL
       const { data: { publicUrl } } = supabase.storage
-        .from('company-assets')
+        .from('company-logos')
         .getPublicUrl(fileName)
 
       // Update company settings with logo URL
