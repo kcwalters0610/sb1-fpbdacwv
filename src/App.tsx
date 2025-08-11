@@ -51,32 +51,36 @@ function App() {
 
   useEffect(() => {
     // Check if this is a password reset flow
-    const urlParams = new URLSearchParams(window.location.search)
-    const hashParams = new URLSearchParams(window.location.hash.substring(1))
-    const accessToken = urlParams.get('access_token')
-    const refreshToken = urlParams.get('refresh_token')
-    const type = urlParams.get('type')
+    const checkPasswordReset = () => {
+      const hash = window.location.hash
+      
+      // Check if URL contains reset-password or recovery type
+      if (hash.includes('#reset-password') || hash.includes('type=recovery')) {
+        // Extract tokens from hash
+        const hashParams = new URLSearchParams(hash.substring(1))
+        const accessToken = hashParams.get('access_token')
+        const refreshToken = hashParams.get('refresh_token')
+        const type = hashParams.get('type')
+        
+        if (type === 'recovery' && accessToken && refreshToken) {
+          // Set the session from hash parameters
+          supabase.auth.setSession({
+            access_token: accessToken,
+            refresh_token: refreshToken
+          }).then(() => {
+            setIsPasswordReset(true)
+            setLoading(false)
+            // Clear the hash after processing
+            window.history.replaceState({}, document.title, window.location.pathname)
+          })
+          return true
+        }
+      }
+      return false
+    }
     
-    // Also check hash parameters (Supabase sometimes puts tokens in hash)
-    const hashAccessToken = hashParams.get('access_token')
-    const hashRefreshToken = hashParams.get('refresh_token')
-    const hashType = hashParams.get('type')
-    
-    const finalAccessToken = accessToken || hashAccessToken
-    const finalRefreshToken = refreshToken || hashRefreshToken
-    const finalType = type || hashType
-    
-    if (finalType === 'recovery' && finalAccessToken && finalRefreshToken) {
-      // Set the session from URL parameters
-      supabase.auth.setSession({
-        access_token: finalAccessToken,
-        refresh_token: finalRefreshToken
-      }).then(() => {
-        setIsPasswordReset(true)
-        setLoading(false)
-        // Clear the URL parameters after processing
-        window.history.replaceState({}, document.title, window.location.pathname)
-      })
+    // If this is a password reset, handle it and return early
+    if (checkPasswordReset()) {
       return
     }
 
