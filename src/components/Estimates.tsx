@@ -3,6 +3,7 @@ import { Plus, Search, FileText, Send, CheckCircle, XCircle, Clock, ArrowRight, 
 import { supabase, Estimate, Customer, CustomerSite } from '../lib/supabase'
 import { useViewPreference } from '../hooks/useViewPreference'
 import ViewToggle from './ViewToggle'
+import { getNextNumber, updateNextNumber } from '../lib/numbering'
 import { getNextNumber } from '../lib/numbering'
 import { jsPDF } from 'jspdf'
 import 'jspdf-autotable'
@@ -49,6 +50,22 @@ export default function Estimates() {
   useEffect(() => {
     loadData()
   }, [])
+
+  useEffect(() => {
+    // Generate estimate number when form opens
+    if (showForm && !editingEstimate) {
+      generateEstimateNumber()
+    }
+  }, [showForm, editingEstimate])
+
+  const generateEstimateNumber = async () => {
+    try {
+      const { formattedNumber: estimateNumber } = await getNextNumber('estimate')
+      setFormData(prev => ({ ...prev, estimate_number: estimateNumber }))
+    } catch (error) {
+      console.error('Error generating estimate number:', error)
+    }
+  }
 
   useEffect(() => {
     // Generate estimate number when form opens
@@ -212,10 +229,16 @@ export default function Estimates() {
           .eq('id', editingEstimate.id)
         if (error) throw error
       } else {
+        const { formattedNumber: estimateNumber, nextSequence } = await getNextNumber('estimate')
+        estimateData.estimate_number = estimateNumber
+        
         const { error } = await supabase
           .from('estimates')
           .insert([estimateData])
         if (error) throw error
+        
+        // Update the sequence number
+        await updateNextNumber('estimate', nextSequence)
       }
 
       setShowForm(false)
@@ -787,14 +810,13 @@ export default function Estimates() {
               <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-2">
-                    Estimate Number *
+                    Estimate Number
                   </label>
                   <input
                     type="text"
                     value={formData.estimate_number}
-                    onChange={(e) => setFormData({ ...formData, estimate_number: e.target.value })}
-                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                    required
+                    className="w-full px-3 py-2 border border-gray-300 rounded-lg bg-gray-100 text-gray-700"
+                    readOnly
                     readOnly
                   />
                 </div>
