@@ -24,6 +24,26 @@ export const supabase = createClient(supabaseUrl, supabaseAnonKey, {
   auth: {
     autoRefreshToken: true,
     persistSession: true
+  },
+  global: {
+    fetch: async (url, options = {}) => {
+      const response = await fetch(url, options)
+      
+      // Handle session_not_found errors
+      if (response.status === 403) {
+        try {
+          const body = await response.clone().text()
+          if (body.includes('session_not_found')) {
+            // Clear the invalid session
+            await supabase.auth.signOut()
+          }
+        } catch (error) {
+          // Ignore parsing errors
+        }
+      }
+      
+      return response
+    }
   }
 })
 
