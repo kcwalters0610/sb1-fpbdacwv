@@ -38,26 +38,38 @@ function App() {
   const [isPasswordReset, setIsPasswordReset] = useState(false)
 
   useEffect(() => {
-    // Listen for navigation events
     // Check if this is a password reset flow by looking for recovery tokens
     const checkPasswordReset = async () => {
       const hash = window.location.hash
       const search = window.location.search
       
-      // Check both hash and search params for recovery tokens
-      let params = new URLSearchParams()
+      console.log('Checking for password reset tokens...')
+      console.log('Hash:', hash)
+      console.log('Search:', search)
       
-      if (hash.includes('access_token')) {
-        params = new URLSearchParams(hash.substring(1))
-      } else if (search.includes('access_token')) {
-        params = new URLSearchParams(search)
+      // Check for recovery type in hash or search params
+      let isRecovery = false
+      let accessToken = ''
+      let refreshToken = ''
+      
+      if (hash.includes('type=recovery')) {
+        console.log('Found recovery type in hash')
+        const params = new URLSearchParams(hash.substring(1))
+        isRecovery = params.get('type') === 'recovery'
+        accessToken = params.get('access_token') || ''
+        refreshToken = params.get('refresh_token') || ''
+      } else if (search.includes('type=recovery')) {
+        console.log('Found recovery type in search')
+        const params = new URLSearchParams(search)
+        isRecovery = params.get('type') === 'recovery'
+        accessToken = params.get('access_token') || ''
+        refreshToken = params.get('refresh_token') || ''
       }
       
-      const accessToken = params.get('access_token')
-      const refreshToken = params.get('refresh_token')
-      const type = params.get('type')
+      console.log('Recovery check results:', { isRecovery, hasAccessToken: !!accessToken, hasRefreshToken: !!refreshToken })
       
-      if (type === 'recovery' && accessToken && refreshToken) {
+      if (isRecovery && accessToken && refreshToken) {
+        console.log('Setting up password reset session...')
         try {
           // Set the session from the recovery tokens
           const { error } = await supabase.auth.setSession({
@@ -66,15 +78,20 @@ function App() {
           })
           
           if (!error) {
+            console.log('Password reset session set successfully')
             setIsPasswordReset(true)
             setLoading(false)
             // Clear the URL parameters after processing
             window.history.replaceState({}, document.title, window.location.pathname)
             return true
+          } else {
+            console.error('Error setting password reset session:', error)
           }
         } catch (error) {
           console.error('Error setting session for password reset:', error)
         }
+      } else {
+        console.log('No valid recovery tokens found')
       }
       return false
     }
@@ -89,7 +106,6 @@ function App() {
   }, [])
 
   const initializeAuth = async () => {
-
     // Get initial session
     supabase.auth.getSession().then(async ({ data: { session }, error }) => {
       if (error || !session) {
