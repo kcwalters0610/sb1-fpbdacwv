@@ -36,104 +36,54 @@ function App() {
   const [currentPage, setCurrentPage] = useState('dashboard')
   const [hasAccessToPage, setHasAccessToPage] = useState(true)
   const [isPasswordReset, setIsPasswordReset] = useState(false)
-  const [checkingPasswordReset, setCheckingPasswordReset] = useState(true)
 
   useEffect(() => {
-    // Check if this is a password reset flow by looking for recovery tokens
-    const checkPasswordReset = async () => {
-      const hash = window.location.hash
-      const search = window.location.search
-      
-      console.log('Checking for password reset tokens...')
-      console.log('Hash:', hash)
-      console.log('Search:', search)
-      
-      // Check for recovery type in hash or search params
-      let isRecovery = false
-      let accessToken = ''
-      let refreshToken = ''
-      
-      if (hash.includes('type=recovery')) {
-        console.log('Found recovery type in hash')
-        const params = new URLSearchParams(hash.substring(1))
-        isRecovery = params.get('type') === 'recovery'
-        accessToken = params.get('access_token') || ''
-        refreshToken = params.get('refresh_token') || ''
-      } else if (search.includes('type=recovery')) {
-        console.log('Found recovery type in search')
-        const params = new URLSearchParams(search)
-        isRecovery = params.get('type') === 'recovery'
-        accessToken = params.get('access_token') || ''
-        refreshToken = params.get('refresh_token') || ''
-      }
-      
-      console.log('Recovery check results:', { isRecovery, hasAccessToken: !!accessToken, hasRefreshToken: !!refreshToken })
-      
-      if (isRecovery && accessToken && refreshToken) {
-        console.log('Setting up password reset session...')
-        try {
-          // Set the session from the recovery tokens
-          const { error } = await supabase.auth.setSession({
-            access_token: accessToken,
-            refresh_token: refreshToken
-          })
-          
-          if (!error) {
-            console.log('Password reset session set successfully')
-            setIsPasswordReset(true)
-            // Clear the URL parameters after processing
-            window.history.replaceState({}, document.title, window.location.pathname)
-            return true
-          } else {
-            console.error('Error setting password reset session:', error)
-          }
-        } catch (error) {
-          console.error('Error setting session for password reset:', error)
-        }
-      } else {
-        console.log('No valid recovery tokens found')
-      }
-      return false
-    }
-    
     const initializeApp = async () => {
-      setCheckingPasswordReset(true)
-      
-      // Check for password reset first
-      const isReset = await checkPasswordReset()
-      
-      setCheckingPasswordReset(false)
-      
-      if (isReset) {
+      try {
+        // First check if this is a password reset by looking at the URL
+        const urlParams = new URLSearchParams(window.location.search)
+        const hashParams = new URLSearchParams(window.location.hash.substring(1))
+        
+        const isRecoveryFromSearch = urlParams.get('type') === 'recovery'
+        const isRecoveryFromHash = hashParams.get('type') === 'recovery'
+        
+        console.log('URL search params:', window.location.search)
+        console.log('URL hash params:', window.location.hash)
+        console.log('Is recovery from search:', isRecoveryFromSearch)
+        console.log('Is recovery from hash:', isRecoveryFromHash)
+        
+        if (isRecoveryFromSearch || isRecoveryFromHash) {
+          console.log('Password reset detected, showing reset page')
+          setIsPasswordReset(true)
+          setLoading(false)
+          return
+        }
+        
+        // Normal auth flow
+        const { data: { session }, error } = await supabase.auth.getSession()
+        
+        if (error) {
+          console.error('Auth error:', error)
+          await supabase.auth.signOut()
+        }
+        
+        setSession(session)
         setLoading(false)
-        return
+        
+        // Listen for auth changes
+        const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
+          setSession(session)
+        })
+        
+        return () => subscription.unsubscribe()
+      } catch (error) {
+        console.error('Error initializing app:', error)
+        setLoading(false)
       }
-      
-      // If not a password reset, proceed with normal auth flow
-      initializeAuth()
     }
     
     initializeApp()
   }, [])
-
-  const initializeAuth = async () => {
-    // Get initial session
-    supabase.auth.getSession().then(async ({ data: { session }, error }) => {
-      if (error || !session) {
-        // Clear any stale tokens if there's an error or no session
-        await supabase.auth.signOut()
-      }
-      setSession(session)
-      setLoading(false)
-    })
-
-    // Listen for auth changes
-    const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
-      setSession(session)
-    })
-
-    return () => subscription.unsubscribe()
-  }
 
   useEffect(() => {
     checkPageAccess()
