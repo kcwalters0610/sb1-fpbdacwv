@@ -38,69 +38,74 @@ function App() {
 
   useEffect(() => {
     // Listen for navigation events
-    const handleNavigation = (e: CustomEvent) => {
-      setCurrentPage(e.detail);
-    };
-    
-    window.addEventListener('navigate', handleNavigation as EventListener);
-    
-    return () => {
-      window.removeEventListener('navigate', handleNavigation as EventListener);
-    };
-  }, []);
-
-  useEffect(() => {
-    // Check if this is a password reset flow
-    const checkPasswordReset = () => {
+    // Check if this is a password reset flow by looking for recovery tokens
+    const checkPasswordReset = async () => {
       const hash = window.location.hash
+      const search = window.location.search
       
-      // Check if URL contains reset-password or recovery type
-      if (hash.includes('#reset-password') || hash.includes('type=recovery')) {
-        // Extract tokens from hash
-        const hashParams = new URLSearchParams(hash.substring(1))
-        const accessToken = hashParams.get('access_token')
-        const refreshToken = hashParams.get('refresh_token')
-        const type = hashParams.get('type')
-        
-        if (type === 'recovery' && accessToken && refreshToken) {
-          // Set the session from hash parameters
-          supabase.auth.setSession({
+      // Check both hash and search params for recovery tokens
+      let params = new URLSearchParams()
+      
+      if (hash.includes('access_token')) {
+        params = new URLSearchParams(hash.substring(1))
+      } else if (search.includes('access_token')) {
+        params = new URLSearchParams(search)
+      }
+      
+      const accessToken = params.get('access_token')
+      const refreshToken = params.get('refresh_token')
+      const type = params.get('type')
+      
+      if (type === 'recovery' && accessToken && refreshToken) {
+        try {
+          // Set the session from the recovery tokens
+          const { error } = await supabase.auth.setSession({
             access_token: accessToken,
             refresh_token: refreshToken
-          }).then(() => {
+          })
+          
+          if (!error) {
             setIsPasswordReset(true)
             setLoading(false)
-            // Clear the hash after processing
+            // Clear the URL parameters after processing
             window.history.replaceState({}, document.title, window.location.pathname)
-          })
-          return true
+            return true
+          }
+        } catch (error) {
+          console.error('Error setting session for password reset:', error)
         }
       }
       return false
     }
     
-    // If this is a password reset, handle it and return early
-    if (checkPasswordReset()) {
-      return
-    }
-
-    // Get initial session
-    supabase.auth.getSession().then(async ({ data: { session }, error }) => {
-      if (error || !session) {
-        // Clear any stale tokens if there's an error or no session
-        await supabase.auth.signOut()
-      }
-      setSession(session)
-      setLoading(false)
+    // Check for password reset first
+    checkPasswordReset().then((isReset) => {
+      if (isReset) return
+      
+      // If not a password reset, proceed with normal auth flow
+      initializeAuth()
     })
-
-    // Listen for auth changes
-    const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
-      setSession(session)
-    })
-
-    return () => subscription.unsubscribe()
   }, [])
+
+  const initializeAuth = async () => {
+
+      // Get initial session
+      supabase.auth.getSession().then(async ({ data: { session }, error }) => {
+        if (error || !session) {
+          // Clear any stale tokens if there's an error or no session
+          await supabase.auth.signOut()
+        }
+        setSession(session)
+        setLoading(false)
+      })
+
+      // Listen for auth changes
+      const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
+        setSession(session)
+      })
+
+      return () => subscription.unsubscribe()
+  }
 
   useEffect(() => {
     checkPageAccess()
