@@ -71,6 +71,10 @@ export default function Auth() {
       } else if (error.message === 'Failed to fetch') {
         // Network error, likely due to rate limiting or connectivity issues
         setError('Unable to send password reset email. This may be due to email configuration issues. Please contact your administrator or try again later.')
+      } else if (error.message && error.message.includes('SMTP')) {
+        setError('Email delivery issue detected. The system administrator may need to verify email configuration. You can also try contacting support directly.')
+      } else if (error.status === 422) {
+        setError('Email could not be delivered. Please verify your email address is correct and try again.')
       } else {
         // Handle other error formats
         try {
@@ -87,7 +91,7 @@ export default function Auth() {
           } else if (error.message && error.message.includes('SMTP')) {
             setError('Email delivery issue detected. Please contact your administrator to verify email configuration.')
           } else {
-            setError(error.message || 'Password reset email may not have been delivered. Please check your spam folder or contact support if the issue persists.')
+            setError(error.message || 'Password reset email may not have been delivered. Please check your spam folder, verify your email address is correct, or contact support if the issue persists.')
           }
         }
       }
@@ -150,6 +154,9 @@ export default function Auth() {
               {message && (
                 <div className="bg-green-50 border border-green-200 rounded-lg p-3">
                   <p className="text-green-800 text-sm">{message}</p>
+                  <p className="text-green-700 text-xs mt-2">
+                    If you don't receive the email within 5 minutes, please check your spam folder or contact support.
+                  </p>
                 </div>
               )}
 
