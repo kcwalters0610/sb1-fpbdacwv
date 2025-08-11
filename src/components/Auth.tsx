@@ -57,6 +57,12 @@ export default function Auth() {
       if (error) throw error
 
       setMessage('Password reset email sent! Check your inbox for instructions.')
+      
+      // Add additional guidance for email delivery issues
+      setTimeout(() => {
+        setMessage('Password reset email sent! Check your inbox and spam folder. If you don\'t receive it within 5 minutes, please contact support or try again.')
+      }, 3000)
+      
       setShowForgotPassword(false)
     } catch (error: any) {
       // Check for Supabase-specific error properties first
@@ -64,7 +70,7 @@ export default function Auth() {
         setError('Email send rate limit exceeded. Please wait a few minutes and try again.')
       } else if (error.message === 'Failed to fetch') {
         // Network error, likely due to rate limiting or connectivity issues
-        setError('Unable to send password reset email. Please check your connection and try again in a few minutes.')
+        setError('Unable to send password reset email. This may be due to email configuration issues. Please contact your administrator or try again later.')
       } else {
         // Handle other error formats
         try {
@@ -78,8 +84,10 @@ export default function Auth() {
           // If error message isn't JSON, use original message or generic message
           if (error.message && error.message.includes('rate limit')) {
             setError('Email send rate limit exceeded. Please wait a few minutes and try again.')
+          } else if (error.message && error.message.includes('SMTP')) {
+            setError('Email delivery issue detected. Please contact your administrator to verify email configuration.')
           } else {
-            setError(error.message || 'An unexpected error occurred. Please try again.')
+            setError(error.message || 'Password reset email may not have been delivered. Please check your spam folder or contact support if the issue persists.')
           }
         }
       }
