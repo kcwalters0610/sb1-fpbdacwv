@@ -81,7 +81,7 @@ export default function Inventory() {
       const itemData = {
        company_id: profile.company_id,
         name: formData.name,
-        sku: formData.sku.trim() || null,
+        sku: formData.sku.trim() || `AUTO-${Date.now()}`,
         quantity: parseInt(formData.quantity) || 0,
         unit_price: parseFloat(formData.unit_price) || 0,
         reorder_level: parseInt(formData.reorder_level) || 10
