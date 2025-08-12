@@ -72,15 +72,6 @@ export default function Estimates() {
     }
   }, [showForm, editingEstimate])
 
-  const generateEstimateNumber = async () => {
-    try {
-      const estimateNumber = await getNextNumber('estimate')
-      setFormData(prev => ({ ...prev, estimate_number: estimateNumber }))
-    } catch (error) {
-      console.error('Error generating estimate number:', error)
-    }
-  }
-
   const loadData = async () => {
     try {
       const [estimatesResult, customersResult] = await Promise.all([
