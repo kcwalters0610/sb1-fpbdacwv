@@ -1,9 +1,18 @@
 import React, { useState, useEffect } from 'react'
-import { Plus, Search, Calendar, User, DollarSign, Edit, Trash2, Eye, X, Building2, FileText } from 'lucide-react'
+import { Plus, Search, Calendar, User, DollarSign, Edit, Trash2, Eye, X, Building2, FileText, Download } from 'lucide-react'
 import { supabase, Estimate, Customer, CustomerSite } from '../lib/supabase'
 import { useViewPreference } from '../hooks/useViewPreference'
 import ViewToggle from './ViewToggle'
 import { getNextNumber, updateNextNumber } from '../lib/numbering'
+import { jsPDF } from 'jspdf'
+
+// Extend jsPDF type to include autoTable
+declare module 'jspdf' {
+  interface jsPDF {
+    autoTable: (options: any) => jsPDF
+    lastAutoTable: { finalY: number }
+  }
+}
 
 export default function Estimates() {
   const { viewType, setViewType } = useViewPreference('estimates')
@@ -17,6 +26,8 @@ export default function Estimates() {
   const [searchTerm, setSearchTerm] = useState('')
   const [statusFilter, setStatusFilter] = useState('')
   const [loadingSites, setLoadingSites] = useState(false)
+  const [generatingPDF, setGeneratingPDF] = useState(false)
+  const [companyInfo, setCompanyInfo] = useState<any>(null)
 
   const [formData, setFormData] = useState({
     estimate_number: '',
@@ -34,6 +45,7 @@ export default function Estimates() {
 
   useEffect(() => {
     loadData()
+    loadCompanyInfo()
   }, [])
 
   useEffect(() => {
@@ -52,6 +64,31 @@ export default function Estimates() {
       setFormData(prev => ({ ...prev, customer_site_id: '' }))
     }
   }, [formData.customer_id])
+
+  const loadCompanyInfo = async () => {
+    try {
+      const { data: { user } } = await supabase.auth.getUser()
+      if (!user) return
+
+      const { data: profile } = await supabase
+        .from('profiles')
+        .select('company_id')
+        .eq('id', user.id)
+        .single()
+
+      if (!profile) return
+
+      const { data: company } = await supabase
+        .from('companies')
+        .select('*')
+        .eq('id', profile.company_id)
+        .single()
+
+      setCompanyInfo(company)
+    } catch (error) {
+      console.error('Error loading company info:', error)
+    }
+  }
 
   const generateEstimateNumber = async () => {
     try {
@@ -245,6 +282,332 @@ export default function Estimates() {
     }
   }
 
+  const generateEstimatePDF = async (estimate: Estimate) => {
+    setGeneratingPDF(true)
+    try {
+      // Initialize PDF
+      const doc = new jsPDF({
+        orientation: 'portrait',
+        unit: 'mm',
+        format: 'a4'
+      })
+
+      let yPosition = 20
+
+      // Company Header
+      if (companyInfo?.settings?.logo_url) {
+        try {
+          // Add company logo
+          const img = new Image()
+          img.crossOrigin = 'anonymous'
+          
+          await new Promise((resolve, reject) => {
+            img.onload = () => {
+              try {
+                const canvas = document.createElement('canvas')
+                canvas.width = img.width
+                canvas.height = img.height
+                const ctx = canvas.getContext('2d')
+                if (ctx) {
+                  ctx.drawImage(img, 0, 0)
+                  const dataURL = canvas.toDataURL('image/png')
+                  const aspectRatio = img.width / img.height
+                  const logoHeight = 15
+                  const logoWidth = logoHeight * aspectRatio
+                  doc.addImage(dataURL, 'PNG', 20, yPosition, logoWidth, logoHeight)
+                }
+                resolve(true)
+              } catch (err) {
+                reject(err)
+              }
+            }
+            img.onerror = reject
+            img.src = companyInfo.settings.logo_url
+          })
+        } catch (error) {
+          console.warn('Could not load company logo:', error)
+        }
+      }
+
+      // Company name and info
+      doc.setFontSize(20)
+      doc.setTextColor(0, 68, 108)
+      doc.text(companyInfo?.name || 'Company Name', 20, yPosition + 25)
+      
+      doc.setFontSize(10)
+      doc.setTextColor(100, 100, 100)
+      if (companyInfo?.address) {
+        doc.text(companyInfo.address, 20, yPosition + 32)
+      }
+      if (companyInfo?.city && companyInfo?.state) {
+        doc.text(`${companyInfo.city}, ${companyInfo.state} ${companyInfo.zip_code || ''}`, 20, yPosition + 37)
+      }
+      if (companyInfo?.phone) {
+        doc.text(`Phone: ${companyInfo.phone}`, 20, yPosition + 42)
+      }
+      if (companyInfo?.email) {
+        doc.text(`Email: ${companyInfo.email}`, 20, yPosition + 47)
+      }
+
+      yPosition += 60
+
+      // Estimate title
+      doc.setFontSize(24)
+      doc.setTextColor(0, 0, 0)
+      doc.text('ESTIMATE', doc.internal.pageSize.width / 2, yPosition, { align: 'center' })
+      
+      yPosition += 20
+
+      // Estimate details
+      doc.setFontSize(12)
+      doc.setTextColor(0, 0, 0)
+      doc.text(`Estimate #: ${estimate.estimate_number}`, 20, yPosition)
+      doc.text(`Date: ${new Date(estimate.issue_date).toLocaleDateString()}`, 120, yPosition)
+      
+      yPosition += 10
+      
+      if (estimate.expiry_date) {
+        doc.text(`Valid Until: ${new Date(estimate.expiry_date).toLocaleDateString()}`, 120, yPosition)
+        yPosition += 10
+      }
+
+      yPosition += 10
+
+      // Customer information
+      doc.setFontSize(14)
+      doc.setTextColor(0, 68, 108)
+      doc.text('Bill To:', 20, yPosition)
+      
+      yPosition += 8
+      doc.setFontSize(11)
+      doc.setTextColor(0, 0, 0)
+      
+      if (estimate.customer) {
+        const customerName = estimate.customer.customer_type === 'residential' 
+          ? `${estimate.customer.first_name} ${estimate.customer.last_name}`
+          : estimate.customer.company_name
+        
+        doc.text(customerName, 20, yPosition)
+        yPosition += 6
+        
+        if (estimate.customer.customer_type === 'commercial' && estimate.customer.first_name) {
+          doc.text(`Attn: ${estimate.customer.first_name} ${estimate.customer.last_name}`, 20, yPosition)
+          yPosition += 6
+        }
+        
+        if (estimate.customer.address) {
+          doc.text(estimate.customer.address, 20, yPosition)
+          yPosition += 6
+        }
+        
+        if (estimate.customer.city && estimate.customer.state) {
+          doc.text(`${estimate.customer.city}, ${estimate.customer.state} ${estimate.customer.zip_code || ''}`, 20, yPosition)
+          yPosition += 6
+        }
+        
+        if (estimate.customer.phone) {
+          doc.text(`Phone: ${estimate.customer.phone}`, 20, yPosition)
+          yPosition += 6
+        }
+        
+        if (estimate.customer.email) {
+          doc.text(`Email: ${estimate.customer.email}`, 20, yPosition)
+          yPosition += 6
+        }
+      }
+
+      // Customer site information if applicable
+      if (estimate.customer_site) {
+        yPosition += 5
+        doc.setFontSize(12)
+        doc.setTextColor(0, 68, 108)
+        doc.text('Service Location:', 20, yPosition)
+        
+        yPosition += 6
+        doc.setFontSize(11)
+        doc.setTextColor(0, 0, 0)
+        doc.text(estimate.customer_site.site_name, 20, yPosition)
+        yPosition += 6
+        
+        if (estimate.customer_site.address) {
+          doc.text(estimate.customer_site.address, 20, yPosition)
+          yPosition += 6
+        }
+        
+        if (estimate.customer_site.city && estimate.customer_site.state) {
+          doc.text(`${estimate.customer_site.city}, ${estimate.customer_site.state} ${estimate.customer_site.zip_code || ''}`, 20, yPosition)
+          yPosition += 6
+        }
+      }
+
+      yPosition += 15
+
+      // Estimate title and description
+      doc.setFontSize(14)
+      doc.setTextColor(0, 68, 108)
+      doc.text('Project Details:', 20, yPosition)
+      
+      yPosition += 8
+      doc.setFontSize(12)
+      doc.setTextColor(0, 0, 0)
+      doc.text(`Title: ${estimate.title}`, 20, yPosition)
+      
+      if (estimate.description) {
+        yPosition += 8
+        const splitDescription = doc.splitTextToSize(estimate.description, 170)
+        doc.text(splitDescription, 20, yPosition)
+        yPosition += splitDescription.length * 5
+      }
+
+      yPosition += 15
+
+      // Financial summary
+      doc.setFontSize(14)
+      doc.setTextColor(0, 68, 108)
+      doc.text('Estimate Summary:', 20, yPosition)
+      
+      yPosition += 10
+      
+      // Create a simple table for the financial breakdown
+      const tableData = [
+        ['Description', 'Amount'],
+        ['Subtotal', `$${estimate.subtotal.toFixed(2)}`],
+        ['Tax (' + estimate.tax_rate + '%)', `$${estimate.tax_amount.toFixed(2)}`],
+        ['Total', `$${estimate.total_amount.toFixed(2)}`]
+      ]
+
+      doc.autoTable({
+        startY: yPosition,
+        head: [tableData[0]],
+        body: tableData.slice(1),
+        theme: 'grid',
+        headStyles: { 
+          fillColor: [0, 68, 108],
+          textColor: 255,
+          fontStyle: 'bold'
+        },
+        styles: { 
+          fontSize: 11,
+          cellPadding: 5
+        },
+        columnStyles: {
+          0: { cellWidth: 140 },
+          1: { cellWidth: 40, halign: 'right' }
+        }
+      })
+
+      yPosition = doc.lastAutoTable.finalY + 20
+
+      // Notes section
+      if (estimate.notes) {
+        doc.setFontSize(12)
+        doc.setTextColor(0, 68, 108)
+        doc.text('Notes:', 20, yPosition)
+        
+        yPosition += 8
+        doc.setFontSize(10)
+        doc.setTextColor(0, 0, 0)
+        const splitNotes = doc.splitTextToSize(estimate.notes, 170)
+        doc.text(splitNotes, 20, yPosition)
+        yPosition += splitNotes.length * 4 + 10
+      }
+
+      // Terms and conditions
+      yPosition += 10
+      doc.setFontSize(12)
+      doc.setTextColor(0, 68, 108)
+      doc.text('Terms & Conditions:', 20, yPosition)
+      
+      yPosition += 8
+      doc.setFontSize(9)
+      doc.setTextColor(0, 0, 0)
+      const terms = [
+        '• This estimate is valid for 30 days from the date of issue.',
+        '• Prices are subject to change without notice.',
+        '• Work will commence upon signed approval and required deposit.',
+        '• Additional work not covered in this estimate will be charged separately.',
+        '• Payment terms: Net 30 days from completion.'
+      ]
+      
+      terms.forEach(term => {
+        doc.text(term, 20, yPosition)
+        yPosition += 5
+      })
+
+      // Signature section
+      yPosition += 20
+      
+      // Check if we need a new page
+      if (yPosition > 250) {
+        doc.addPage()
+        yPosition = 20
+      }
+      
+      doc.setFontSize(12)
+      doc.setTextColor(0, 68, 108)
+      doc.text('Customer Approval:', 20, yPosition)
+      
+      yPosition += 15
+      
+      // Signature line
+      doc.setLineWidth(0.5)
+      doc.setDrawColor(0, 0, 0)
+      doc.line(20, yPosition, 100, yPosition)
+      
+      doc.setFontSize(10)
+      doc.setTextColor(0, 0, 0)
+      doc.text('Customer Signature', 20, yPosition + 5)
+      
+      // Date line
+      doc.line(120, yPosition, 180, yPosition)
+      doc.text('Date', 120, yPosition + 5)
+      
+      yPosition += 20
+      
+      // Print name line
+      doc.line(20, yPosition, 100, yPosition)
+      doc.text('Print Name', 20, yPosition + 5)
+      
+      // Company representative signature
+      yPosition += 25
+      doc.setFontSize(12)
+      doc.setTextColor(0, 68, 108)
+      doc.text('Company Representative:', 20, yPosition)
+      
+      yPosition += 15
+      doc.line(20, yPosition, 100, yPosition)
+      doc.setFontSize(10)
+      doc.setTextColor(0, 0, 0)
+      doc.text('Authorized Signature', 20, yPosition + 5)
+      
+      doc.line(120, yPosition, 180, yPosition)
+      doc.text('Date', 120, yPosition + 5)
+
+      // Footer
+      doc.setFontSize(8)
+      doc.setTextColor(150, 150, 150)
+      doc.text(
+        `Generated on ${new Date().toLocaleDateString()} at ${new Date().toLocaleTimeString()}`,
+        doc.internal.pageSize.width / 2,
+        doc.internal.pageSize.height - 10,
+        { align: 'center' }
+      )
+
+      // Save the PDF
+      const fileName = `Estimate_${estimate.estimate_number}_${estimate.customer?.customer_type === 'residential' 
+        ? `${estimate.customer?.first_name}_${estimate.customer?.last_name}`
+        : estimate.customer?.company_name?.replace(/\s+/g, '_')
+      }.pdf`
+      
+      doc.save(fileName)
+    } catch (error) {
+      console.error('Error generating PDF:', error)
+      alert('Error generating PDF. Please try again.')
+    } finally {
+      setGeneratingPDF(false)
+    }
+  }
+
   const getStatusColor = (status: string) => {
     switch (status) {
       case 'approved': return 'text-green-700 bg-green-100'
@@ -431,6 +794,14 @@ export default function Estimates() {
                     <td className="px-6 py-4 whitespace-nowrap text-sm font-medium">
                       <div className="flex space-x-2">
                         <button
+                          onClick={() => generateEstimatePDF(estimate)}
+                          disabled={generatingPDF}
+                          className="text-green-600 hover:text-green-800 p-1.5 transition-all duration-200 hover:bg-green-100 rounded-full hover:shadow-sm transform hover:scale-110"
+                          title="Download PDF"
+                        >
+                          <Download className="w-4 h-4" />
+                        </button>
+                        <button
                           onClick={() => setSelectedEstimate(estimate)}
                           className="text-blue-600 hover:text-blue-800 p-1.5 transition-all duration-200 hover:bg-blue-100 rounded-full hover:shadow-sm transform hover:scale-110"
                         >
@@ -508,6 +879,14 @@ export default function Estimates() {
                       {estimate.description && estimate.description.length > 30 && '...'}
                     </div>
                     <div className="flex space-x-2">
+                      <button
+                        onClick={() => generateEstimatePDF(estimate)}
+                        disabled={generatingPDF}
+                        className="inline-flex items-center px-3 py-1 bg-green-100 text-green-700 rounded-md hover:bg-green-200 transition-colors text-sm"
+                      >
+                        <Download className="w-4 h-4 mr-1" />
+                        PDF
+                      </button>
                       <button
                         onClick={() => setSelectedEstimate(estimate)}
                         className="text-blue-600 hover:text-blue-800 text-sm font-medium"
@@ -874,6 +1253,13 @@ export default function Estimates() {
               )}
 
               <div className="flex justify-end space-x-3 mt-8 pt-6 border-t border-gray-200">
+                <button
+                  onClick={() => generateEstimatePDF(selectedEstimate)}
+                  disabled={generatingPDF}
+                  className="px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 disabled:opacity-50 transition-colors"
+                >
+                  {generatingPDF ? 'Generating...' : 'Download PDF'}
+                </button>
                 <button
                   onClick={() => startEdit(selectedEstimate)}
                   className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors"
