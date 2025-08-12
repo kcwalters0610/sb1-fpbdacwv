@@ -5,6 +5,7 @@ import { useViewPreference } from '../hooks/useViewPreference'
 import ViewToggle from './ViewToggle'
 import { getNextNumber, updateNextNumber } from '../lib/numbering'
 import jsPDF from 'jspdf'
+import autoTable from 'jspdf-autotable'
 import 'jspdf-autotable'
 
 // Extend jsPDF type to include autoTable
