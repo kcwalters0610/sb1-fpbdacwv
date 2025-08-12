@@ -1,26 +1,19 @@
- import React, { useState, useEffect } from 'react'
-import { 
-  Plus, 
-  Search, 
-  Calendar, 
-  User, 
-  MapPin, 
-  Clock, 
-  CheckCircle, 
-  AlertTriangle, 
-  Edit, 
-  Trash2, 
-  Eye, 
-  X, 
-  Camera, 
-  FileText, 
+import React, { useState, useEffect } from 'react'
+import {
+  Plus,
+  Search,
+  Calendar,
+  User,
+  Clock,
+  Edit,
+  Trash2,
+  Eye,
+  X,
+  Camera,
   DollarSign,
   Users,
   Package,
-  Truck,
-  Timer,
   Play,
-  Pause,
   Square,
   Building2
 } from 'lucide-react'
@@ -31,6 +24,7 @@ import { getNextNumber, updateNextNumber } from '../lib/numbering'
 
 export default function WorkOrders() {
   const { viewType, setViewType } = useViewPreference('workOrders')
+
   const [workOrders, setWorkOrders] = useState<WorkOrder[]>([])
   const [customers, setCustomers] = useState<Customer[]>([])
   const [technicians, setTechnicians] = useState<Profile[]>([])
@@ -67,7 +61,7 @@ export default function WorkOrders() {
     duration_minutes: 0
   })
   const [activeTimer, setActiveTimer] = useState<any>(null)
-  const [timerInterval, setTimerInterval] = useState<NodeJS.Timeout | null>(null)
+  const [timerInterval, setTimerInterval] = useState<ReturnType<typeof setInterval> | null>(null)
 
   const [formData, setFormData] = useState({
     wo_number: '',
@@ -119,7 +113,7 @@ export default function WorkOrders() {
           .select('*')
           .eq('id', user.id)
           .single()
-        
+
         setCurrentUser({ ...user, profile })
       }
     } catch (error) {
@@ -141,7 +135,7 @@ export default function WorkOrders() {
       const [workOrdersResult, customersResult, techniciansResult, departmentsResult, projectsResult] = await Promise.all([
         supabase
           .from('work_orders')
-          .select(
+          .select(`
             *,
             customer:customers(*),
             assigned_technician:profiles!work_orders_assigned_to_fkey(*),
@@ -154,7 +148,7 @@ export default function WorkOrders() {
               is_primary,
               technician:profiles(*)
             )
-          )
+          `)
           .order('created_at', { ascending: false }),
         supabase.from('customers').select('*').order('first_name'),
         supabase.from('profiles').select('*').in('role', ['tech', 'admin', 'manager']).order('first_name'),
@@ -197,221 +191,162 @@ export default function WorkOrders() {
 
   const loadWorkOrderDetails = async (workOrderId: string) => {
     try {
-      // Load photos
       const { data: photos } = await supabase
         .from('work_order_photos')
         .select('*')
         .eq('work_order_id', workOrderId)
         .order('created_at', { ascending: false })
-
       setWorkOrderPhotos(photos || [])
 
-      // Load purchase orders
       const { data: pos } = await supabase
         .from('purchase_orders')
-        .select(
+        .select(`
           *,
           vendor:vendors(*),
           items:purchase_order_items(*)
-        )
+        `)
         .eq('work_order_id', workOrderId)
         .order('created_at', { ascending: false })
-
       setPurchaseOrders(pos || [])
 
-      // Load truck inventory
       const { data: inventory } = await supabase
         .from('truck_inventory')
-        .select(
+        .select(`
           *,
           inventory_item:inventory_items(*),
           user:profiles(*)
-        )
+        `)
         .eq('work_order_id', workOrderId)
         .order('created_at', { ascending: false })
-
       setTruckInventory(inventory || [])
 
-      // Load time entries
       const { data: times } = await supabase
         .from('time_entries')
-        .select(
+        .select(`
           *,
           user:profiles(*)
-        )
+        `)
         .eq('work_order_id', workOrderId)
         .order('start_time', { ascending: false })
-
       setTimeEntries(times || [])
 
-      // Load work order notes
-      const workOrder = workOrders.find(wo => wo.id === workOrderId)
-      if (workOrder) {
-        setWorkOrderNotes(workOrder.notes || '')
-      }
+      const wo = workOrders.find(w => w.id === workOrderId)
+      if (wo) setWorkOrderNotes(wo.notes || '')
     } catch (error) {
       console.error('Error loading work order details:', error)
     }
   }
 
   const handleCreateInvoice = async (workOrder: WorkOrder) => {
-    if (!confirm(Create invoice for Work Order ${workOrder.wo_number}?)) return
+    if (!confirm(`Create invoice for Work Order ${workOrder.wo_number}?`)) return
 
     try {
-      console.log('Creating invoice for work order:', workOrder.wo_number)
-      
-      // Get current user's company_id
       const { data: { user } } = await supabase.auth.getUser()
       if (!user) throw new Error('User not authenticated')
-      
+
       const { data: profile } = await supabase
         .from('profiles')
         .select('company_id')
         .eq('id', user.id)
         .single()
-      
       if (!profile) throw new Error('User profile not found')
 
-      // Fetch all cost components for this work order
-      console.log('Fetching cost data for work order:', workOrder.id)
-
-      // 1. Get labor costs from time entries
       const { data: timeEntries, error: timeError } = await supabase
         .from('time_entries')
-        .select(
+        .select(`
           *,
           user:profiles(id, first_name, last_name, role)
-        )
+        `)
         .eq('work_order_id', workOrder.id)
         .eq('status', 'approved')
+      if (timeError) console.error('Error fetching time entries:', timeError)
 
-      if (timeError) {
-        console.error('Error fetching time entries:', timeError)
-      }
-
-      console.log('Time entries found:', timeEntries?.length || 0, timeEntries)
-
-      // 2. Get purchase order costs
       const { data: purchaseOrders, error: poError } = await supabase
         .from('purchase_orders')
-        .select(
+        .select(`
           *,
           vendor:vendors(name),
           items:purchase_order_items(*)
-        )
+        `)
         .eq('work_order_id', workOrder.id)
         .in('status', ['approved', 'received'])
+      if (poError) console.error('Error fetching purchase orders:', poError)
 
-      if (poError) {
-        console.error('Error fetching purchase orders:', poError)
-      }
-
-      console.log('Purchase orders found:', purchaseOrders?.length || 0, purchaseOrders)
-
-      // 3. Get truck inventory costs
       const { data: truckInventory, error: inventoryError } = await supabase
         .from('truck_inventory')
-        .select(
+        .select(`
           *,
           inventory_item:inventory_items(name, unit_price)
-        )
+        `)
         .eq('work_order_id', workOrder.id)
+      if (inventoryError) console.error('Error fetching truck inventory:', inventoryError)
 
-      if (inventoryError) {
-        console.error('Error fetching truck inventory:', inventoryError)
-      }
-
-      console.log('Truck inventory found:', truckInventory?.length || 0, truckInventory)
-
-      // 4. Get labor rates for cost calculation
       const { data: laborRates, error: ratesError } = await supabase
         .from('labor_rates')
         .select('*')
         .eq('company_id', profile.company_id)
         .eq('is_active', true)
+      if (ratesError) console.error('Error fetching labor rates:', ratesError)
 
-      if (ratesError) {
-        console.error('Error fetching labor rates:', ratesError)
-      }
-
-      console.log('Labor rates found:', laborRates?.length || 0, laborRates)
-
-      // Calculate costs
       let laborCost = 0
       let purchaseOrderCost = 0
       let materialsCost = 0
-      let costBreakdown = []
+      const costBreakdown: string[] = []
 
-      // Calculate labor costs
       if (timeEntries && timeEntries.length > 0) {
         for (const entry of timeEntries) {
           const hours = entry.duration_minutes / 60
-          
-          // Find applicable labor rate
-          const rate = laborRates?.find(r => 
-            r.role === entry.user.role && 
+          const rate = laborRates?.find(r =>
+            r.role === entry.user.role &&
             (!r.department_id || r.department_id === workOrder.department_id)
           )
-          
-          const hourlyRate = rate?.hourly_rate || 50 // Default rate if not found
+          const hourlyRate = rate?.hourly_rate || 50
           const entryCost = hours * hourlyRate
           laborCost += entryCost
-          
-          costBreakdown.push(Labor - ${entry.user.first_name} ${entry.user.last_name}: ${hours.toFixed(1)}h × $${hourlyRate}/h = $${entryCost.toFixed(2)})
+          costBreakdown.push(
+            `Labor - ${entry.user.first_name} ${entry.user.last_name}: ${hours.toFixed(1)}h × $${hourlyRate}/h = $${entryCost.toFixed(2)}`
+          )
         }
       }
 
-      // Calculate purchase order costs
       if (purchaseOrders && purchaseOrders.length > 0) {
         for (const po of purchaseOrders) {
           purchaseOrderCost += po.total_amount
-          costBreakdown.push(Purchase Order ${po.po_number} (${po.vendor?.name}): $${po.total_amount.toFixed(2)})
+          costBreakdown.push(`Purchase Order ${po.po_number} (${po.vendor?.name}): $${po.total_amount.toFixed(2)}`)
         }
       }
 
-      // Calculate materials costs from truck inventory
       if (truckInventory && truckInventory.length > 0) {
         for (const item of truckInventory) {
-          const itemCost = item.quantity_used * (item.inventory_item?.unit_price || 0)
+          const each = item.inventory_item?.unit_price || 0
+          const itemCost = item.quantity_used * each
           materialsCost += itemCost
-          costBreakdown.push(Materials - ${item.inventory_item?.name}: ${item.quantity_used} × $${item.inventory_item?.unit_price || 0} = $${itemCost.toFixed(2)})
+          costBreakdown.push(`Materials - ${item.inventory_item?.name}: ${item.quantity_used} × $${each} = $${itemCost.toFixed(2)}`)
         }
       }
 
       const subtotal = laborCost + purchaseOrderCost + materialsCost
-      
-      console.log('Cost calculation:')
-      console.log('Labor cost:', laborCost)
-      console.log('Purchase order cost:', purchaseOrderCost)
-      console.log('Materials cost:', materialsCost)
-      console.log('Subtotal:', subtotal)
-      console.log('Cost breakdown:', costBreakdown)
 
-      // Get company tax rate
       const { data: company } = await supabase
         .from('companies')
         .select('settings')
         .eq('id', profile.company_id)
         .single()
-
       const taxRate = company?.settings?.tax_rate || 8.5
       const taxAmount = (subtotal * taxRate) / 100
       const totalAmount = subtotal + taxAmount
 
-      // Generate invoice number
       const { formattedNumber: invoiceNumber, nextSequence } = await getNextNumber('invoice')
 
-      // Create detailed notes
       const notes = [
-        Invoice generated from Work Order ${workOrder.wo_number},
+        `Invoice generated from Work Order ${workOrder.wo_number}`,
         '',
         'Cost Breakdown:',
         ...costBreakdown,
         '',
-        Total: $${subtotal.toFixed(2)}
+        `Total: $${subtotal.toFixed(2)}`
       ].join('\n')
 
-      // Create the invoice
       const invoiceData = {
         company_id: profile.company_id,
         customer_id: workOrder.customer_id,
@@ -419,33 +354,22 @@ export default function WorkOrders() {
         invoice_number: invoiceNumber,
         status: 'draft',
         issue_date: new Date().toISOString().split('T')[0],
-        due_date: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString().split('T')[0], // 30 days from now
-        subtotal: subtotal,
+        due_date: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString().split('T')[0],
+        subtotal,
         tax_rate: 0,
         tax_amount: 0,
         total_amount: subtotal,
         paid_amount: 0,
-        notes: notes
+        notes
       }
 
-      console.log('Creating invoice with data:', invoiceData)
-
-      const { data: invoice, error: invoiceError } = await supabase
-        .from('invoices')
-        .insert([invoiceData])
-        .select()
-        .single()
-
+      const { error: invoiceError } = await supabase.from('invoices').insert([invoiceData])
       if (invoiceError) throw invoiceError
 
-      // Update the sequence number
       await updateNextNumber('invoice', nextSequence)
 
-      alert(Invoice ${invoiceNumber} created successfully!\nSubtotal: $${subtotal.toFixed(2)}\nTotal: $${totalAmount.toFixed(2)})
-      
-      // Navigate to invoices page to view the created invoice
-      window.dispatchEvent(new CustomEvent('navigate', { detail: 'invoices' }))
-
+      alert(`Invoice ${invoiceNumber} created successfully!\nSubtotal: $${subtotal.toFixed(2)}\nTotal: $${totalAmount.toFixed(2)}`)
+      window.dispatchEvent(new CustomEvent('navigate', { detail: 'invoices' as any }))
     } catch (error) {
       console.error('Error creating invoice:', error)
       alert('Error creating invoice: ' + (error as Error).message)
@@ -459,16 +383,15 @@ export default function WorkOrders() {
     try {
       const { data: { user } } = await supabase.auth.getUser()
       if (!user) throw new Error('User not authenticated')
-      
+
       const { data: profile } = await supabase
         .from('profiles')
         .select('company_id')
         .eq('id', user.id)
         .single()
-      
       if (!profile) throw new Error('User profile not found')
 
-      const workOrderData = {
+      const workOrderData: any = {
         company_id: profile.company_id,
         wo_number: formData.wo_number,
         title: formData.title,
@@ -485,20 +408,13 @@ export default function WorkOrders() {
       }
 
       if (editingWorkOrder) {
-        const { error } = await supabase
-          .from('work_orders')
-          .update(workOrderData)
-          .eq('id', editingWorkOrder.id)
+        const { error } = await supabase.from('work_orders').update(workOrderData).eq('id', editingWorkOrder.id)
         if (error) throw error
       } else {
         const { formattedNumber: woNumber, nextSequence } = await getNextNumber('work_order')
         workOrderData.wo_number = woNumber
-        
-        const { error } = await supabase
-          .from('work_orders')
-          .insert([workOrderData])
+        const { error } = await supabase.from('work_orders').insert([workOrderData])
         if (error) throw error
-        
         await updateNextNumber('work_order', nextSequence)
       }
 
@@ -548,22 +464,18 @@ export default function WorkOrders() {
       work_type: workOrder.work_type || '',
       notes: workOrder.notes || ''
     })
-    
+
     if (workOrder.customer_id) {
       loadCustomerSites(workOrder.customer_id)
     }
-    
+
     setShowForm(true)
   }
 
   const deleteWorkOrder = async (id: string) => {
     if (!confirm('Are you sure you want to delete this work order?')) return
-
     try {
-      const { error } = await supabase
-        .from('work_orders')
-        .delete()
-        .eq('id', id)
+      const { error } = await supabase.from('work_orders').delete().eq('id', id)
       if (error) throw error
       loadData()
     } catch (error) {
@@ -577,11 +489,7 @@ export default function WorkOrders() {
       if (status === 'completed') {
         updateData.completed_date = new Date().toISOString()
       }
-
-      const { error } = await supabase
-        .from('work_orders')
-        .update(updateData)
-        .eq('id', id)
+      const { error } = await supabase.from('work_orders').update(updateData).eq('id', id)
       if (error) throw error
       loadData()
     } catch (error) {
@@ -598,26 +506,19 @@ export default function WorkOrders() {
 
   const handleAssignTechnicians = async () => {
     if (!assigningWorkOrder || selectedTechnicians.length === 0) return
-
     try {
       const { data: { user } } = await supabase.auth.getUser()
       if (!user) throw new Error('User not authenticated')
-      
+
       const { data: profile } = await supabase
         .from('profiles')
         .select('company_id')
         .eq('id', user.id)
         .single()
-      
       if (!profile) throw new Error('User profile not found')
 
-      // Remove existing assignments
-      await supabase
-        .from('work_order_assignments')
-        .delete()
-        .eq('work_order_id', assigningWorkOrder.id)
+      await supabase.from('work_order_assignments').delete().eq('work_order_id', assigningWorkOrder.id)
 
-      // Add new assignments
       const assignments = selectedTechnicians.map(techId => ({
         work_order_id: assigningWorkOrder.id,
         tech_id: techId,
@@ -625,10 +526,7 @@ export default function WorkOrders() {
         company_id: profile.company_id
       }))
 
-      const { error } = await supabase
-        .from('work_order_assignments')
-        .insert(assignments)
-
+      const { error } = await supabase.from('work_order_assignments').insert(assignments)
       if (error) throw error
 
       setShowAssignModal(false)
@@ -644,23 +542,15 @@ export default function WorkOrders() {
 
   const saveNotes = async () => {
     if (!selectedWorkOrder) return
-
     setSavingNotes(true)
     try {
       const { error } = await supabase
         .from('work_orders')
         .update({ notes: workOrderNotes })
         .eq('id', selectedWorkOrder.id)
-
       if (error) throw error
-      
-      // Update local state
-      setWorkOrders(prev => prev.map(wo => 
-        wo.id === selectedWorkOrder.id 
-          ? { ...wo, notes: workOrderNotes }
-          : wo
-      ))
-      
+
+      setWorkOrders(prev => prev.map(wo => wo.id === selectedWorkOrder.id ? { ...wo, notes: workOrderNotes } : wo))
       alert('Notes saved successfully!')
     } catch (error) {
       console.error('Error saving notes:', error)
@@ -684,32 +574,23 @@ export default function WorkOrders() {
         .select('company_id')
         .eq('id', user.id)
         .single()
-
       if (!profile) throw new Error('User profile not found')
 
       const fileExt = file.name.split('.').pop()
-      const fileName = ${selectedWorkOrder.id}/${Date.now()}.${fileExt}
+      const fileName = `${selectedWorkOrder.id}/${Date.now()}.${fileExt}`
 
-      const { error: uploadError } = await supabase.storage
-        .from('work-order-photos')
-        .upload(fileName, file)
-
+      const { error: uploadError } = await supabase.storage.from('work-order-photos').upload(fileName, file)
       if (uploadError) throw uploadError
 
-      const { data: { publicUrl } } = supabase.storage
-        .from('work-order-photos')
-        .getPublicUrl(fileName)
+      const { data: { publicUrl } } = supabase.storage.from('work-order-photos').getPublicUrl(fileName)
 
-      const { error: dbError } = await supabase
-        .from('work_order_photos')
-        .insert([{
-          work_order_id: selectedWorkOrder.id,
-          company_id: profile.company_id,
-          photo_url: publicUrl,
-          caption: photoCaption,
-          uploaded_by: user.id
-        }])
-
+      const { error: dbError } = await supabase.from('work_order_photos').insert([{
+        work_order_id: selectedWorkOrder.id,
+        company_id: profile.company_id,
+        photo_url: publicUrl,
+        caption: photoCaption,
+        uploaded_by: user.id
+      }])
       if (dbError) throw dbError
 
       setPhotoCaption('')
@@ -726,10 +607,8 @@ export default function WorkOrders() {
 
   const startTimer = async () => {
     if (!selectedWorkOrder || !currentUser) return
-
     try {
       const now = new Date().toISOString()
-      
       const { data: { user } } = await supabase.auth.getUser()
       if (!user) throw new Error('User not authenticated')
 
@@ -738,7 +617,6 @@ export default function WorkOrders() {
         .select('company_id')
         .eq('id', user.id)
         .single()
-
       if (!profile) throw new Error('User profile not found')
 
       const { data, error } = await supabase
@@ -748,27 +626,20 @@ export default function WorkOrders() {
           company_id: profile.company_id,
           work_order_id: selectedWorkOrder.id,
           start_time: now,
-          description: Working on ${selectedWorkOrder.title},
+          description: `Working on ${selectedWorkOrder.title}`,
           entry_type: 'work',
           status: 'pending'
         }])
         .select()
         .single()
-
       if (error) throw error
 
-      setActiveTimer({
-        id: data.id,
-        start_time: now,
-        work_order_id: selectedWorkOrder.id
-      })
+      setActiveTimer({ id: data.id, start_time: now, work_order_id: selectedWorkOrder.id })
 
-      // Start the timer interval
       const interval = setInterval(() => {
-        setActiveTimer((prev: any) => prev ? { ...prev } : null)
+        setActiveTimer(prev => (prev ? { ...prev } : null))
       }, 1000)
       setTimerInterval(interval)
-
     } catch (error) {
       console.error('Error starting timer:', error)
       alert('Error starting timer')
@@ -777,7 +648,6 @@ export default function WorkOrders() {
 
   const stopTimer = async () => {
     if (!activeTimer) return
-
     try {
       const now = new Date().toISOString()
       const startTime = new Date(activeTimer.start_time)
@@ -786,12 +656,8 @@ export default function WorkOrders() {
 
       const { error } = await supabase
         .from('time_entries')
-        .update({
-          end_time: now,
-          duration_minutes: durationMinutes
-        })
+        .update({ end_time: now, duration_minutes: durationMinutes })
         .eq('id', activeTimer.id)
-
       if (error) throw error
 
       setActiveTimer(null)
@@ -800,7 +666,7 @@ export default function WorkOrders() {
         setTimerInterval(null)
       }
 
-      loadWorkOrderDetails(selectedWorkOrder!.id)
+      if (selectedWorkOrder) loadWorkOrderDetails(selectedWorkOrder.id)
     } catch (error) {
       console.error('Error stopping timer:', error)
       alert('Error stopping timer')
@@ -809,7 +675,6 @@ export default function WorkOrders() {
 
   const addTimeEntry = async () => {
     if (!selectedWorkOrder || !currentUser) return
-
     try {
       const { data: { user } } = await supabase.auth.getUser()
       if (!user) throw new Error('User not authenticated')
@@ -819,32 +684,23 @@ export default function WorkOrders() {
         .select('company_id')
         .eq('id', user.id)
         .single()
-
       if (!profile) throw new Error('User profile not found')
 
-      const { error } = await supabase
-        .from('time_entries')
-        .insert([{
-          user_id: user.id,
-          company_id: profile.company_id,
-          work_order_id: selectedWorkOrder.id,
-          start_time: timeFormData.start_time,
-          end_time: timeFormData.end_time || null,
-          duration_minutes: timeFormData.duration_minutes,
-          description: timeFormData.description,
-          entry_type: 'work',
-          status: 'pending'
-        }])
-
+      const { error } = await supabase.from('time_entries').insert([{
+        user_id: user.id,
+        company_id: profile.company_id,
+        work_order_id: selectedWorkOrder.id,
+        start_time: timeFormData.start_time,
+        end_time: timeFormData.end_time || null,
+        duration_minutes: timeFormData.duration_minutes,
+        description: timeFormData.description,
+        entry_type: 'work',
+        status: 'pending'
+      }])
       if (error) throw error
 
       setShowTimeModal(false)
-      setTimeFormData({
-        start_time: '',
-        end_time: '',
-        description: '',
-        duration_minutes: 0
-      })
+      setTimeFormData({ start_time: '', end_time: '', description: '', duration_minutes: 0 })
       loadWorkOrderDetails(selectedWorkOrder.id)
     } catch (error) {
       console.error('Error adding time entry:', error)
@@ -865,7 +721,7 @@ export default function WorkOrders() {
   const formatDuration = (minutes: number) => {
     const hours = Math.floor(minutes / 60)
     const mins = minutes % 60
-    return ${hours}h ${mins}m
+    return `${hours}h ${mins}m`
   }
 
   const getStatusColor = (status: string) => {
@@ -890,12 +746,13 @@ export default function WorkOrders() {
   }
 
   const filteredWorkOrders = workOrders.filter(workOrder => {
-    const matchesSearch = workOrder.wo_number.toLowerCase().includes(searchTerm.toLowerCase()) ||
-                         workOrder.title.toLowerCase().includes(searchTerm.toLowerCase()) ||
-                         (workOrder.customer?.customer_type === 'residential' 
-                           ? ${workOrder.customer?.first_name} ${workOrder.customer?.last_name}.toLowerCase().includes(searchTerm.toLowerCase())
-                           : workOrder.customer?.company_name?.toLowerCase().includes(searchTerm.toLowerCase())
-                         )
+    const name = workOrder.customer?.customer_type === 'residential'
+      ? `${workOrder.customer?.first_name ?? ''} ${workOrder.customer?.last_name ?? ''}`.trim()
+      : (workOrder.customer?.company_name ?? '')
+    const matchesSearch =
+      workOrder.wo_number.toLowerCase().includes(searchTerm.toLowerCase()) ||
+      workOrder.title.toLowerCase().includes(searchTerm.toLowerCase()) ||
+      name.toLowerCase().includes(searchTerm.toLowerCase())
     const matchesStatus = !statusFilter || workOrder.status === statusFilter
     const matchesPriority = !priorityFilter || workOrder.priority === priorityFilter
     return matchesSearch && matchesStatus && matchesPriority
@@ -931,7 +788,7 @@ export default function WorkOrders() {
       <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-6">
         <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
           <div className="relative">
-            <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400 w-5 h-5" />
+            <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 w-5 h-5" />
             <input
               type="text"
               placeholder="Search work orders..."
@@ -976,24 +833,12 @@ export default function WorkOrders() {
             <table className="w-full">
               <thead className="bg-gray-50">
                 <tr>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                    Work Order
-                  </th>
-                  <th className="hidden md:table-cell px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                    Customer
-                  </th>
-                  <th className="hidden md:table-cell px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                    Assigned To
-                  </th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                    Status
-                  </th>
-                  <th className="hidden md:table-cell px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                    Scheduled
-                  </th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                    Actions
-                  </th>
+                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Work Order</th>
+                  <th className="hidden md:table-cell px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Customer</th>
+                  <th className="hidden md:table-cell px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Assigned To</th>
+                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Status</th>
+                  <th className="hidden md:table-cell px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Scheduled</th>
+                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Actions</th>
                 </tr>
               </thead>
               <tbody className="bg-white divide-y divide-gray-200">
@@ -1002,16 +847,15 @@ export default function WorkOrders() {
                     <td className="px-6 py-4 whitespace-nowrap">
                       <div className="text-sm font-medium text-gray-900">{workOrder.wo_number}</div>
                       <div className="text-sm text-gray-500">{workOrder.title}</div>
-                      <span className={inline-flex px-2 py-1 text-xs font-medium rounded-full ${getPriorityColor(workOrder.priority)}}>
+                      <span className={`inline-flex px-2 py-1 text-xs font-medium rounded-full ${getPriorityColor(workOrder.priority)}`}>
                         {workOrder.priority}
                       </span>
                     </td>
                     <td className="hidden md:table-cell px-6 py-4 whitespace-nowrap">
                       <div className="text-sm text-gray-900">
-                        {workOrder.customer?.customer_type === 'residential' 
-                          ? ${workOrder.customer?.first_name} ${workOrder.customer?.last_name}
-                          : workOrder.customer?.company_name
-                        }
+                        {workOrder.customer?.customer_type === 'residential'
+                          ? `${workOrder.customer?.first_name} ${workOrder.customer?.last_name}`
+                          : workOrder.customer?.company_name}
                       </div>
                       {workOrder.customer_site && (
                         <div className="text-xs text-gray-500">{workOrder.customer_site.site_name}</div>
@@ -1021,7 +865,7 @@ export default function WorkOrders() {
                       <div className="text-sm text-gray-900">
                         {workOrder.assignments && workOrder.assignments.length > 0 ? (
                           <div>
-                            {workOrder.assignments.map((assignment, index) => (
+                            {workOrder.assignments.map((assignment) => (
                               <div key={assignment.id} className="flex items-center">
                                 <span className={assignment.is_primary ? 'font-semibold' : ''}>
                                   {assignment.technician?.first_name} {assignment.technician?.last_name}
@@ -1041,7 +885,7 @@ export default function WorkOrders() {
                       <select
                         value={workOrder.status}
                         onChange={(e) => updateStatus(workOrder.id, e.target.value)}
-                        className={text-xs font-semibold rounded-full px-2 py-1 border-0 ${getStatusColor(workOrder.status)}}
+                        className={`text-xs font-semibold rounded-full px-2 py-1 border-0 ${getStatusColor(workOrder.status)}`}
                         disabled={currentUser?.profile?.role === 'tech'}
                       >
                         <option value="open">Open</option>
@@ -1109,55 +953,53 @@ export default function WorkOrders() {
                       <h3 className="text-lg font-semibold text-gray-900 mb-1">{workOrder.wo_number}</h3>
                       <p className="text-sm text-gray-600 mb-2">{workOrder.title}</p>
                       <div className="flex space-x-2">
-                        <span className={inline-flex px-2 py-1 text-xs font-medium rounded-full ${getStatusColor(workOrder.status)}}>
+                        <span className={`inline-flex px-2 py-1 text-xs font-medium rounded-full ${getStatusColor(workOrder.status)}`}>
                           {workOrder.status.replace('_', ' ').toUpperCase()}
                         </span>
-                        <span className={inline-flex px-2 py-1 text-xs font-medium rounded-full ${getPriorityColor(workOrder.priority)}}>
+                        <span className={`inline-flex px-2 py-1 text-xs font-medium rounded-full ${getPriorityColor(workOrder.priority)}`}>
                           {workOrder.priority.toUpperCase()}
                         </span>
                       </div>
                     </div>
                   </div>
-                  
+
                   <div className="space-y-2 mb-4">
                     <div className="flex items-center text-sm text-gray-600">
                       <User className="w-4 h-4 mr-3" />
                       <span>
-                        {workOrder.customer?.customer_type === 'residential' 
-                          ? ${workOrder.customer?.first_name} ${workOrder.customer?.last_name}
-                          : workOrder.customer?.company_name
-                        }
+                        {workOrder.customer?.customer_type === 'residential'
+                          ? `${workOrder.customer?.first_name} ${workOrder.customer?.last_name}`
+                          : workOrder.customer?.company_name}
                       </span>
                     </div>
-                    
+
                     {workOrder.customer_site && (
                       <div className="flex items-center text-sm text-gray-600">
                         <Building2 className="w-4 h-4 mr-3" />
                         <span>{workOrder.customer_site.site_name}</span>
                       </div>
                     )}
-                    
+
                     {workOrder.scheduled_date && (
                       <div className="flex items-center text-sm text-gray-600">
                         <Calendar className="w-4 h-4 mr-3" />
                         <span>{new Date(workOrder.scheduled_date).toLocaleDateString()}</span>
                       </div>
                     )}
-                    
+
                     <div className="flex items-center text-sm text-gray-600">
                       <Users className="w-4 h-4 mr-3" />
                       <span>
-                        {workOrder.assignments && workOrder.assignments.length > 0 
-                          ? ${workOrder.assignments.length} technician${workOrder.assignments.length > 1 ? 's' : ''}
-                          : 'Unassigned'
-                        }
+                        {workOrder.assignments && workOrder.assignments.length > 0
+                          ? `${workOrder.assignments.length} technician${workOrder.assignments.length > 1 ? 's' : ''}`
+                          : 'Unassigned'}
                       </span>
                     </div>
                   </div>
-                  
+
                   <div className="flex justify-between items-center pt-4 border-t border-gray-200">
                     <div className="text-sm text-gray-500">
-                      {workOrder.project && Project: ${workOrder.project.project_name}}
+                      {workOrder.project && `Project: ${workOrder.project.project_name}`}
                     </div>
                     <button
                       onClick={() => setSelectedWorkOrder(workOrder)}
@@ -1187,13 +1029,11 @@ export default function WorkOrders() {
                 </div>
               </div>
             </div>
-            
+
             <form onSubmit={handleSubmit} className="p-6 space-y-6">
               <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                 <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-2">
-                    Title *
-                  </label>
+                  <label className="block text-sm font-medium text-gray-700 mb-2">Title *</label>
                   <input
                     type="text"
                     value={formData.title}
@@ -1204,9 +1044,7 @@ export default function WorkOrders() {
                 </div>
 
                 <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-2">
-                    Customer *
-                  </label>
+                  <label className="block text-sm font-medium text-gray-700 mb-2">Customer *</label>
                   <select
                     value={formData.customer_id}
                     onChange={(e) => setFormData({ ...formData, customer_id: e.target.value })}
@@ -1216,19 +1054,16 @@ export default function WorkOrders() {
                     <option value="">Select Customer</option>
                     {customers.map((customer) => (
                       <option key={customer.id} value={customer.id}>
-                        {customer.customer_type === 'residential' 
-                          ? ${customer.first_name} ${customer.last_name}
-                          : customer.company_name
-                        }
+                        {customer.customer_type === 'residential'
+                          ? `${customer.first_name} ${customer.last_name}`
+                          : customer.company_name}
                       </option>
                     ))}
                   </select>
                 </div>
 
                 <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-2">
-                    Customer Site
-                  </label>
+                  <label className="block text-sm font-medium text-gray-700 mb-2">Customer Site</label>
                   <select
                     value={formData.customer_site_id}
                     onChange={(e) => setFormData({ ...formData, customer_site_id: e.target.value })}
@@ -1251,9 +1086,7 @@ export default function WorkOrders() {
                 </div>
 
                 <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-2">
-                    Project
-                  </label>
+                  <label className="block text-sm font-medium text-gray-700 mb-2">Project</label>
                   <select
                     value={formData.project_id}
                     onChange={(e) => setFormData({ ...formData, project_id: e.target.value })}
@@ -1269,9 +1102,7 @@ export default function WorkOrders() {
                 </div>
 
                 <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-2">
-                    Department
-                  </label>
+                  <label className="block text-sm font-medium text-gray-700 mb-2">Department</label>
                   <select
                     value={formData.department_id}
                     onChange={(e) => setFormData({ ...formData, department_id: e.target.value })}
@@ -1287,9 +1118,7 @@ export default function WorkOrders() {
                 </div>
 
                 <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-2">
-                    Priority
-                  </label>
+                  <label className="block text-sm font-medium text-gray-700 mb-2">Priority</label>
                   <select
                     value={formData.priority}
                     onChange={(e) => setFormData({ ...formData, priority: e.target.value })}
@@ -1303,9 +1132,7 @@ export default function WorkOrders() {
                 </div>
 
                 <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-2">
-                    Status
-                  </label>
+                  <label className="block text-sm font-medium text-gray-700 mb-2">Status</label>
                   <select
                     value={formData.status}
                     onChange={(e) => setFormData({ ...formData, status: e.target.value })}
@@ -1320,9 +1147,7 @@ export default function WorkOrders() {
                 </div>
 
                 <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-2">
-                    Scheduled Date
-                  </label>
+                  <label className="block text-sm font-medium text-gray-700 mb-2">Scheduled Date</label>
                   <input
                     type="datetime-local"
                     value={formData.scheduled_date}
@@ -1332,9 +1157,7 @@ export default function WorkOrders() {
                 </div>
 
                 <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-2">
-                    Work Type
-                  </label>
+                  <label className="block text-sm font-medium text-gray-700 mb-2">Work Type</label>
                   <input
                     type="text"
                     value={formData.work_type}
@@ -1345,9 +1168,7 @@ export default function WorkOrders() {
                 </div>
 
                 <div className="md:col-span-2">
-                  <label className="block text-sm font-medium text-gray-700 mb-2">
-                    Description
-                  </label>
+                  <label className="block text-sm font-medium text-gray-700 mb-2">Description</label>
                   <textarea
                     value={formData.description}
                     onChange={(e) => setFormData({ ...formData, description: e.target.value })}
@@ -1357,9 +1178,7 @@ export default function WorkOrders() {
                 </div>
 
                 <div className="md:col-span-2">
-                  <label className="block text-sm font-medium text-gray-700 mb-2">
-                    Notes
-                  </label>
+                  <label className="block text-sm font-medium text-gray-700 mb-2">Notes</label>
                   <textarea
                     value={formData.notes}
                     onChange={(e) => setFormData({ ...formData, notes: e.target.value })}
@@ -1399,18 +1218,16 @@ export default function WorkOrders() {
                 Assign Technicians to {assigningWorkOrder.wo_number}
               </h3>
             </div>
-            
+
             <div className="p-6 space-y-4">
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-3">
-                  Select Technicians
-                </label>
+                <label className="block text-sm font-medium text-gray-700 mb-3">Select Technicians</label>
                 <div className="space-y-2 max-h-64 overflow-y-auto">
                   {technicians.map((tech) => (
                     <div key={tech.id} className="flex items-center">
                       <input
                         type="checkbox"
-                        id={tech-${tech.id}}
+                        id={`tech-${tech.id}`}
                         checked={selectedTechnicians.includes(tech.id)}
                         onChange={(e) => {
                           if (e.target.checked) {
@@ -1424,7 +1241,7 @@ export default function WorkOrders() {
                         }}
                         className="h-4 w-4 text-blue-600 focus:ring-blue-500 border-gray-300 rounded"
                       />
-                      <label htmlFor={tech-${tech.id}} className="ml-2 block text-sm text-gray-900">
+                      <label htmlFor={`tech-${tech.id}`} className="ml-2 block text-sm text-gray-900">
                         {tech.first_name} {tech.last_name} ({tech.role})
                       </label>
                     </div>
@@ -1434,9 +1251,7 @@ export default function WorkOrders() {
 
               {selectedTechnicians.length > 1 && (
                 <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-2">
-                    Primary Technician
-                  </label>
+                  <label className="block text-sm font-medium text-gray-700 mb-2">Primary Technician</label>
                   <select
                     value={primaryTechnician}
                     onChange={(e) => setPrimaryTechnician(e.target.value)}
@@ -1503,7 +1318,7 @@ export default function WorkOrders() {
                 </div>
               </div>
             </div>
-            
+
             <div className="p-6">
               <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
                 {/* Left Column - Work Order Info */}
@@ -1517,13 +1332,13 @@ export default function WorkOrders() {
                       </div>
                       <div className="flex justify-between">
                         <span className="text-sm font-medium text-gray-700">Status:</span>
-                        <span className={inline-flex px-2 py-1 text-xs font-medium rounded-full ${getStatusColor(selectedWorkOrder.status)}}>
+                        <span className={`inline-flex px-2 py-1 text-xs font-medium rounded-full ${getStatusColor(selectedWorkOrder.status)}`}>
                           {selectedWorkOrder.status.replace('_', ' ').toUpperCase()}
                         </span>
                       </div>
                       <div className="flex justify-between">
                         <span className="text-sm font-medium text-gray-700">Priority:</span>
-                        <span className={inline-flex px-2 py-1 text-xs font-medium rounded-full ${getPriorityColor(selectedWorkOrder.priority)}}>
+                        <span className={`inline-flex px-2 py-1 text-xs font-medium rounded-full ${getPriorityColor(selectedWorkOrder.priority)}`}>
                           {selectedWorkOrder.priority.toUpperCase()}
                         </span>
                       </div>
@@ -1560,10 +1375,9 @@ export default function WorkOrders() {
                       <div className="flex justify-between">
                         <span className="text-sm font-medium text-gray-700">Customer:</span>
                         <span className="text-sm text-gray-900">
-                          {selectedWorkOrder.customer?.customer_type === 'residential' 
-                            ? ${selectedWorkOrder.customer?.first_name} ${selectedWorkOrder.customer?.last_name}
-                            : selectedWorkOrder.customer?.company_name
-                          }
+                          {selectedWorkOrder.customer?.customer_type === 'residential'
+                            ? `${selectedWorkOrder.customer?.first_name} ${selectedWorkOrder.customer?.last_name}`
+                            : selectedWorkOrder.customer?.company_name}
                         </span>
                       </div>
                       {selectedWorkOrder.customer_site && (
@@ -1682,8 +1496,9 @@ export default function WorkOrders() {
                       <h4 className="text-lg font-medium text-gray-900">Purchase Orders ({purchaseOrders.length})</h4>
                       <button
                         onClick={() => {
+                          if (!selectedWorkOrder) return
                           localStorage.setItem('preselected_work_order', selectedWorkOrder.id)
-                          window.dispatchEvent(new CustomEvent('navigate', { detail: 'purchase-orders' }))
+                          window.dispatchEvent(new CustomEvent('navigate', { detail: 'purchase-orders' as any }))
                         }}
                         className="inline-flex items-center px-3 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 transition-colors text-sm"
                       >
@@ -1701,11 +1516,13 @@ export default function WorkOrders() {
                             </div>
                             <div className="text-right">
                               <p className="text-sm font-medium text-gray-900">${po.total_amount.toFixed(2)}</p>
-                              <span className={inline-flex px-2 py-1 text-xs font-medium rounded-full ${
-                                po.status === 'approved' ? 'text-blue-700 bg-blue-100' :
-                                po.status === 'received' ? 'text-green-700 bg-green-100' :
-                                'text-yellow-700 bg-yellow-100'
-                              }}>
+                              <span
+                                className={`inline-flex px-2 py-1 text-xs font-medium rounded-full ${
+                                  po.status === 'approved' ? 'text-blue-700 bg-blue-100'
+                                    : po.status === 'received' ? 'text-green-700 bg-green-100'
+                                      : 'text-yellow-700 bg-yellow-100'
+                                }`}
+                              >
                                 {po.status}
                               </span>
                             </div>
@@ -1734,12 +1551,8 @@ export default function WorkOrders() {
                           <div key={item.id} className="flex items-center justify-between p-3 bg-gray-50 rounded-lg">
                             <div>
                               <p className="text-sm font-medium text-gray-900">{item.inventory_item?.name}</p>
-                              <p className="text-xs text-gray-500">
-                                SKU: {item.inventory_item?.sku || 'N/A'}
-                              </p>
-                              <p className="text-xs text-gray-500">
-                                Quantity Used: {item.quantity_used}
-                              </p>
+                              <p className="text-xs text-gray-500">SKU: {item.inventory_item?.sku || 'N/A'}</p>
+                              <p className="text-xs text-gray-500">Quantity Used: {item.quantity_used}</p>
                             </div>
                             <div className="text-right">
                               <p className="text-sm font-medium text-gray-900">
@@ -1754,7 +1567,7 @@ export default function WorkOrders() {
                         <div className="flex justify-between items-center pt-3 border-t border-gray-200">
                           <span className="text-sm font-medium text-gray-700">Total Materials Cost:</span>
                           <span className="text-lg font-bold text-green-600">
-                            ${truckInventory.reduce((sum, item) => 
+                            ${truckInventory.reduce((sum, item) =>
                               sum + ((item.inventory_item?.unit_price || 0) * item.quantity_used), 0
                             ).toFixed(2)}
                           </span>
@@ -1824,11 +1637,13 @@ export default function WorkOrders() {
                               </p>
                             </div>
                             <div className="text-right">
-                              <span className={inline-flex px-2 py-1 text-xs font-medium rounded-full ${
-                                entry.status === 'approved' ? 'text-green-700 bg-green-100' :
-                                entry.status === 'rejected' ? 'text-red-700 bg-red-100' :
-                                'text-yellow-700 bg-yellow-100'
-                              }}>
+                              <span
+                                className={`inline-flex px-2 py-1 text-xs font-medium rounded-full ${
+                                  entry.status === 'approved' ? 'text-green-700 bg-green-100'
+                                    : entry.status === 'rejected' ? 'text-red-700 bg-red-100'
+                                      : 'text-yellow-700 bg-yellow-100'
+                                }`}
+                              >
                                 {entry.status}
                               </span>
                             </div>
@@ -1853,12 +1668,10 @@ export default function WorkOrders() {
             <div className="p-6 border-b border-gray-200">
               <h3 className="text-lg font-semibold text-gray-900">Add Photo</h3>
             </div>
-            
+
             <div className="p-6 space-y-4">
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-2">
-                  Photo
-                </label>
+                <label className="block text-sm font-medium text-gray-700 mb-2">Photo</label>
                 <input
                   type="file"
                   accept="image/*"
@@ -1869,9 +1682,7 @@ export default function WorkOrders() {
               </div>
 
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-2">
-                  Caption (Optional)
-                </label>
+                <label className="block text-sm font-medium text-gray-700 mb-2">Caption (Optional)</label>
                 <input
                   type="text"
                   value={photoCaption}
@@ -1901,12 +1712,10 @@ export default function WorkOrders() {
             <div className="p-6 border-b border-gray-200">
               <h3 className="text-lg font-semibold text-gray-900">Add Time Entry</h3>
             </div>
-            
+
             <div className="p-6 space-y-4">
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-2">
-                  Start Time
-                </label>
+                <label className="block text-sm font-medium text-gray-700 mb-2">Start Time</label>
                 <input
                   type="datetime-local"
                   value={timeFormData.start_time}
@@ -1917,9 +1726,7 @@ export default function WorkOrders() {
               </div>
 
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-2">
-                  End Time (Optional)
-                </label>
+                <label className="block text-sm font-medium text-gray-700 mb-2">End Time (Optional)</label>
                 <input
                   type="datetime-local"
                   value={timeFormData.end_time}
@@ -1930,23 +1737,19 @@ export default function WorkOrders() {
               </div>
 
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-2">
-                  Duration (minutes)
-                </label>
+                <label className="block text-sm font-medium text-gray-700 mb-2">Duration (minutes)</label>
                 <input
                   type="number"
                   value={timeFormData.duration_minutes}
                   onChange={(e) => setTimeFormData({ ...timeFormData, duration_minutes: parseInt(e.target.value) || 0 })}
                   className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
                   required
-                  min="1"
+                  min={1}
                 />
               </div>
 
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-2">
-                  Description
-                </label>
+                <label className="block text-sm font-medium text-gray-700 mb-2">Description</label>
                 <textarea
                   value={timeFormData.description}
                   onChange={(e) => setTimeFormData({ ...timeFormData, description: e.target.value })}
