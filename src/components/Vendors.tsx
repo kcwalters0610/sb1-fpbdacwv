@@ -81,6 +81,18 @@ export default function Vendors() {
     setLoading(true)
 
     try {
+      // Get current user's company_id
+      const { data: { user } } = await supabase.auth.getUser()
+      if (!user) throw new Error('User not authenticated')
+      
+      const { data: profile } = await supabase
+        .from('profiles')
+        .select('company_id')
+        .eq('id', user.id)
+        .single()
+      
+      if (!profile?.company_id) throw new Error('User company not found')
+
       const vendorData = {
         name: formData.name,
         contact_person: formData.contact_person || null,
@@ -92,7 +104,8 @@ export default function Vendors() {
         zip_code: formData.zip_code || null,
         vendor_type: formData.vendor_type || null,
         notes: formData.notes || null,
-        is_active: formData.is_active
+        is_active: formData.is_active,
+        company_id: profile.company_id
       }
 
       if (editingVendor) {
