@@ -1,132 +1,680 @@
-import React, { useEffect, useState } from 'react'
-import {
-  Plus, Search, DollarSign, Calendar, User, FileText,
-  Edit, Trash2, Eye, X
+ import React, { useState, useEffect } from 'react'
+import { 
+  Plus, 
+  Search, 
+  Calendar, 
+  User, 
+  MapPin, 
+  Clock, 
+  CheckCircle, 
+  AlertTriangle, 
+  Edit, 
+  Trash2, 
+  Eye, 
+  X, 
+  Camera, 
+  FileText, 
+  DollarSign,
+  Users,
+  Package,
+  Truck,
+  Timer,
+  Play,
+  Pause,
+  Square,
+  Building2
 } from 'lucide-react'
-import { supabase } from '../lib/supabase'
+import { supabase, WorkOrder, Customer, Profile, CustomerSite } from '../lib/supabase'
 import { useViewPreference } from '../hooks/useViewPreference'
 import ViewToggle from './ViewToggle'
 import { getNextNumber, updateNextNumber } from '../lib/numbering'
 
-type POStatus = 'draft' | 'ordered' | 'partially_received' | 'received' | 'cancelled'
-
-interface PurchaseOrder {
-  id: string
-  company_id: string
-  vendor_id: string
-  work_order_id?: string | null
-  po_number: string
-  status: POStatus
-  order_date: string
-  expected_date?: string | null
-  subtotal: number
-  tax_rate: number
-  tax_amount: number
-  total_amount: number
-  paid_amount: number
-  payment_date?: string | null
-  notes?: string | null
-  created_at: string
-  updated_at: string
-  vendor?: any
-  work_order?: any
-}
-
-export default function PurchaseOrders() {
-  const { viewType, setViewType } = useViewPreference('purchase_orders')
-
-  const [pos, setPOs] = useState<PurchaseOrder[]>([])
-  const [vendors, setVendors] = useState<any[]>([])
-  const [workOrders, setWorkOrders] = useState<any[]>([])
+export default function WorkOrders() {
+  const { viewType, setViewType } = useViewPreference('workOrders')
+  const [workOrders, setWorkOrders] = useState<WorkOrder[]>([])
+  const [customers, setCustomers] = useState<Customer[]>([])
+  const [technicians, setTechnicians] = useState<Profile[]>([])
+  const [departments, setDepartments] = useState<any[]>([])
+  const [customerSites, setCustomerSites] = useState<CustomerSite[]>([])
+  const [projects, setProjects] = useState<any[]>([])
   const [loading, setLoading] = useState(true)
-
   const [showForm, setShowForm] = useState(false)
-  const [editingPO, setEditingPO] = useState<PurchaseOrder | null>(null)
-  const [selectedPO, setSelectedPO] = useState<PurchaseOrder | null>(null)
-
+  const [showAssignModal, setShowAssignModal] = useState(false)
+  const [editingWorkOrder, setEditingWorkOrder] = useState<WorkOrder | null>(null)
+  const [selectedWorkOrder, setSelectedWorkOrder] = useState<WorkOrder | null>(null)
+  const [assigningWorkOrder, setAssigningWorkOrder] = useState<WorkOrder | null>(null)
   const [searchTerm, setSearchTerm] = useState('')
-  const [statusFilter, setStatusFilter] = useState<POStatus | ''>('')
-
-  // Numbering fallback — if generation fails, allow manual number typing
-  const [numberingError, setNumberingError] = useState<string>('')
-  const [allowManualNumber, setAllowManualNumber] = useState(false)
-
-  // When coming from Work Orders, we bootstrap the form once
-  const [bootstrappedFromWO, setBootstrappedFromWO] = useState(false)
+  const [statusFilter, setStatusFilter] = useState('')
+  const [priorityFilter, setPriorityFilter] = useState('')
+  const [currentUser, setCurrentUser] = useState<any>(null)
+  const [loadingSites, setLoadingSites] = useState(false)
+  const [selectedTechnicians, setSelectedTechnicians] = useState<string[]>([])
+  const [primaryTechnician, setPrimaryTechnician] = useState<string>('')
+  const [workOrderPhotos, setWorkOrderPhotos] = useState<any[]>([])
+  const [showPhotoModal, setShowPhotoModal] = useState(false)
+  const [photoCaption, setPhotoCaption] = useState('')
+  const [uploadingPhoto, setUploadingPhoto] = useState(false)
+  const [workOrderNotes, setWorkOrderNotes] = useState('')
+  const [savingNotes, setSavingNotes] = useState(false)
+  const [purchaseOrders, setPurchaseOrders] = useState<any[]>([])
+  const [truckInventory, setTruckInventory] = useState<any[]>([])
+  const [timeEntries, setTimeEntries] = useState<any[]>([])
+  const [showTimeModal, setShowTimeModal] = useState(false)
+  const [timeFormData, setTimeFormData] = useState({
+    start_time: '',
+    end_time: '',
+    description: '',
+    duration_minutes: 0
+  })
+  const [activeTimer, setActiveTimer] = useState<any>(null)
+  const [timerInterval, setTimerInterval] = useState<NodeJS.Timeout | null>(null)
 
   const [formData, setFormData] = useState({
-    po_number: '',
-    vendor_id: '',
-    work_order_id: '',
-    status: 'draft' as POStatus,
-    order_date: new Date().toISOString().split('T')[0],
-    expected_date: '',
-    subtotal: '',
-    tax_rate: '0',
+    wo_number: '',
+    title: '',
+    description: '',
+    customer_id: '',
+    customer_site_id: '',
+    project_id: '',
+    department_id: '',
+    priority: 'medium',
+    status: 'open',
+    scheduled_date: '',
+    work_type: '',
     notes: ''
   })
 
   useEffect(() => {
+    getCurrentUser()
     loadData()
   }, [])
 
-  // If navigated from Work Orders, open the form and prefill the WO
   useEffect(() => {
-    if (bootstrappedFromWO) return
-    const woId = localStorage.getItem('preselected_work_order')
-    if (woId) {
-      setFormData(prev => ({ ...prev, work_order_id: woId }))
-      setEditingPO(null)
-      setShowForm(true) // open the create form
-      setBootstrappedFromWO(true)
-      localStorage.removeItem('preselected_work_order')
+    if (showForm && !editingWorkOrder) {
+      generateWONumber()
     }
-  }, [bootstrappedFromWO])
+  }, [showForm, editingWorkOrder])
 
-  // Generate PO number when form opens for a new PO
   useEffect(() => {
-    if (showForm && !editingPO) {
-      generatePONumber()
+    if (formData.customer_id) {
+      loadCustomerSites(formData.customer_id)
+    } else {
+      setCustomerSites([])
+      setFormData(prev => ({ ...prev, customer_site_id: '' }))
     }
-  }, [showForm, editingPO])
+  }, [formData.customer_id])
 
-  const generatePONumber = async () => {
-    setNumberingError('')
-    setAllowManualNumber(false)
+  useEffect(() => {
+    if (selectedWorkOrder) {
+      loadWorkOrderDetails(selectedWorkOrder.id)
+    }
+  }, [selectedWorkOrder])
+
+  const getCurrentUser = async () => {
     try {
-      const { formattedNumber } = await getNextNumber('purchase_order')
-      setFormData(prev => ({ ...prev, po_number: formattedNumber }))
-    } catch (e: any) {
-      console.error('Error generating PO number:', e)
-      setNumberingError(e?.message || 'Unable to generate PO number from settings.')
-      setAllowManualNumber(true)
+      const { data: { user } } = await supabase.auth.getUser()
+      if (user) {
+        const { data: profile } = await supabase
+          .from('profiles')
+          .select('*')
+          .eq('id', user.id)
+          .single()
+        
+        setCurrentUser({ ...user, profile })
+      }
+    } catch (error) {
+      console.error('Error getting current user:', error)
+    }
+  }
+
+  const generateWONumber = async () => {
+    try {
+      const { formattedNumber: woNumber } = await getNextNumber('work_order')
+      setFormData(prev => ({ ...prev, wo_number: woNumber }))
+    } catch (error) {
+      console.error('Error generating WO number:', error)
     }
   }
 
   const loadData = async () => {
     try {
-      const [posResult, vendorsResult, workOrdersResult] = await Promise.all([
-        supabase.from('purchase_orders').select(`
-          *,
-          vendor:vendors(*),
-          work_order:work_orders(*)
-        `).order('created_at', { ascending: false }),
-        supabase.from('vendors').select('*').order('name'),
-        supabase.from('work_orders').select('id, wo_number, title').order('created_at', { ascending: false })
+      const [workOrdersResult, customersResult, techniciansResult, departmentsResult, projectsResult] = await Promise.all([
+        supabase
+          .from('work_orders')
+          .select(
+            *,
+            customer:customers(*),
+            assigned_technician:profiles!work_orders_assigned_to_fkey(*),
+            assigned_dept:departments!department_id(*),
+            customer_site:customer_sites(*),
+            project:projects(*),
+            assignments:work_order_assignments(
+              id,
+              tech_id,
+              is_primary,
+              technician:profiles(*)
+            )
+          )
+          .order('created_at', { ascending: false }),
+        supabase.from('customers').select('*').order('first_name'),
+        supabase.from('profiles').select('*').in('role', ['tech', 'admin', 'manager']).order('first_name'),
+        supabase.from('departments').select('*').eq('is_active', true).order('name'),
+        supabase.from('projects').select('*').in('status', ['planning', 'in_progress']).order('project_name')
       ])
-      setPOs(posResult.data || [])
-      setVendors(vendorsResult.data || [])
+
       setWorkOrders(workOrdersResult.data || [])
-    } catch (e) {
-      console.error('Error loading POs:', e)
+      setCustomers(customersResult.data || [])
+      setTechnicians(techniciansResult.data || [])
+      setDepartments(departmentsResult.data || [])
+      setProjects(projectsResult.data || [])
+    } catch (error) {
+      console.error('Error loading data:', error)
     } finally {
       setLoading(false)
+    }
+  }
+
+  const loadCustomerSites = async (customerId: string) => {
+    try {
+      setLoadingSites(true)
+      const { data, error } = await supabase
+        .from('customer_sites')
+        .select('*')
+        .eq('customer_id', customerId)
+        .eq('is_active', true)
+        .order('is_primary', { ascending: false })
+        .order('site_name')
+
+      if (error) throw error
+      setCustomerSites(data || [])
+    } catch (error) {
+      console.error('Error loading customer sites:', error)
+      setCustomerSites([])
+    } finally {
+      setLoadingSites(false)
+    }
+  }
+
+  const loadWorkOrderDetails = async (workOrderId: string) => {
+    try {
+      // Load photos
+      const { data: photos } = await supabase
+        .from('work_order_photos')
+        .select('*')
+        .eq('work_order_id', workOrderId)
+        .order('created_at', { ascending: false })
+
+      setWorkOrderPhotos(photos || [])
+
+      // Load purchase orders
+      const { data: pos } = await supabase
+        .from('purchase_orders')
+        .select(
+          *,
+          vendor:vendors(*),
+          items:purchase_order_items(*)
+        )
+        .eq('work_order_id', workOrderId)
+        .order('created_at', { ascending: false })
+
+      setPurchaseOrders(pos || [])
+
+      // Load truck inventory
+      const { data: inventory } = await supabase
+        .from('truck_inventory')
+        .select(
+          *,
+          inventory_item:inventory_items(*),
+          user:profiles(*)
+        )
+        .eq('work_order_id', workOrderId)
+        .order('created_at', { ascending: false })
+
+      setTruckInventory(inventory || [])
+
+      // Load time entries
+      const { data: times } = await supabase
+        .from('time_entries')
+        .select(
+          *,
+          user:profiles(*)
+        )
+        .eq('work_order_id', workOrderId)
+        .order('start_time', { ascending: false })
+
+      setTimeEntries(times || [])
+
+      // Load work order notes
+      const workOrder = workOrders.find(wo => wo.id === workOrderId)
+      if (workOrder) {
+        setWorkOrderNotes(workOrder.notes || '')
+      }
+    } catch (error) {
+      console.error('Error loading work order details:', error)
+    }
+  }
+
+  const handleCreateInvoice = async (workOrder: WorkOrder) => {
+    if (!confirm(Create invoice for Work Order ${workOrder.wo_number}?)) return
+
+    try {
+      console.log('Creating invoice for work order:', workOrder.wo_number)
+      
+      // Get current user's company_id
+      const { data: { user } } = await supabase.auth.getUser()
+      if (!user) throw new Error('User not authenticated')
+      
+      const { data: profile } = await supabase
+        .from('profiles')
+        .select('company_id')
+        .eq('id', user.id)
+        .single()
+      
+      if (!profile) throw new Error('User profile not found')
+
+      // Fetch all cost components for this work order
+      console.log('Fetching cost data for work order:', workOrder.id)
+
+      // 1. Get labor costs from time entries
+      const { data: timeEntries, error: timeError } = await supabase
+        .from('time_entries')
+        .select(
+          *,
+          user:profiles(id, first_name, last_name, role)
+        )
+        .eq('work_order_id', workOrder.id)
+        .eq('status', 'approved')
+
+      if (timeError) {
+        console.error('Error fetching time entries:', timeError)
+      }
+
+      console.log('Time entries found:', timeEntries?.length || 0, timeEntries)
+
+      // 2. Get purchase order costs
+      const { data: purchaseOrders, error: poError } = await supabase
+        .from('purchase_orders')
+        .select(
+          *,
+          vendor:vendors(name),
+          items:purchase_order_items(*)
+        )
+        .eq('work_order_id', workOrder.id)
+        .in('status', ['approved', 'received'])
+
+      if (poError) {
+        console.error('Error fetching purchase orders:', poError)
+      }
+
+      console.log('Purchase orders found:', purchaseOrders?.length || 0, purchaseOrders)
+
+      // 3. Get truck inventory costs
+      const { data: truckInventory, error: inventoryError } = await supabase
+        .from('truck_inventory')
+        .select(
+          *,
+          inventory_item:inventory_items(name, unit_price)
+        )
+        .eq('work_order_id', workOrder.id)
+
+      if (inventoryError) {
+        console.error('Error fetching truck inventory:', inventoryError)
+      }
+
+      console.log('Truck inventory found:', truckInventory?.length || 0, truckInventory)
+
+      // 4. Get labor rates for cost calculation
+      const { data: laborRates, error: ratesError } = await supabase
+        .from('labor_rates')
+        .select('*')
+        .eq('company_id', profile.company_id)
+        .eq('is_active', true)
+
+      if (ratesError) {
+        console.error('Error fetching labor rates:', ratesError)
+      }
+
+      console.log('Labor rates found:', laborRates?.length || 0, laborRates)
+
+      // Calculate costs
+      let laborCost = 0
+      let purchaseOrderCost = 0
+      let materialsCost = 0
+      let costBreakdown = []
+
+      // Calculate labor costs
+      if (timeEntries && timeEntries.length > 0) {
+        for (const entry of timeEntries) {
+          const hours = entry.duration_minutes / 60
+          
+          // Find applicable labor rate
+          const rate = laborRates?.find(r => 
+            r.role === entry.user.role && 
+            (!r.department_id || r.department_id === workOrder.department_id)
+          )
+          
+          const hourlyRate = rate?.hourly_rate || 50 // Default rate if not found
+          const entryCost = hours * hourlyRate
+          laborCost += entryCost
+          
+          costBreakdown.push(Labor - ${entry.user.first_name} ${entry.user.last_name}: ${hours.toFixed(1)}h × $${hourlyRate}/h = $${entryCost.toFixed(2)})
+        }
+      }
+
+      // Calculate purchase order costs
+      if (purchaseOrders && purchaseOrders.length > 0) {
+        for (const po of purchaseOrders) {
+          purchaseOrderCost += po.total_amount
+          costBreakdown.push(Purchase Order ${po.po_number} (${po.vendor?.name}): $${po.total_amount.toFixed(2)})
+        }
+      }
+
+      // Calculate materials costs from truck inventory
+      if (truckInventory && truckInventory.length > 0) {
+        for (const item of truckInventory) {
+          const itemCost = item.quantity_used * (item.inventory_item?.unit_price || 0)
+          materialsCost += itemCost
+          costBreakdown.push(Materials - ${item.inventory_item?.name}: ${item.quantity_used} × $${item.inventory_item?.unit_price || 0} = $${itemCost.toFixed(2)})
+        }
+      }
+
+      const subtotal = laborCost + purchaseOrderCost + materialsCost
+      
+      console.log('Cost calculation:')
+      console.log('Labor cost:', laborCost)
+      console.log('Purchase order cost:', purchaseOrderCost)
+      console.log('Materials cost:', materialsCost)
+      console.log('Subtotal:', subtotal)
+      console.log('Cost breakdown:', costBreakdown)
+
+      // Get company tax rate
+      const { data: company } = await supabase
+        .from('companies')
+        .select('settings')
+        .eq('id', profile.company_id)
+        .single()
+
+      const taxRate = company?.settings?.tax_rate || 8.5
+      const taxAmount = (subtotal * taxRate) / 100
+      const totalAmount = subtotal + taxAmount
+
+      // Generate invoice number
+      const { formattedNumber: invoiceNumber, nextSequence } = await getNextNumber('invoice')
+
+      // Create detailed notes
+      const notes = [
+        Invoice generated from Work Order ${workOrder.wo_number},
+        '',
+        'Cost Breakdown:',
+        ...costBreakdown,
+        '',
+        Total: $${subtotal.toFixed(2)}
+      ].join('\n')
+
+      // Create the invoice
+      const invoiceData = {
+        company_id: profile.company_id,
+        customer_id: workOrder.customer_id,
+        work_order_id: workOrder.id,
+        invoice_number: invoiceNumber,
+        status: 'draft',
+        issue_date: new Date().toISOString().split('T')[0],
+        due_date: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString().split('T')[0], // 30 days from now
+        subtotal: subtotal,
+        tax_rate: 0,
+        tax_amount: 0,
+        total_amount: subtotal,
+        paid_amount: 0,
+        notes: notes
+      }
+
+      console.log('Creating invoice with data:', invoiceData)
+
+      const { data: invoice, error: invoiceError } = await supabase
+        .from('invoices')
+        .insert([invoiceData])
+        .select()
+        .single()
+
+      if (invoiceError) throw invoiceError
+
+      // Update the sequence number
+      await updateNextNumber('invoice', nextSequence)
+
+      alert(Invoice ${invoiceNumber} created successfully!\nSubtotal: $${subtotal.toFixed(2)}\nTotal: $${totalAmount.toFixed(2)})
+      
+      // Navigate to invoices page to view the created invoice
+      window.dispatchEvent(new CustomEvent('navigate', { detail: 'invoices' }))
+
+    } catch (error) {
+      console.error('Error creating invoice:', error)
+      alert('Error creating invoice: ' + (error as Error).message)
     }
   }
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
     setLoading(true)
+
+    try {
+      const { data: { user } } = await supabase.auth.getUser()
+      if (!user) throw new Error('User not authenticated')
+      
+      const { data: profile } = await supabase
+        .from('profiles')
+        .select('company_id')
+        .eq('id', user.id)
+        .single()
+      
+      if (!profile) throw new Error('User profile not found')
+
+      const workOrderData = {
+        company_id: profile.company_id,
+        wo_number: formData.wo_number,
+        title: formData.title,
+        description: formData.description || null,
+        customer_id: formData.customer_id,
+        customer_site_id: formData.customer_site_id || null,
+        project_id: formData.project_id || null,
+        department_id: formData.department_id || null,
+        priority: formData.priority,
+        status: formData.status,
+        scheduled_date: formData.scheduled_date || null,
+        work_type: formData.work_type || null,
+        notes: formData.notes || null
+      }
+
+      if (editingWorkOrder) {
+        const { error } = await supabase
+          .from('work_orders')
+          .update(workOrderData)
+          .eq('id', editingWorkOrder.id)
+        if (error) throw error
+      } else {
+        const { formattedNumber: woNumber, nextSequence } = await getNextNumber('work_order')
+        workOrderData.wo_number = woNumber
+        
+        const { error } = await supabase
+          .from('work_orders')
+          .insert([workOrderData])
+        if (error) throw error
+        
+        await updateNextNumber('work_order', nextSequence)
+      }
+
+      setShowForm(false)
+      setEditingWorkOrder(null)
+      resetForm()
+      loadData()
+    } catch (error) {
+      console.error('Error saving work order:', error)
+      alert('Error saving work order: ' + (error as Error).message)
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  const resetForm = () => {
+    setFormData({
+      wo_number: '',
+      title: '',
+      description: '',
+      customer_id: '',
+      customer_site_id: '',
+      project_id: '',
+      department_id: '',
+      priority: 'medium',
+      status: 'open',
+      scheduled_date: '',
+      work_type: '',
+      notes: ''
+    })
+    setCustomerSites([])
+  }
+
+  const startEdit = (workOrder: WorkOrder) => {
+    setEditingWorkOrder(workOrder)
+    setFormData({
+      wo_number: workOrder.wo_number,
+      title: workOrder.title,
+      description: workOrder.description || '',
+      customer_id: workOrder.customer_id,
+      customer_site_id: workOrder.customer_site_id || '',
+      project_id: workOrder.project_id || '',
+      department_id: workOrder.department_id || '',
+      priority: workOrder.priority,
+      status: workOrder.status,
+      scheduled_date: workOrder.scheduled_date || '',
+      work_type: workOrder.work_type || '',
+      notes: workOrder.notes || ''
+    })
+    
+    if (workOrder.customer_id) {
+      loadCustomerSites(workOrder.customer_id)
+    }
+    
+    setShowForm(true)
+  }
+
+  const deleteWorkOrder = async (id: string) => {
+    if (!confirm('Are you sure you want to delete this work order?')) return
+
+    try {
+      const { error } = await supabase
+        .from('work_orders')
+        .delete()
+        .eq('id', id)
+      if (error) throw error
+      loadData()
+    } catch (error) {
+      console.error('Error deleting work order:', error)
+    }
+  }
+
+  const updateStatus = async (id: string, status: string) => {
+    try {
+      const updateData: any = { status }
+      if (status === 'completed') {
+        updateData.completed_date = new Date().toISOString()
+      }
+
+      const { error } = await supabase
+        .from('work_orders')
+        .update(updateData)
+        .eq('id', id)
+      if (error) throw error
+      loadData()
+    } catch (error) {
+      console.error('Error updating status:', error)
+    }
+  }
+
+  const openAssignModal = (workOrder: WorkOrder) => {
+    setAssigningWorkOrder(workOrder)
+    setSelectedTechnicians(workOrder.assignments?.map(a => a.tech_id) || [])
+    setPrimaryTechnician(workOrder.assignments?.find(a => a.is_primary)?.tech_id || '')
+    setShowAssignModal(true)
+  }
+
+  const handleAssignTechnicians = async () => {
+    if (!assigningWorkOrder || selectedTechnicians.length === 0) return
+
+    try {
+      const { data: { user } } = await supabase.auth.getUser()
+      if (!user) throw new Error('User not authenticated')
+      
+      const { data: profile } = await supabase
+        .from('profiles')
+        .select('company_id')
+        .eq('id', user.id)
+        .single()
+      
+      if (!profile) throw new Error('User profile not found')
+
+      // Remove existing assignments
+      await supabase
+        .from('work_order_assignments')
+        .delete()
+        .eq('work_order_id', assigningWorkOrder.id)
+
+      // Add new assignments
+      const assignments = selectedTechnicians.map(techId => ({
+        work_order_id: assigningWorkOrder.id,
+        tech_id: techId,
+        is_primary: techId === primaryTechnician,
+        company_id: profile.company_id
+      }))
+
+      const { error } = await supabase
+        .from('work_order_assignments')
+        .insert(assignments)
+
+      if (error) throw error
+
+      setShowAssignModal(false)
+      setAssigningWorkOrder(null)
+      setSelectedTechnicians([])
+      setPrimaryTechnician('')
+      loadData()
+    } catch (error) {
+      console.error('Error assigning technicians:', error)
+      alert('Error assigning technicians')
+    }
+  }
+
+  const saveNotes = async () => {
+    if (!selectedWorkOrder) return
+
+    setSavingNotes(true)
+    try {
+      const { error } = await supabase
+        .from('work_orders')
+        .update({ notes: workOrderNotes })
+        .eq('id', selectedWorkOrder.id)
+
+      if (error) throw error
+      
+      // Update local state
+      setWorkOrders(prev => prev.map(wo => 
+        wo.id === selectedWorkOrder.id 
+          ? { ...wo, notes: workOrderNotes }
+          : wo
+      ))
+      
+      alert('Notes saved successfully!')
+    } catch (error) {
+      console.error('Error saving notes:', error)
+      alert('Error saving notes')
+    } finally {
+      setSavingNotes(false)
+    }
+  }
+
+  const handlePhotoUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0]
+    if (!file || !selectedWorkOrder) return
+
+    setUploadingPhoto(true)
     try {
       const { data: { user } } = await supabase.auth.getUser()
       if (!user) throw new Error('User not authenticated')
@@ -136,157 +684,224 @@ export default function PurchaseOrders() {
         .select('company_id')
         .eq('id', user.id)
         .single()
+
       if (!profile) throw new Error('User profile not found')
 
-      const subtotal = parseFloat(formData.subtotal) || 0
-      const taxRate = parseFloat(formData.tax_rate) || 0
-      const taxAmount = (subtotal * taxRate) / 100
-      const totalAmount = subtotal + taxAmount
+      const fileExt = file.name.split('.').pop()
+      const fileName = ${selectedWorkOrder.id}/${Date.now()}.${fileExt}
 
-      const poData: any = {
-        company_id: profile.company_id,
-        vendor_id: formData.vendor_id,
-        work_order_id: formData.work_order_id || null,
-        po_number: formData.po_number, // overwritten for new creates when auto-numbering is active
-        status: formData.status,
-        order_date: formData.order_date,
-        expected_date: formData.expected_date || null,
-        subtotal,
-        tax_rate: taxRate,
-        tax_amount: taxAmount,
-        total_amount: totalAmount,
-        paid_amount: 0,
-        notes: formData.notes || null
-      }
+      const { error: uploadError } = await supabase.storage
+        .from('work-order-photos')
+        .upload(fileName, file)
 
-      if (editingPO) {
-        const { error } = await supabase.from('purchase_orders')
-          .update(poData)
-          .eq('id', editingPO.id)
-        if (error) throw error
-      } else {
-        // Re-read next number at submit time to avoid collisions
-        let formattedNumber = formData.po_number
-        let nextSequence: number | null = null
+      if (uploadError) throw uploadError
 
-        if (!allowManualNumber) {
-          const res = await getNextNumber('purchase_order')
-          formattedNumber = res.formattedNumber
-          nextSequence = res.nextSequence
-        } else if (!formattedNumber) {
-          throw new Error('PO Number is required.')
-        }
+      const { data: { publicUrl } } = supabase.storage
+        .from('work-order-photos')
+        .getPublicUrl(fileName)
 
-        poData.po_number = formattedNumber
-        const { error } = await supabase.from('purchase_orders').insert([poData])
-        if (error) throw error
+      const { error: dbError } = await supabase
+        .from('work_order_photos')
+        .insert([{
+          work_order_id: selectedWorkOrder.id,
+          company_id: profile.company_id,
+          photo_url: publicUrl,
+          caption: photoCaption,
+          uploaded_by: user.id
+        }])
 
-        if (nextSequence) {
-          await updateNextNumber('purchase_order', nextSequence)
-        }
-      }
+      if (dbError) throw dbError
 
-      setShowForm(false)
-      setEditingPO(null)
-      resetForm()
-      loadData()
-    } catch (e: any) {
-      console.error('Error saving PO:', e)
-      alert('Error saving purchase order: ' + e.message)
+      setPhotoCaption('')
+      setShowPhotoModal(false)
+      loadWorkOrderDetails(selectedWorkOrder.id)
+    } catch (error) {
+      console.error('Error uploading photo:', error)
+      alert('Error uploading photo')
     } finally {
-      setLoading(false)
+      setUploadingPhoto(false)
+      if (e.target) e.target.value = ''
     }
   }
 
-  const resetForm = () => {
-    setFormData({
-      po_number: '',
-      vendor_id: '',
-      work_order_id: '',
-      status: 'draft',
-      order_date: new Date().toISOString().split('T')[0],
-      expected_date: '',
-      subtotal: '',
-      tax_rate: '0',
-      notes: ''
-    })
-    setNumberingError('')
-    setAllowManualNumber(false)
-  }
+  const startTimer = async () => {
+    if (!selectedWorkOrder || !currentUser) return
 
-  const startEdit = (po: PurchaseOrder) => {
-    setEditingPO(po)
-    setFormData({
-      po_number: po.po_number,
-      vendor_id: po.vendor_id,
-      work_order_id: po.work_order_id || '',
-      status: po.status,
-      order_date: po.order_date,
-      expected_date: po.expected_date || '',
-      subtotal: po.subtotal.toString(),
-      tax_rate: po.tax_rate.toString(),
-      notes: po.notes || ''
-    })
-    setNumberingError('')
-    setAllowManualNumber(true) // editing: number can be editable if desired
-    setShowForm(true)
-  }
-
-  const deletePO = async (id: string) => {
-    if (!confirm('Delete this purchase order?')) return
     try {
-      const { error } = await supabase.from('purchase_orders').delete().eq('id', id)
+      const now = new Date().toISOString()
+      
+      const { data: { user } } = await supabase.auth.getUser()
+      if (!user) throw new Error('User not authenticated')
+
+      const { data: profile } = await supabase
+        .from('profiles')
+        .select('company_id')
+        .eq('id', user.id)
+        .single()
+
+      if (!profile) throw new Error('User profile not found')
+
+      const { data, error } = await supabase
+        .from('time_entries')
+        .insert([{
+          user_id: user.id,
+          company_id: profile.company_id,
+          work_order_id: selectedWorkOrder.id,
+          start_time: now,
+          description: Working on ${selectedWorkOrder.title},
+          entry_type: 'work',
+          status: 'pending'
+        }])
+        .select()
+        .single()
+
       if (error) throw error
-      loadData()
-    } catch (e) {
-      console.error('Error deleting PO:', e)
+
+      setActiveTimer({
+        id: data.id,
+        start_time: now,
+        work_order_id: selectedWorkOrder.id
+      })
+
+      // Start the timer interval
+      const interval = setInterval(() => {
+        setActiveTimer((prev: any) => prev ? { ...prev } : null)
+      }, 1000)
+      setTimerInterval(interval)
+
+    } catch (error) {
+      console.error('Error starting timer:', error)
+      alert('Error starting timer')
     }
   }
 
-  const updateStatus = async (id: string, status: POStatus) => {
+  const stopTimer = async () => {
+    if (!activeTimer) return
+
     try {
-      const updateData: any = { status }
-      if (status === 'received') {
-        updateData.payment_date = new Date().toISOString().split('T')[0]
+      const now = new Date().toISOString()
+      const startTime = new Date(activeTimer.start_time)
+      const endTime = new Date(now)
+      const durationMinutes = Math.round((endTime.getTime() - startTime.getTime()) / (1000 * 60))
+
+      const { error } = await supabase
+        .from('time_entries')
+        .update({
+          end_time: now,
+          duration_minutes: durationMinutes
+        })
+        .eq('id', activeTimer.id)
+
+      if (error) throw error
+
+      setActiveTimer(null)
+      if (timerInterval) {
+        clearInterval(timerInterval)
+        setTimerInterval(null)
       }
-      const { error } = await supabase.from('purchase_orders').update(updateData).eq('id', id)
+
+      loadWorkOrderDetails(selectedWorkOrder!.id)
+    } catch (error) {
+      console.error('Error stopping timer:', error)
+      alert('Error stopping timer')
+    }
+  }
+
+  const addTimeEntry = async () => {
+    if (!selectedWorkOrder || !currentUser) return
+
+    try {
+      const { data: { user } } = await supabase.auth.getUser()
+      if (!user) throw new Error('User not authenticated')
+
+      const { data: profile } = await supabase
+        .from('profiles')
+        .select('company_id')
+        .eq('id', user.id)
+        .single()
+
+      if (!profile) throw new Error('User profile not found')
+
+      const { error } = await supabase
+        .from('time_entries')
+        .insert([{
+          user_id: user.id,
+          company_id: profile.company_id,
+          work_order_id: selectedWorkOrder.id,
+          start_time: timeFormData.start_time,
+          end_time: timeFormData.end_time || null,
+          duration_minutes: timeFormData.duration_minutes,
+          description: timeFormData.description,
+          entry_type: 'work',
+          status: 'pending'
+        }])
+
       if (error) throw error
-      loadData()
-    } catch (e) {
-      console.error('Error updating status:', e)
+
+      setShowTimeModal(false)
+      setTimeFormData({
+        start_time: '',
+        end_time: '',
+        description: '',
+        duration_minutes: 0
+      })
+      loadWorkOrderDetails(selectedWorkOrder.id)
+    } catch (error) {
+      console.error('Error adding time entry:', error)
+      alert('Error adding time entry')
     }
   }
 
-  const getStatusColor = (status: POStatus) => {
+  const calculateDuration = () => {
+    if (timeFormData.start_time && timeFormData.end_time) {
+      const start = new Date(timeFormData.start_time)
+      const end = new Date(timeFormData.end_time)
+      const diffMs = end.getTime() - start.getTime()
+      const diffMins = Math.round(diffMs / (1000 * 60))
+      setTimeFormData(prev => ({ ...prev, duration_minutes: diffMins }))
+    }
+  }
+
+  const formatDuration = (minutes: number) => {
+    const hours = Math.floor(minutes / 60)
+    const mins = minutes % 60
+    return ${hours}h ${mins}m
+  }
+
+  const getStatusColor = (status: string) => {
     switch (status) {
-      case 'received': return 'text-green-700 bg-green-100'
-      case 'ordered': return 'text-blue-700 bg-blue-100'
-      case 'partially_received': return 'text-yellow-700 bg-yellow-100'
-      case 'cancelled': return 'text-gray-700 bg-gray-100'
-      case 'draft': default: return 'text-gray-700 bg-gray-100'
+      case 'completed': return 'text-green-700 bg-green-100'
+      case 'in_progress': return 'text-blue-700 bg-blue-100'
+      case 'scheduled': return 'text-purple-700 bg-purple-100'
+      case 'cancelled': return 'text-red-700 bg-red-100'
+      case 'open': return 'text-yellow-700 bg-yellow-100'
+      default: return 'text-gray-700 bg-gray-100'
     }
   }
 
-  const filteredPOs = pos.filter(po => {
-    const term = searchTerm.toLowerCase()
-    const vendorName =
-      po.vendor?.name ||
-      po.vendor?.company_name ||
-      [po.vendor?.first_name, po.vendor?.last_name].filter(Boolean).join(' ')
-    const matchesSearch =
-      po.po_number?.toLowerCase().includes(term) ||
-      (vendorName ? vendorName.toLowerCase().includes(term) : false)
-    const matchesStatus = !statusFilter || po.status === statusFilter
-    return matchesSearch && matchesStatus
+  const getPriorityColor = (priority: string) => {
+    switch (priority) {
+      case 'urgent': return 'text-red-700 bg-red-100'
+      case 'high': return 'text-orange-700 bg-orange-100'
+      case 'medium': return 'text-yellow-700 bg-yellow-100'
+      case 'low': return 'text-green-700 bg-green-100'
+      default: return 'text-gray-700 bg-gray-100'
+    }
+  }
+
+  const filteredWorkOrders = workOrders.filter(workOrder => {
+    const matchesSearch = workOrder.wo_number.toLowerCase().includes(searchTerm.toLowerCase()) ||
+                         workOrder.title.toLowerCase().includes(searchTerm.toLowerCase()) ||
+                         (workOrder.customer?.customer_type === 'residential' 
+                           ? ${workOrder.customer?.first_name} ${workOrder.customer?.last_name}.toLowerCase().includes(searchTerm.toLowerCase())
+                           : workOrder.customer?.company_name?.toLowerCase().includes(searchTerm.toLowerCase())
+                         )
+    const matchesStatus = !statusFilter || workOrder.status === statusFilter
+    const matchesPriority = !priorityFilter || workOrder.priority === priorityFilter
+    return matchesSearch && matchesStatus && matchesPriority
   })
 
-  const totalOrdered = pos.reduce((sum, po) => sum + po.total_amount, 0)
-  const receivedAmount = pos
-    .filter(po => po.status === 'received' || po.status === 'partially_received')
-    .reduce((sum, po) => sum + po.total_amount, 0)
-  const outstanding = totalOrdered - receivedAmount
-
-  if (loading && pos.length === 0) {
+  if (loading && workOrders.length === 0) {
     return (
       <div className="flex items-center justify-center h-64">
         <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600"></div>
@@ -298,55 +913,28 @@ export default function PurchaseOrders() {
     <div className="space-y-6">
       {/* Header */}
       <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
-        <h1 className="text-2xl font-bold text-gray-900">Purchase Orders</h1>
+        <h1 className="text-2xl font-bold text-gray-900">Work Orders</h1>
         <button
-          onClick={() => { resetForm(); setEditingPO(null); setShowForm(true) }}
+          onClick={() => {
+            resetForm()
+            setEditingWorkOrder(null)
+            setShowForm(true)
+          }}
           className="inline-flex items-center px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors"
         >
           <Plus className="w-5 h-5 mr-2" />
-          Create PO
+          Create Work Order
         </button>
-      </div>
-
-      {/* Stats */}
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-        <div className="bg-white rounded-lg border border-gray-200 p-6">
-          <div className="flex items-center">
-            <DollarSign className="w-8 h-8" />
-            <div className="ml-4">
-              <p className="text-sm font-medium text-gray-600">Total Ordered</p>
-              <p className="text-2xl font-bold text-gray-900">${totalOrdered.toFixed(2)}</p>
-            </div>
-          </div>
-        </div>
-        <div className="bg-white rounded-lg border border-gray-200 p-6">
-          <div className="flex items-center">
-            <FileText className="w-8 h-8" />
-            <div className="ml-4">
-              <p className="text-sm font-medium text-gray-600">Received</p>
-              <p className="text-2xl font-bold text-gray-900">${receivedAmount.toFixed(2)}</p>
-            </div>
-          </div>
-        </div>
-        <div className="bg-white rounded-lg border border-gray-200 p-6">
-          <div className="flex items-center">
-            <Calendar className="w-8 h-8" />
-            <div className="ml-4">
-              <p className="text-sm font-medium text-gray-600">Outstanding</p>
-              <p className="text-2xl font-bold text-gray-900">${outstanding.toFixed(2)}</p>
-            </div>
-          </div>
-        </div>
       </div>
 
       {/* Filters */}
       <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-6">
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+        <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
           <div className="relative">
-            <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 w-5 h-5" />
+            <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400 w-5 h-5" />
             <input
               type="text"
-              placeholder="Search POs..."
+              placeholder="Search work orders..."
               value={searchTerm}
               onChange={(e) => setSearchTerm(e.target.value)}
               className="w-full pl-10 pr-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
@@ -354,15 +942,26 @@ export default function PurchaseOrders() {
           </div>
           <select
             value={statusFilter}
-            onChange={(e) => setStatusFilter(e.target.value as POStatus | '')}
+            onChange={(e) => setStatusFilter(e.target.value)}
             className="px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
           >
             <option value="">All Statuses</option>
-            <option value="draft">Draft</option>
-            <option value="ordered">Ordered</option>
-            <option value="partially_received">Partially Received</option>
-            <option value="received">Received</option>
+            <option value="open">Open</option>
+            <option value="scheduled">Scheduled</option>
+            <option value="in_progress">In Progress</option>
+            <option value="completed">Completed</option>
             <option value="cancelled">Cancelled</option>
+          </select>
+          <select
+            value={priorityFilter}
+            onChange={(e) => setPriorityFilter(e.target.value)}
+            className="px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+          >
+            <option value="">All Priorities</option>
+            <option value="low">Low</option>
+            <option value="medium">Medium</option>
+            <option value="high">High</option>
+            <option value="urgent">Urgent</option>
           </select>
           <div className="flex justify-end">
             <ViewToggle viewType={viewType} onViewChange={setViewType} />
@@ -370,74 +969,125 @@ export default function PurchaseOrders() {
         </div>
       </div>
 
-      {/* Content */}
+      {/* Work Orders Content */}
       <div className="bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden">
         {viewType === 'table' ? (
           <div className="overflow-x-auto">
             <table className="w-full">
               <thead className="bg-gray-50">
                 <tr>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">PO</th>
-                  <th className="hidden md:table-cell px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Vendor</th>
-                  <th className="hidden md:table-cell px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Amount</th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Status</th>
-                  <th className="hidden md:table-cell px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Expected</th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Actions</th>
+                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                    Work Order
+                  </th>
+                  <th className="hidden md:table-cell px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                    Customer
+                  </th>
+                  <th className="hidden md:table-cell px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                    Assigned To
+                  </th>
+                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                    Status
+                  </th>
+                  <th className="hidden md:table-cell px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                    Scheduled
+                  </th>
+                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                    Actions
+                  </th>
                 </tr>
               </thead>
               <tbody className="bg-white divide-y divide-gray-200">
-                {filteredPOs.map((po) => (
-                  <tr key={po.id} className="hover:bg-gray-50">
+                {filteredWorkOrders.map((workOrder) => (
+                  <tr key={workOrder.id} className="hover:bg-gray-50">
                     <td className="px-6 py-4 whitespace-nowrap">
-                      <div className="text-sm font-medium text-gray-900">{po.po_number}</div>
-                      <div className="text-sm text-gray-500">{new Date(po.order_date).toLocaleDateString()}</div>
+                      <div className="text-sm font-medium text-gray-900">{workOrder.wo_number}</div>
+                      <div className="text-sm text-gray-500">{workOrder.title}</div>
+                      <span className={inline-flex px-2 py-1 text-xs font-medium rounded-full ${getPriorityColor(workOrder.priority)}}>
+                        {workOrder.priority}
+                      </span>
                     </td>
                     <td className="hidden md:table-cell px-6 py-4 whitespace-nowrap">
                       <div className="text-sm text-gray-900">
-                        {po.vendor?.name || po.vendor?.company_name ||
-                          [po.vendor?.first_name, po.vendor?.last_name].filter(Boolean).join(' ')}
+                        {workOrder.customer?.customer_type === 'residential' 
+                          ? ${workOrder.customer?.first_name} ${workOrder.customer?.last_name}
+                          : workOrder.customer?.company_name
+                        }
                       </div>
-                      {po.work_order && (
-                        <div className="text-xs text-gray-500">WO: {po.work_order.wo_number}</div>
+                      {workOrder.customer_site && (
+                        <div className="text-xs text-gray-500">{workOrder.customer_site.site_name}</div>
                       )}
                     </td>
                     <td className="hidden md:table-cell px-6 py-4 whitespace-nowrap">
-                      <div className="text-sm font-medium text-gray-900">
-                        ${po.total_amount.toFixed(2)}
+                      <div className="text-sm text-gray-900">
+                        {workOrder.assignments && workOrder.assignments.length > 0 ? (
+                          <div>
+                            {workOrder.assignments.map((assignment, index) => (
+                              <div key={assignment.id} className="flex items-center">
+                                <span className={assignment.is_primary ? 'font-semibold' : ''}>
+                                  {assignment.technician?.first_name} {assignment.technician?.last_name}
+                                </span>
+                                {assignment.is_primary && (
+                                  <span className="ml-1 text-xs text-blue-600">(Primary)</span>
+                                )}
+                              </div>
+                            ))}
+                          </div>
+                        ) : (
+                          'Unassigned'
+                        )}
                       </div>
                     </td>
                     <td className="px-6 py-4 whitespace-nowrap">
                       <select
-                        value={po.status}
-                        onChange={(e) => updateStatus(po.id, e.target.value as POStatus)}
-                        className={`text-xs font-semibold rounded-full px-2 py-1 border-0 ${getStatusColor(po.status)}`}
+                        value={workOrder.status}
+                        onChange={(e) => updateStatus(workOrder.id, e.target.value)}
+                        className={text-xs font-semibold rounded-full px-2 py-1 border-0 ${getStatusColor(workOrder.status)}}
+                        disabled={currentUser?.profile?.role === 'tech'}
                       >
-                        <option value="draft">Draft</option>
-                        <option value="ordered">Ordered</option>
-                        <option value="partially_received">Partially Received</option>
-                        <option value="received">Received</option>
+                        <option value="open">Open</option>
+                        <option value="scheduled">Scheduled</option>
+                        <option value="in_progress">In Progress</option>
+                        <option value="completed">Completed</option>
                         <option value="cancelled">Cancelled</option>
                       </select>
                     </td>
                     <td className="hidden md:table-cell px-6 py-4 whitespace-nowrap text-sm text-gray-900">
-                      {po.expected_date ? new Date(po.expected_date).toLocaleDateString() : '-'}
+                      {workOrder.scheduled_date ? new Date(workOrder.scheduled_date).toLocaleDateString() : 'Not scheduled'}
                     </td>
                     <td className="px-6 py-4 whitespace-nowrap text-sm font-medium">
                       <div className="flex space-x-2">
                         <button
-                          onClick={() => setSelectedPO(po)}
+                          onClick={() => setSelectedWorkOrder(workOrder)}
                           className="text-blue-600 hover:text-blue-800 p-1.5 transition-all duration-200 hover:bg-blue-100 rounded-full hover:shadow-sm transform hover:scale-110"
                         >
                           <Eye className="w-4 h-4" />
                         </button>
+                        {(currentUser?.profile?.role === 'admin' || currentUser?.profile?.role === 'manager' || currentUser?.profile?.role === 'office') && (
+                          <>
+                            <button
+                              onClick={() => openAssignModal(workOrder)}
+                              className="text-purple-600 hover:text-purple-800 p-1.5 transition-all duration-200 hover:bg-purple-100 rounded-full hover:shadow-sm transform hover:scale-110"
+                              title="Assign Technicians"
+                            >
+                              <Users className="w-4 h-4" />
+                            </button>
+                            <button
+                              onClick={() => handleCreateInvoice(workOrder)}
+                              className="text-green-600 hover:text-green-800 p-1.5 transition-all duration-200 hover:bg-green-100 rounded-full hover:shadow-sm transform hover:scale-110"
+                              title="Create Invoice"
+                            >
+                              <DollarSign className="w-4 h-4" />
+                            </button>
+                          </>
+                        )}
                         <button
-                          onClick={() => startEdit(po)}
+                          onClick={() => startEdit(workOrder)}
                           className="text-blue-600 hover:text-blue-800 p-1.5 transition-all duration-200 hover:bg-blue-100 rounded-full hover:shadow-sm transform hover:scale-110"
                         >
                           <Edit className="w-4 h-4" />
                         </button>
                         <button
-                          onClick={() => deletePO(po.id)}
+                          onClick={() => deleteWorkOrder(workOrder.id)}
                           className="text-red-600 hover:text-red-800 p-1.5 transition-all duration-200 hover:bg-red-100 rounded-full hover:shadow-sm transform hover:scale-110"
                         >
                           <Trash2 className="w-4 h-4" />
@@ -452,52 +1102,69 @@ export default function PurchaseOrders() {
         ) : (
           <div className="p-6">
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-              {filteredPOs.map((po) => (
-                <div key={po.id} className="border border-gray-200 rounded-lg p-6 hover:shadow-md transition-shadow">
+              {filteredWorkOrders.map((workOrder) => (
+                <div key={workOrder.id} className="border border-gray-200 rounded-lg p-6 hover:shadow-md transition-shadow">
                   <div className="flex items-start justify-between mb-4">
                     <div className="flex-1">
-                      <h3 className="text-lg font-semibold text-gray-900 mb-1">{po.po_number}</h3>
-                      <p className="text-2xl font-bold text-blue-600 mb-2">${po.total_amount.toFixed(2)}</p>
-                      <span className={`inline-flex px-2 py-1 text-xs font-medium rounded-full ${getStatusColor(po.status)}`}>
-                        {po.status}
-                      </span>
+                      <h3 className="text-lg font-semibold text-gray-900 mb-1">{workOrder.wo_number}</h3>
+                      <p className="text-sm text-gray-600 mb-2">{workOrder.title}</p>
+                      <div className="flex space-x-2">
+                        <span className={inline-flex px-2 py-1 text-xs font-medium rounded-full ${getStatusColor(workOrder.status)}}>
+                          {workOrder.status.replace('_', ' ').toUpperCase()}
+                        </span>
+                        <span className={inline-flex px-2 py-1 text-xs font-medium rounded-full ${getPriorityColor(workOrder.priority)}}>
+                          {workOrder.priority.toUpperCase()}
+                        </span>
+                      </div>
                     </div>
                   </div>
-
+                  
                   <div className="space-y-2 mb-4">
                     <div className="flex items-center text-sm text-gray-600">
                       <User className="w-4 h-4 mr-3" />
                       <span>
-                        {po.vendor?.name || po.vendor?.company_name ||
-                          [po.vendor?.first_name, po.vendor?.last_name].filter(Boolean).join(' ')}
+                        {workOrder.customer?.customer_type === 'residential' 
+                          ? ${workOrder.customer?.first_name} ${workOrder.customer?.last_name}
+                          : workOrder.customer?.company_name
+                        }
                       </span>
                     </div>
-
-                    <div className="flex items-center text-sm text-gray-600">
-                      <Calendar className="w-4 h-4 mr-3" />
-                      <span>Expected: {po.expected_date ? new Date(po.expected_date).toLocaleDateString() : '—'}</span>
-                    </div>
-
-                    {po.work_order && (
+                    
+                    {workOrder.customer_site && (
                       <div className="flex items-center text-sm text-gray-600">
-                        <FileText className="w-4 h-4 mr-3" />
-                        <span>WO: {po.work_order.wo_number}</span>
+                        <Building2 className="w-4 h-4 mr-3" />
+                        <span>{workOrder.customer_site.site_name}</span>
                       </div>
                     )}
+                    
+                    {workOrder.scheduled_date && (
+                      <div className="flex items-center text-sm text-gray-600">
+                        <Calendar className="w-4 h-4 mr-3" />
+                        <span>{new Date(workOrder.scheduled_date).toLocaleDateString()}</span>
+                      </div>
+                    )}
+                    
+                    <div className="flex items-center text-sm text-gray-600">
+                      <Users className="w-4 h-4 mr-3" />
+                      <span>
+                        {workOrder.assignments && workOrder.assignments.length > 0 
+                          ? ${workOrder.assignments.length} technician${workOrder.assignments.length > 1 ? 's' : ''}
+                          : 'Unassigned'
+                        }
+                      </span>
+                    </div>
                   </div>
-
+                  
                   <div className="flex justify-between items-center pt-4 border-t border-gray-200">
                     <div className="text-sm text-gray-500">
-                      Ordered: {new Date(po.order_date).toLocaleDateString()}
+                      {workOrder.project && Project: ${workOrder.project.project_name}}
                     </div>
-                    <div className="flex space-x-2">
-                      <button onClick={() => setSelectedPO(po)} className="text-blue-600 hover:text-blue-800 text-sm font-medium">
-                        View
-                      </button>
-                      <button onClick={() => startEdit(po)} className="text-blue-600 hover:text-blue-800 text-sm font-medium">
-                        Edit
-                      </button>
-                    </div>
+                    <button
+                      onClick={() => setSelectedWorkOrder(workOrder)}
+                      className="text-blue-600 hover:text-blue-800 text-sm font-medium"
+                    >
+                      View Details →
+                    </button>
                   </div>
                 </div>
               ))}
@@ -506,130 +1173,193 @@ export default function PurchaseOrders() {
         )}
       </div>
 
-      {/* Form Modal */}
+      {/* Work Order Form Modal */}
       {showForm && (
         <div className="fixed inset-0 bg-gray-600 bg-opacity-50 flex items-center justify-center p-4 z-50">
-          <div className="bg-white rounded-xl shadow-xl max-w-2xl w-full max-h-screen overflow-y-auto">
+          <div className="bg-white rounded-xl shadow-xl max-w-4xl w-full max-h-screen overflow-y-auto">
             <div className="p-6 border-b border-gray-200">
-              <h3 className="text-lg font-semibold text-gray-900">
-                {editingPO ? 'Edit Purchase Order' : 'Create New Purchase Order'}
-              </h3>
-            </div>
-
-            <form onSubmit={handleSubmit} className="p-6 space-y-6">
-              {numberingError && !editingPO && (
-                <div className="bg-yellow-50 border border-yellow-200 text-yellow-800 px-4 py-3 rounded-lg">
-                  {numberingError} — you can enter a PO number manually below.
+              <div className="flex items-center justify-between">
+                <h3 className="text-lg font-semibold text-gray-900">
+                  {editingWorkOrder ? 'Edit Work Order' : 'Create New Work Order'}
+                </h3>
+                <div className="text-sm text-blue-600 font-medium">
+                  WO Number: {formData.wo_number}
                 </div>
-              )}
-
+              </div>
+            </div>
+            
+            <form onSubmit={handleSubmit} className="p-6 space-y-6">
               <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                 <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-2">PO Number</label>
+                  <label className="block text-sm font-medium text-gray-700 mb-2">
+                    Title *
+                  </label>
                   <input
                     type="text"
-                    value={formData.po_number}
-                    onChange={(e) => setFormData({ ...formData, po_number: e.target.value })}
-                    className={`w-full px-3 py-2 border border-gray-300 rounded-lg ${allowManualNumber ? '' : 'bg-gray-100 text-gray-700'}`}
-                    readOnly={!allowManualNumber}
-                    placeholder="PO-2025-0001"
+                    value={formData.title}
+                    onChange={(e) => setFormData({ ...formData, title: e.target.value })}
+                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
                     required
                   />
                 </div>
 
                 <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-2">Status</label>
+                  <label className="block text-sm font-medium text-gray-700 mb-2">
+                    Customer *
+                  </label>
                   <select
-                    value={formData.status}
-                    onChange={(e) => setFormData({ ...formData, status: e.target.value as POStatus })}
+                    value={formData.customer_id}
+                    onChange={(e) => setFormData({ ...formData, customer_id: e.target.value })}
+                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                    required
+                  >
+                    <option value="">Select Customer</option>
+                    {customers.map((customer) => (
+                      <option key={customer.id} value={customer.id}>
+                        {customer.customer_type === 'residential' 
+                          ? ${customer.first_name} ${customer.last_name}
+                          : customer.company_name
+                        }
+                      </option>
+                    ))}
+                  </select>
+                </div>
+
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-2">
+                    Customer Site
+                  </label>
+                  <select
+                    value={formData.customer_site_id}
+                    onChange={(e) => setFormData({ ...formData, customer_site_id: e.target.value })}
+                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                    disabled={!formData.customer_id}
+                  >
+                    <option value="">Main Location</option>
+                    {loadingSites ? (
+                      <option disabled>Loading sites...</option>
+                    ) : customerSites.length > 0 ? (
+                      customerSites.map((site) => (
+                        <option key={site.id} value={site.id}>
+                          {site.site_name}
+                        </option>
+                      ))
+                    ) : (
+                      formData.customer_id && <option disabled>No additional sites found</option>
+                    )}
+                  </select>
+                </div>
+
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-2">
+                    Project
+                  </label>
+                  <select
+                    value={formData.project_id}
+                    onChange={(e) => setFormData({ ...formData, project_id: e.target.value })}
                     className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
                   >
-                    <option value="draft">Draft</option>
-                    <option value="ordered">Ordered</option>
-                    <option value="partially_received">Partially Received</option>
-                    <option value="received">Received</option>
+                    <option value="">No Project</option>
+                    {projects.map((project) => (
+                      <option key={project.id} value={project.id}>
+                        {project.project_name}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-2">
+                    Department
+                  </label>
+                  <select
+                    value={formData.department_id}
+                    onChange={(e) => setFormData({ ...formData, department_id: e.target.value })}
+                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                  >
+                    <option value="">No Department</option>
+                    {departments.map((dept) => (
+                      <option key={dept.id} value={dept.id}>
+                        {dept.name}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-2">
+                    Priority
+                  </label>
+                  <select
+                    value={formData.priority}
+                    onChange={(e) => setFormData({ ...formData, priority: e.target.value })}
+                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                  >
+                    <option value="low">Low</option>
+                    <option value="medium">Medium</option>
+                    <option value="high">High</option>
+                    <option value="urgent">Urgent</option>
+                  </select>
+                </div>
+
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-2">
+                    Status
+                  </label>
+                  <select
+                    value={formData.status}
+                    onChange={(e) => setFormData({ ...formData, status: e.target.value })}
+                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                  >
+                    <option value="open">Open</option>
+                    <option value="scheduled">Scheduled</option>
+                    <option value="in_progress">In Progress</option>
+                    <option value="completed">Completed</option>
                     <option value="cancelled">Cancelled</option>
                   </select>
                 </div>
 
                 <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-2">Vendor *</label>
-                  <select
-                    value={formData.vendor_id}
-                    onChange={(e) => setFormData({ ...formData, vendor_id: e.target.value })}
-                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                    required
-                  >
-                    <option value="">Select Vendor</option>
-                    {vendors.map((v) => (
-                      <option key={v.id} value={v.id}>{v.name || v.company_name}</option>
-                    ))}
-                  </select>
-                </div>
-
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-2">Related Work Order</label>
-                  <select
-                    value={formData.work_order_id}
-                    onChange={(e) => setFormData({ ...formData, work_order_id: e.target.value })}
-                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                  >
-                    <option value="">None</option>
-                    {workOrders.map((wo) => (
-                      <option key={wo.id} value={wo.id}>{wo.wo_number} - {wo.title}</option>
-                    ))}
-                  </select>
-                </div>
-
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-2">Order Date *</label>
+                  <label className="block text-sm font-medium text-gray-700 mb-2">
+                    Scheduled Date
+                  </label>
                   <input
-                    type="date"
-                    value={formData.order_date}
-                    onChange={(e) => setFormData({ ...formData, order_date: e.target.value })}
-                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                    required
-                  />
-                </div>
-
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-2">Expected Date</label>
-                  <input
-                    type="date"
-                    value={formData.expected_date}
-                    onChange={(e) => setFormData({ ...formData, expected_date: e.target.value })}
+                    type="datetime-local"
+                    value={formData.scheduled_date}
+                    onChange={(e) => setFormData({ ...formData, scheduled_date: e.target.value })}
                     className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
                   />
                 </div>
 
                 <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-2">Subtotal *</label>
+                  <label className="block text-sm font-medium text-gray-700 mb-2">
+                    Work Type
+                  </label>
                   <input
-                    type="number"
-                    step="0.01"
-                    min="0"
-                    value={formData.subtotal}
-                    onChange={(e) => setFormData({ ...formData, subtotal: e.target.value })}
+                    type="text"
+                    value={formData.work_type}
+                    onChange={(e) => setFormData({ ...formData, work_type: e.target.value })}
                     className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                    required
+                    placeholder="e.g., Installation, Maintenance, Repair"
                   />
                 </div>
 
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-2">Tax Rate (%)</label>
-                  <input
-                    type="number"
-                    step="0.01"
-                    min="0"
-                    max="100"
-                    value={formData.tax_rate}
-                    onChange={(e) => setFormData({ ...formData, tax_rate: e.target.value })}
+                <div className="md:col-span-2">
+                  <label className="block text-sm font-medium text-gray-700 mb-2">
+                    Description
+                  </label>
+                  <textarea
+                    value={formData.description}
+                    onChange={(e) => setFormData({ ...formData, description: e.target.value })}
+                    rows={3}
                     className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
                   />
                 </div>
 
                 <div className="md:col-span-2">
-                  <label className="block text-sm font-medium text-gray-700 mb-2">Notes</label>
+                  <label className="block text-sm font-medium text-gray-700 mb-2">
+                    Notes
+                  </label>
                   <textarea
                     value={formData.notes}
                     onChange={(e) => setFormData({ ...formData, notes: e.target.value })}
@@ -638,31 +1368,6 @@ export default function PurchaseOrders() {
                   />
                 </div>
               </div>
-
-              {/* Totals Preview */}
-              {formData.subtotal && (
-                <div className="bg-gray-50 rounded-lg p-4">
-                  <div className="space-y-2">
-                    <div className="flex justify-between">
-                      <span className="text-sm font-medium text-gray-700">Subtotal:</span>
-                      <span className="text-sm text-gray-900">${parseFloat(formData.subtotal || '0').toFixed(2)}</span>
-                    </div>
-                    <div className="flex justify-between">
-                      <span className="text-sm font-medium text-gray-700">Tax ({formData.tax_rate}%):</span>
-                      <span className="text-sm text-gray-900">
-                        ${((parseFloat(formData.subtotal || '0') * parseFloat(formData.tax_rate || '0')) / 100).toFixed(2)}
-                      </span>
-                    </div>
-                    <div className="flex justify-between pt-2 border-t border-gray-200">
-                      <span className="text-lg font-bold text-gray-900">Total:</span>
-                      <span className="text-lg font-bold text-blue-600">
-                        {(parseFloat(formData.subtotal || '0') +
-                          ((parseFloat(formData.subtotal || '0') * parseFloat(formData.tax_rate || '0')) / 100)).toFixed(2)}
-                      </span>
-                    </div>
-                  </div>
-                </div>
-              )}
 
               <div className="flex justify-end space-x-3 pt-6 border-t border-gray-200">
                 <button
@@ -677,7 +1382,7 @@ export default function PurchaseOrders() {
                   disabled={loading}
                   className="px-6 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50 transition-colors"
                 >
-                  {loading ? 'Saving...' : (editingPO ? 'Update PO' : 'Create PO')}
+                  {loading ? 'Saving...' : (editingWorkOrder ? 'Update Work Order' : 'Create Work Order')}
                 </button>
               </div>
             </form>
@@ -685,122 +1390,585 @@ export default function PurchaseOrders() {
         </div>
       )}
 
-      {/* Detail Modal */}
-      {selectedPO && (
+      {/* Assignment Modal */}
+      {showAssignModal && assigningWorkOrder && (
         <div className="fixed inset-0 bg-gray-600 bg-opacity-50 flex items-center justify-center p-4 z-50">
-          <div className="bg-white rounded-xl shadow-xl max-w-4xl w-full max-h-screen overflow-y-auto">
+          <div className="bg-white rounded-xl shadow-xl max-w-md w-full">
             <div className="p-6 border-b border-gray-200">
-              <div className="flex items-center justify-between">
-                <h3 className="text-xl font-semibold text-gray-900">
-                  PO {selectedPO.po_number}
-                </h3>
-                <button onClick={() => setSelectedPO(null)} className="text-gray-400 hover:text-gray-600">
-                  <X className="w-6 h-6" />
-                </button>
-              </div>
+              <h3 className="text-lg font-semibold text-gray-900">
+                Assign Technicians to {assigningWorkOrder.wo_number}
+              </h3>
             </div>
-
-            <div className="p-6">
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
-                <div>
-                  <h4 className="text-lg font-medium text-gray-900 mb-4">Order Information</h4>
-                  <div className="space-y-3">
-                    <div className="flex justify-between">
-                      <span className="text-sm font-medium text-gray-700">Status:</span>
-                      <span className={`inline-flex px-2 py-1 text-xs font-medium rounded-full ${getStatusColor(selectedPO.status)}`}>
-                        {selectedPO.status.toUpperCase()}
-                      </span>
+            
+            <div className="p-6 space-y-4">
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-3">
+                  Select Technicians
+                </label>
+                <div className="space-y-2 max-h-64 overflow-y-auto">
+                  {technicians.map((tech) => (
+                    <div key={tech.id} className="flex items-center">
+                      <input
+                        type="checkbox"
+                        id={tech-${tech.id}}
+                        checked={selectedTechnicians.includes(tech.id)}
+                        onChange={(e) => {
+                          if (e.target.checked) {
+                            setSelectedTechnicians([...selectedTechnicians, tech.id])
+                          } else {
+                            setSelectedTechnicians(selectedTechnicians.filter(id => id !== tech.id))
+                            if (primaryTechnician === tech.id) {
+                              setPrimaryTechnician('')
+                            }
+                          }
+                        }}
+                        className="h-4 w-4 text-blue-600 focus:ring-blue-500 border-gray-300 rounded"
+                      />
+                      <label htmlFor={tech-${tech.id}} className="ml-2 block text-sm text-gray-900">
+                        {tech.first_name} {tech.last_name} ({tech.role})
+                      </label>
                     </div>
-                    <div className="flex justify-between">
-                      <span className="text-sm font-medium text-gray-700">Order Date:</span>
-                      <span className="text-sm text-gray-900">{new Date(selectedPO.order_date).toLocaleDateString()}</span>
-                    </div>
-                    {selectedPO.expected_date && (
-                      <div className="flex justify-between">
-                        <span className="text-sm font-medium text-gray-700">Expected:</span>
-                        <span className="text-sm text-gray-900">{new Date(selectedPO.expected_date).toLocaleDateString()}</span>
-                      </div>
-                    )}
-                    {selectedPO.work_order && (
-                      <div className="flex justify-between">
-                        <span className="text-sm font-medium text-gray-700">Work Order:</span>
-                        <span className="text-sm text-gray-900">{selectedPO.work_order.wo_number}</span>
-                      </div>
-                    )}
-                  </div>
-                </div>
-
-                <div>
-                  <h4 className="text-lg font-medium text-gray-900 mb-4">Vendor Information</h4>
-                  <div className="space-y-3">
-                    <div className="flex justify-between">
-                      <span className="text-sm font-medium text-gray-700">Vendor:</span>
-                      <span className="text-sm text-gray-900">
-                        {selectedPO.vendor?.name || selectedPO.vendor?.company_name ||
-                          [selectedPO.vendor?.first_name, selectedPO.vendor?.last_name].filter(Boolean).join(' ')}
-                      </span>
-                    </div>
-                    {selectedPO.vendor?.email && (
-                      <div className="flex justify-between">
-                        <span className="text-sm font-medium text-gray-700">Email:</span>
-                        <span className="text-sm text-gray-900">{selectedPO.vendor.email}</span>
-                      </div>
-                    )}
-                    {selectedPO.vendor?.phone && (
-                      <div className="flex justify-between">
-                        <span className="text-sm font-medium text-gray-700">Phone:</span>
-                        <span className="text-sm text-gray-900">{selectedPO.vendor.phone}</span>
-                      </div>
-                    )}
-                    {selectedPO.vendor?.address && (
-                      <div className="flex justify-between">
-                        <span className="text-sm font-medium text-gray-700">Address:</span>
-                        <span className="text-sm text-gray-900">{selectedPO.vendor.address}</span>
-                      </div>
-                    )}
-                  </div>
+                  ))}
                 </div>
               </div>
 
-              <div className="mt-8 bg-gray-50 rounded-lg p-6">
-                <h4 className="text-lg font-medium text-gray-900 mb-4">Financial Summary</h4>
-                <div className="space-y-3">
-                  <div className="flex justify-between">
-                    <span className="text-sm font-medium text-gray-700">Subtotal:</span>
-                    <span className="text-sm text-gray-900">${selectedPO.subtotal.toFixed(2)}</span>
-                  </div>
-                  <div className="flex justify-between">
-                    <span className="text-sm font-medium text-gray-700">Tax ({selectedPO.tax_rate}%):</span>
-                    <span className="text-sm text-gray-900">${selectedPO.tax_amount.toFixed(2)}</span>
-                  </div>
-                  <div className="flex justify-between pt-3 border-t border-gray-200">
-                    <span className="text-lg font-bold text-gray-900">Total:</span>
-                    <span className="text-lg font-bold text-gray-900">${selectedPO.total_amount.toFixed(2)}</span>
-                  </div>
-                </div>
-              </div>
-
-              {selectedPO.notes && (
-                <div className="mt-6">
-                  <h5 className="text-md font-medium text-gray-900 mb-3">Notes</h5>
-                  <div className="bg-gray-50 rounded-lg p-4">
-                    <p className="text-sm text-gray-700">{selectedPO.notes}</p>
-                  </div>
+              {selectedTechnicians.length > 1 && (
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-2">
+                    Primary Technician
+                  </label>
+                  <select
+                    value={primaryTechnician}
+                    onChange={(e) => setPrimaryTechnician(e.target.value)}
+                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                  >
+                    <option value="">Select Primary</option>
+                    {selectedTechnicians.map((techId) => {
+                      const tech = technicians.find(t => t.id === techId)
+                      return (
+                        <option key={techId} value={techId}>
+                          {tech?.first_name} {tech?.last_name}
+                        </option>
+                      )
+                    })}
+                  </select>
                 </div>
               )}
 
-              <div className="flex justify-end space-x-3 mt-8 pt-6 border-t border-gray-200">
+              <div className="flex justify-end space-x-3 pt-4">
                 <button
-                  onClick={() => startEdit(selectedPO)}
-                  className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors"
+                  onClick={() => setShowAssignModal(false)}
+                  className="px-4 py-2 text-gray-700 bg-gray-100 rounded-lg hover:bg-gray-200 transition-colors"
                 >
-                  Edit PO
+                  Cancel
                 </button>
                 <button
-                  onClick={() => setSelectedPO(null)}
-                  className="px-4 py-2 border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-50 transition-colors"
+                  onClick={handleAssignTechnicians}
+                  disabled={selectedTechnicians.length === 0}
+                  className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50 transition-colors"
                 >
-                  Close
+                  Assign Technicians
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Work Order Detail Modal */}
+      {selectedWorkOrder && (
+        <div className="fixed inset-0 bg-gray-600 bg-opacity-50 flex items-center justify-center p-4 z-50">
+          <div className="bg-white rounded-xl shadow-xl max-w-6xl w-full max-h-screen overflow-y-auto">
+            <div className="p-6 border-b border-gray-200">
+              <div className="flex items-center justify-between">
+                <h3 className="text-xl font-semibold text-gray-900">
+                  Work Order {selectedWorkOrder.wo_number}
+                </h3>
+                <div className="flex items-center space-x-3">
+                  {(currentUser?.profile?.role === 'admin' || currentUser?.profile?.role === 'manager' || currentUser?.profile?.role === 'office') && (
+                    <button
+                      onClick={() => handleCreateInvoice(selectedWorkOrder)}
+                      className="inline-flex items-center px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 transition-colors"
+                    >
+                      <DollarSign className="w-4 h-4 mr-2" />
+                      Create Invoice
+                    </button>
+                  )}
+                  <button
+                    onClick={() => setSelectedWorkOrder(null)}
+                    className="text-gray-400 hover:text-gray-600"
+                  >
+                    <X className="w-6 h-6" />
+                  </button>
+                </div>
+              </div>
+            </div>
+            
+            <div className="p-6">
+              <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
+                {/* Left Column - Work Order Info */}
+                <div className="space-y-6">
+                  <div>
+                    <h4 className="text-lg font-medium text-gray-900 mb-4">Work Order Information</h4>
+                    <div className="space-y-3">
+                      <div className="flex justify-between">
+                        <span className="text-sm font-medium text-gray-700">Title:</span>
+                        <span className="text-sm text-gray-900">{selectedWorkOrder.title}</span>
+                      </div>
+                      <div className="flex justify-between">
+                        <span className="text-sm font-medium text-gray-700">Status:</span>
+                        <span className={inline-flex px-2 py-1 text-xs font-medium rounded-full ${getStatusColor(selectedWorkOrder.status)}}>
+                          {selectedWorkOrder.status.replace('_', ' ').toUpperCase()}
+                        </span>
+                      </div>
+                      <div className="flex justify-between">
+                        <span className="text-sm font-medium text-gray-700">Priority:</span>
+                        <span className={inline-flex px-2 py-1 text-xs font-medium rounded-full ${getPriorityColor(selectedWorkOrder.priority)}}>
+                          {selectedWorkOrder.priority.toUpperCase()}
+                        </span>
+                      </div>
+                      {selectedWorkOrder.scheduled_date && (
+                        <div className="flex justify-between">
+                          <span className="text-sm font-medium text-gray-700">Scheduled:</span>
+                          <span className="text-sm text-gray-900">
+                            {new Date(selectedWorkOrder.scheduled_date).toLocaleString()}
+                          </span>
+                        </div>
+                      )}
+                      {selectedWorkOrder.work_type && (
+                        <div className="flex justify-between">
+                          <span className="text-sm font-medium text-gray-700">Work Type:</span>
+                          <span className="text-sm text-gray-900">{selectedWorkOrder.work_type}</span>
+                        </div>
+                      )}
+                    </div>
+
+                    {selectedWorkOrder.description && (
+                      <div className="mt-6">
+                        <h5 className="text-md font-medium text-gray-900 mb-3">Description</h5>
+                        <div className="bg-gray-50 rounded-lg p-4">
+                          <p className="text-sm text-gray-700">{selectedWorkOrder.description}</p>
+                        </div>
+                      </div>
+                    )}
+                  </div>
+
+                  {/* Customer Information */}
+                  <div>
+                    <h4 className="text-lg font-medium text-gray-900 mb-4">Customer Information</h4>
+                    <div className="space-y-3">
+                      <div className="flex justify-between">
+                        <span className="text-sm font-medium text-gray-700">Customer:</span>
+                        <span className="text-sm text-gray-900">
+                          {selectedWorkOrder.customer?.customer_type === 'residential' 
+                            ? ${selectedWorkOrder.customer?.first_name} ${selectedWorkOrder.customer?.last_name}
+                            : selectedWorkOrder.customer?.company_name
+                          }
+                        </span>
+                      </div>
+                      {selectedWorkOrder.customer_site && (
+                        <div className="flex justify-between">
+                          <span className="text-sm font-medium text-gray-700">Site:</span>
+                          <span className="text-sm text-gray-900">{selectedWorkOrder.customer_site.site_name}</span>
+                        </div>
+                      )}
+                      {selectedWorkOrder.customer?.email && (
+                        <div className="flex justify-between">
+                          <span className="text-sm font-medium text-gray-700">Email:</span>
+                          <span className="text-sm text-gray-900">{selectedWorkOrder.customer.email}</span>
+                        </div>
+                      )}
+                      {selectedWorkOrder.customer?.phone && (
+                        <div className="flex justify-between">
+                          <span className="text-sm font-medium text-gray-700">Phone:</span>
+                          <span className="text-sm text-gray-900">{selectedWorkOrder.customer.phone}</span>
+                        </div>
+                      )}
+                    </div>
+                  </div>
+
+                  {/* Assigned Technicians */}
+                  <div>
+                    <h4 className="text-lg font-medium text-gray-900 mb-4">Assigned Technicians</h4>
+                    {selectedWorkOrder.assignments && selectedWorkOrder.assignments.length > 0 ? (
+                      <div className="space-y-2">
+                        {selectedWorkOrder.assignments.map((assignment) => (
+                          <div key={assignment.id} className="flex items-center justify-between p-3 bg-gray-50 rounded-lg">
+                            <div className="flex items-center space-x-3">
+                              <div className="w-8 h-8 bg-blue-100 rounded-full flex items-center justify-center">
+                                <User className="w-4 h-4 text-blue-600" />
+                              </div>
+                              <div>
+                                <p className="text-sm font-medium text-gray-900">
+                                  {assignment.technician?.first_name} {assignment.technician?.last_name}
+                                </p>
+                                <p className="text-xs text-gray-500">{assignment.technician?.role}</p>
+                              </div>
+                            </div>
+                            {assignment.is_primary && (
+                              <span className="inline-flex px-2 py-1 text-xs font-medium rounded-full text-blue-700 bg-blue-100">
+                                Primary
+                              </span>
+                            )}
+                          </div>
+                        ))}
+                      </div>
+                    ) : (
+                      <p className="text-gray-500">No technicians assigned</p>
+                    )}
+                  </div>
+                </div>
+
+                {/* Right Column - Activities */}
+                <div className="space-y-6">
+                  {/* Notes Section */}
+                  <div>
+                    <div className="flex items-center justify-between mb-4">
+                      <h4 className="text-lg font-medium text-gray-900">Notes</h4>
+                      <button
+                        onClick={saveNotes}
+                        disabled={savingNotes}
+                        className="inline-flex items-center px-3 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50 transition-colors text-sm"
+                      >
+                        {savingNotes ? 'Saving...' : 'Save Notes'}
+                      </button>
+                    </div>
+                    <textarea
+                      value={workOrderNotes}
+                      onChange={(e) => setWorkOrderNotes(e.target.value)}
+                      rows={4}
+                      className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                      placeholder="Add notes about this work order..."
+                    />
+                  </div>
+
+                  {/* Photos Section */}
+                  <div>
+                    <div className="flex items-center justify-between mb-4">
+                      <h4 className="text-lg font-medium text-gray-900">Photos ({workOrderPhotos.length})</h4>
+                      <button
+                        onClick={() => setShowPhotoModal(true)}
+                        className="inline-flex items-center px-3 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors text-sm"
+                      >
+                        <Camera className="w-4 h-4 mr-2" />
+                        Add Photo
+                      </button>
+                    </div>
+                    {workOrderPhotos.length > 0 ? (
+                      <div className="grid grid-cols-2 gap-4">
+                        {workOrderPhotos.map((photo) => (
+                          <div key={photo.id} className="relative">
+                            <img
+                              src={photo.photo_url}
+                              alt={photo.caption || 'Work order photo'}
+                              className="w-full h-32 object-cover rounded-lg border border-gray-200"
+                            />
+                            {photo.caption && (
+                              <div className="absolute bottom-0 left-0 right-0 bg-black bg-opacity-50 text-white text-xs p-2 rounded-b-lg">
+                                {photo.caption}
+                              </div>
+                            )}
+                          </div>
+                        ))}
+                      </div>
+                    ) : (
+                      <p className="text-gray-500 text-center py-8">No photos uploaded</p>
+                    )}
+                  </div>
+
+                  {/* Purchase Orders Section */}
+                  <div>
+                    <div className="flex items-center justify-between mb-4">
+                      <h4 className="text-lg font-medium text-gray-900">Purchase Orders ({purchaseOrders.length})</h4>
+                      <button
+                        onClick={() => {
+                          localStorage.setItem('preselected_work_order', selectedWorkOrder.id)
+                          window.dispatchEvent(new CustomEvent('navigate', { detail: 'purchase-orders' }))
+                        }}
+                        className="inline-flex items-center px-3 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 transition-colors text-sm"
+                      >
+                        <Plus className="w-4 h-4 mr-2" />
+                        Create PO
+                      </button>
+                    </div>
+                    {purchaseOrders.length > 0 ? (
+                      <div className="space-y-3">
+                        {purchaseOrders.map((po) => (
+                          <div key={po.id} className="flex items-center justify-between p-3 bg-gray-50 rounded-lg">
+                            <div>
+                              <p className="text-sm font-medium text-gray-900">{po.po_number}</p>
+                              <p className="text-xs text-gray-500">{po.vendor?.name}</p>
+                            </div>
+                            <div className="text-right">
+                              <p className="text-sm font-medium text-gray-900">${po.total_amount.toFixed(2)}</p>
+                              <span className={inline-flex px-2 py-1 text-xs font-medium rounded-full ${
+                                po.status === 'approved' ? 'text-blue-700 bg-blue-100' :
+                                po.status === 'received' ? 'text-green-700 bg-green-100' :
+                                'text-yellow-700 bg-yellow-100'
+                              }}>
+                                {po.status}
+                              </span>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    ) : (
+                      <p className="text-gray-500 text-center py-4">No purchase orders</p>
+                    )}
+                  </div>
+
+                  {/* Truck Inventory Section */}
+                  <div>
+                    <div className="flex items-center justify-between mb-4">
+                      <h4 className="text-lg font-medium text-gray-900">Truck Inventory ({truckInventory.length})</h4>
+                      <button
+                        className="inline-flex items-center px-3 py-2 bg-orange-600 text-white rounded-lg hover:bg-orange-700 transition-colors text-sm"
+                      >
+                        <Package className="w-4 h-4 mr-2" />
+                        Add Item
+                      </button>
+                    </div>
+                    {truckInventory.length > 0 ? (
+                      <div className="space-y-3">
+                        {truckInventory.map((item) => (
+                          <div key={item.id} className="flex items-center justify-between p-3 bg-gray-50 rounded-lg">
+                            <div>
+                              <p className="text-sm font-medium text-gray-900">{item.inventory_item?.name}</p>
+                              <p className="text-xs text-gray-500">
+                                SKU: {item.inventory_item?.sku || 'N/A'}
+                              </p>
+                              <p className="text-xs text-gray-500">
+                                Quantity Used: {item.quantity_used}
+                              </p>
+                            </div>
+                            <div className="text-right">
+                              <p className="text-sm font-medium text-gray-900">
+                                ${((item.inventory_item?.unit_price || 0) * item.quantity_used).toFixed(2)}
+                              </p>
+                              <p className="text-xs text-gray-500">
+                                ${(item.inventory_item?.unit_price || 0).toFixed(2)} each
+                              </p>
+                            </div>
+                          </div>
+                        ))}
+                        <div className="flex justify-between items-center pt-3 border-t border-gray-200">
+                          <span className="text-sm font-medium text-gray-700">Total Materials Cost:</span>
+                          <span className="text-lg font-bold text-green-600">
+                            ${truckInventory.reduce((sum, item) => 
+                              sum + ((item.inventory_item?.unit_price || 0) * item.quantity_used), 0
+                            ).toFixed(2)}
+                          </span>
+                        </div>
+                      </div>
+                    ) : (
+                      <p className="text-gray-500 text-center py-4">No materials used</p>
+                    )}
+                  </div>
+
+                  {/* Time Tracking Section */}
+                  <div>
+                    <div className="flex items-center justify-between mb-4">
+                      <h4 className="text-lg font-medium text-gray-900">Time Tracking ({timeEntries.length})</h4>
+                      <div className="flex space-x-2">
+                        {!activeTimer ? (
+                          <button
+                            onClick={startTimer}
+                            className="inline-flex items-center px-3 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 transition-colors text-sm"
+                          >
+                            <Play className="w-4 h-4 mr-2" />
+                            Start Timer
+                          </button>
+                        ) : (
+                          <button
+                            onClick={stopTimer}
+                            className="inline-flex items-center px-3 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700 transition-colors text-sm"
+                          >
+                            <Square className="w-4 h-4 mr-2" />
+                            Stop Timer
+                          </button>
+                        )}
+                        <button
+                          onClick={() => setShowTimeModal(true)}
+                          className="inline-flex items-center px-3 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors text-sm"
+                        >
+                          <Clock className="w-4 h-4 mr-2" />
+                          Add Time
+                        </button>
+                      </div>
+                    </div>
+
+                    {activeTimer && (
+                      <div className="mb-4 p-3 bg-green-50 border border-green-200 rounded-lg">
+                        <div className="flex items-center justify-between">
+                          <span className="text-sm font-medium text-green-800">Timer Running</span>
+                          <span className="text-sm text-green-600">
+                            Started: {new Date(activeTimer.start_time).toLocaleTimeString()}
+                          </span>
+                        </div>
+                      </div>
+                    )}
+
+                    {timeEntries.length > 0 ? (
+                      <div className="space-y-3">
+                        {timeEntries.map((entry) => (
+                          <div key={entry.id} className="flex items-center justify-between p-3 bg-gray-50 rounded-lg">
+                            <div>
+                              <p className="text-sm font-medium text-gray-900">
+                                {formatDuration(entry.duration_minutes)}
+                              </p>
+                              <p className="text-xs text-gray-500">
+                                {entry.user?.first_name} {entry.user?.last_name}
+                              </p>
+                              <p className="text-xs text-gray-500">
+                                {new Date(entry.start_time).toLocaleDateString()} - {new Date(entry.start_time).toLocaleTimeString()}
+                              </p>
+                            </div>
+                            <div className="text-right">
+                              <span className={inline-flex px-2 py-1 text-xs font-medium rounded-full ${
+                                entry.status === 'approved' ? 'text-green-700 bg-green-100' :
+                                entry.status === 'rejected' ? 'text-red-700 bg-red-100' :
+                                'text-yellow-700 bg-yellow-100'
+                              }}>
+                                {entry.status}
+                              </span>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    ) : (
+                      <p className="text-gray-500 text-center py-4">No time entries</p>
+                    )}
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Photo Upload Modal */}
+      {showPhotoModal && (
+        <div className="fixed inset-0 bg-gray-600 bg-opacity-50 flex items-center justify-center p-4 z-50">
+          <div className="bg-white rounded-xl shadow-xl max-w-md w-full">
+            <div className="p-6 border-b border-gray-200">
+              <h3 className="text-lg font-semibold text-gray-900">Add Photo</h3>
+            </div>
+            
+            <div className="p-6 space-y-4">
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-2">
+                  Photo
+                </label>
+                <input
+                  type="file"
+                  accept="image/*"
+                  onChange={handlePhotoUpload}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                  disabled={uploadingPhoto}
+                />
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-2">
+                  Caption (Optional)
+                </label>
+                <input
+                  type="text"
+                  value={photoCaption}
+                  onChange={(e) => setPhotoCaption(e.target.value)}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                  placeholder="Describe this photo..."
+                />
+              </div>
+
+              <div className="flex justify-end space-x-3 pt-4">
+                <button
+                  onClick={() => setShowPhotoModal(false)}
+                  className="px-4 py-2 text-gray-700 bg-gray-100 rounded-lg hover:bg-gray-200 transition-colors"
+                >
+                  Cancel
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Time Entry Modal */}
+      {showTimeModal && (
+        <div className="fixed inset-0 bg-gray-600 bg-opacity-50 flex items-center justify-center p-4 z-50">
+          <div className="bg-white rounded-xl shadow-xl max-w-md w-full">
+            <div className="p-6 border-b border-gray-200">
+              <h3 className="text-lg font-semibold text-gray-900">Add Time Entry</h3>
+            </div>
+            
+            <div className="p-6 space-y-4">
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-2">
+                  Start Time
+                </label>
+                <input
+                  type="datetime-local"
+                  value={timeFormData.start_time}
+                  onChange={(e) => setTimeFormData({ ...timeFormData, start_time: e.target.value })}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                  required
+                />
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-2">
+                  End Time (Optional)
+                </label>
+                <input
+                  type="datetime-local"
+                  value={timeFormData.end_time}
+                  onChange={(e) => setTimeFormData({ ...timeFormData, end_time: e.target.value })}
+                  onBlur={calculateDuration}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                />
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-2">
+                  Duration (minutes)
+                </label>
+                <input
+                  type="number"
+                  value={timeFormData.duration_minutes}
+                  onChange={(e) => setTimeFormData({ ...timeFormData, duration_minutes: parseInt(e.target.value) || 0 })}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                  required
+                  min="1"
+                />
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-2">
+                  Description
+                </label>
+                <textarea
+                  value={timeFormData.description}
+                  onChange={(e) => setTimeFormData({ ...timeFormData, description: e.target.value })}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                  rows={3}
+                  required
+                  placeholder="Describe the work performed..."
+                />
+              </div>
+
+              <div className="flex justify-end space-x-3 pt-4">
+                <button
+                  onClick={() => setShowTimeModal(false)}
+                  className="px-4 py-2 text-gray-700 bg-gray-100 rounded-lg hover:bg-gray-200 transition-colors"
+                >
+                  Cancel
+                </button>
+                <button
+                  onClick={addTimeEntry}
+                  className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors"
+                >
+                  Add Time Entry
                 </button>
               </div>
             </div>
