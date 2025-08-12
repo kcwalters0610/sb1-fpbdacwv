@@ -455,7 +455,7 @@ export default function Estimates() {
           `$${item.amount.toFixed(2)}`
         ]);
         
-        doc.autoTable({
+        autoTable(doc, {
           startY: 140,
           head: [['Description', 'Quantity', 'Unit Price', 'Amount']],
           body: tableData,
