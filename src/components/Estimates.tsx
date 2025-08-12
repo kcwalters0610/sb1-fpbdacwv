@@ -276,6 +276,28 @@ export default function Estimates() {
       customer_site_id: estimate.customer_site_id || ''
     })
 
+    // Add signature section
+    const signatureY = (doc as any).lastAutoTable.finalY + 30
+    
+    // Add signature line
+    doc.setFontSize(12)
+    doc.setTextColor(51, 51, 51)
+    doc.text('Customer Signature:', 20, signatureY)
+    
+    // Draw signature line
+    doc.setLineWidth(0.5)
+    doc.setDrawColor(150, 150, 150)
+    doc.line(60, signatureY, 150, signatureY)
+    
+    // Add date line
+    doc.text('Date:', 160, signatureY)
+    doc.line(175, signatureY, 200, signatureY)
+    
+    // Add acceptance text
+    doc.setFontSize(10)
+    doc.setTextColor(102, 102, 102)
+    doc.text('By signing above, customer accepts the terms and pricing of this estimate.', 20, signatureY + 10)
+
     // Load customer sites if customer is selected
     if (estimate.customer_id) {
       loadCustomerSites(estimate.customer_id)
