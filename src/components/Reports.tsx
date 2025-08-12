@@ -830,7 +830,7 @@ export default function Reports() {
       const tableColumn = getTableColumns();
       const tableRows = getTableData();
       
-      autoTable(doc, {
+      doc.autoTable({
         startY: 70,
         head: [tableColumn],
         body: tableRows,
