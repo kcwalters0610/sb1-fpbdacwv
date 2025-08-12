@@ -1,21 +1,21 @@
 import { supabase } from './supabase'
 
 const defaultNumberingSettings = {
-  workOrderPrefix: string
-  workOrderFormat: string
-  workOrderNext: string
-  estimatePrefix: string
-  estimateFormat: string
-  estimateNext: string
-  invoicePrefix: string
-  invoiceFormat: string
-  invoiceNext: string
-  projectPrefix: string
-  projectFormat: string
-  projectNext: string
-  purchaseOrderPrefix: string
-  purchaseOrderFormat: string
-  purchaseOrderNext: string
+  workOrderPrefix: 'WO',
+  workOrderFormat: 'WO-{YYYY}-{####}',
+  workOrderNext: '1',
+  estimatePrefix: 'EST',
+  estimateFormat: 'EST-{YYYY}-{####}',
+  estimateNext: '1',
+  invoicePrefix: 'INV',
+  invoiceFormat: 'INV-{YYYY}-{####}',
+  invoiceNext: '1',
+  projectPrefix: 'PROJ',
+  projectFormat: 'PROJ-{YYYY}-{####}',
+  projectNext: '1',
+  purchaseOrderPrefix: 'PO',
+  purchaseOrderFormat: 'PO-{YYYY}-{####}',
+  purchaseOrderNext: '1'
 }
 
 interface NumberingSettings {
