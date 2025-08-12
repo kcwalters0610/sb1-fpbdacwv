@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react'
+import React, { useEffect, useState } from 'react'
 import {
   Plus, Search, DollarSign, Calendar, User, FileText,
   Edit, Trash2, Eye, X
@@ -34,15 +34,22 @@ interface PurchaseOrder {
 
 export default function PurchaseOrders() {
   const { viewType, setViewType } = useViewPreference('purchase_orders')
+
   const [pos, setPOs] = useState<PurchaseOrder[]>([])
   const [vendors, setVendors] = useState<any[]>([])
   const [workOrders, setWorkOrders] = useState<any[]>([])
   const [loading, setLoading] = useState(true)
+
   const [showForm, setShowForm] = useState(false)
   const [editingPO, setEditingPO] = useState<PurchaseOrder | null>(null)
   const [selectedPO, setSelectedPO] = useState<PurchaseOrder | null>(null)
+
   const [searchTerm, setSearchTerm] = useState('')
   const [statusFilter, setStatusFilter] = useState<POStatus | ''>('')
+
+  // Numbering fallback — if generation fails, allow manual number typing
+  const [numberingError, setNumberingError] = useState<string>('') 
+  const [allowManualNumber, setAllowManualNumber] = useState(false)
 
   const [formData, setFormData] = useState({
     po_number: '',
@@ -65,11 +72,15 @@ export default function PurchaseOrders() {
   }, [showForm, editingPO])
 
   const generatePONumber = async () => {
+    setNumberingError('')
+    setAllowManualNumber(false)
     try {
-      const { formattedNumber } = await getNextNumber('po')
+      const { formattedNumber } = await getNextNumber('purchase_order')
       setFormData(prev => ({ ...prev, po_number: formattedNumber }))
-    } catch (e) {
+    } catch (e: any) {
       console.error('Error generating PO number:', e)
+      setNumberingError(e?.message || 'Unable to generate PO number from settings.')
+      setAllowManualNumber(true)
     }
   }
 
@@ -113,11 +124,11 @@ export default function PurchaseOrders() {
       const taxAmount = (subtotal * taxRate) / 100
       const totalAmount = subtotal + taxAmount
 
-      const poData = {
+      const poData: any = {
         company_id: profile.company_id,
         vendor_id: formData.vendor_id,
         work_order_id: formData.work_order_id || null,
-        po_number: formData.po_number,
+        po_number: formData.po_number, // will be overwritten for new creates using settings
         status: formData.status,
         order_date: formData.order_date,
         expected_date: formData.expected_date || null,
@@ -135,11 +146,26 @@ export default function PurchaseOrders() {
           .eq('id', editingPO.id)
         if (error) throw error
       } else {
-        const { formattedNumber, nextSequence } = await getNextNumber('po')
+        // Re-read next number at submit-time to avoid collisions
+        let formattedNumber = formData.po_number
+        let nextSequence: number | null = null
+
+        if (!allowManualNumber) {
+          const res = await getNextNumber('purchase_order')
+          formattedNumber = res.formattedNumber
+          nextSequence = res.nextSequence
+        } else if (!formattedNumber) {
+          throw new Error('PO Number is required.')
+        }
+
         poData.po_number = formattedNumber
         const { error } = await supabase.from('purchase_orders').insert([poData])
         if (error) throw error
-        await updateNextNumber('po', nextSequence)
+
+        if (nextSequence) {
+          // Only bump if we actually used auto-numbering
+          await updateNextNumber('purchase_order', nextSequence)
+        }
       }
 
       setShowForm(false)
@@ -166,6 +192,8 @@ export default function PurchaseOrders() {
       tax_rate: '0',
       notes: ''
     })
+    setNumberingError('')
+    setAllowManualNumber(false)
   }
 
   const startEdit = (po: PurchaseOrder) => {
@@ -181,6 +209,8 @@ export default function PurchaseOrders() {
       tax_rate: po.tax_rate.toString(),
       notes: po.notes || ''
     })
+    setNumberingError('')
+    setAllowManualNumber(true) // editing: allow number to be editable if needed
     setShowForm(true)
   }
 
@@ -264,7 +294,7 @@ export default function PurchaseOrders() {
       <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
         <div className="bg-white rounded-lg border border-gray-200 p-6">
           <div className="flex items-center">
-            <DollarSign className="w-8 h-8 text-blue-600" />
+            <DollarSign className="w-8 h-8" />
             <div className="ml-4">
               <p className="text-sm font-medium text-gray-600">Total Ordered</p>
               <p className="text-2xl font-bold text-gray-900">${totalOrdered.toFixed(2)}</p>
@@ -273,7 +303,7 @@ export default function PurchaseOrders() {
         </div>
         <div className="bg-white rounded-lg border border-gray-200 p-6">
           <div className="flex items-center">
-            <FileText className="w-8 h-8 text-green-600" />
+            <FileText className="w-8 h-8" />
             <div className="ml-4">
               <p className="text-sm font-medium text-gray-600">Received</p>
               <p className="text-2xl font-bold text-gray-900">${receivedAmount.toFixed(2)}</p>
@@ -282,7 +312,7 @@ export default function PurchaseOrders() {
         </div>
         <div className="bg-white rounded-lg border border-gray-200 p-6">
           <div className="flex items-center">
-            <Calendar className="w-8 h-8 text-yellow-600" />
+            <Calendar className="w-8 h-8" />
             <div className="ml-4">
               <p className="text-sm font-medium text-gray-600">Outstanding</p>
               <p className="text-2xl font-bold text-gray-900">${outstanding.toFixed(2)}</p>
@@ -329,24 +359,12 @@ export default function PurchaseOrders() {
             <table className="w-full">
               <thead className="bg-gray-50">
                 <tr>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                    PO
-                  </th>
-                  <th className="hidden md:table-cell px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                    Vendor
-                  </th>
-                  <th className="hidden md:table-cell px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                    Amount
-                  </th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                    Status
-                  </th>
-                  <th className="hidden md:table-cell px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                    Expected
-                  </th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                    Actions
-                  </th>
+                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">PO</th>
+                  <th className="hidden md:table-cell px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Vendor</th>
+                  <th className="hidden md:table-cell px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Amount</th>
+                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Status</th>
+                  <th className="hidden md:table-cell px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Expected</th>
+                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Actions</th>
                 </tr>
               </thead>
               <tbody className="bg-white divide-y divide-gray-200">
@@ -354,9 +372,7 @@ export default function PurchaseOrders() {
                   <tr key={po.id} className="hover:bg-gray-50">
                     <td className="px-6 py-4 whitespace-nowrap">
                       <div className="text-sm font-medium text-gray-900">{po.po_number}</div>
-                      <div className="text-sm text-gray-500">
-                        {new Date(po.order_date).toLocaleDateString()}
-                      </div>
+                      <div className="text-sm text-gray-500">{new Date(po.order_date).toLocaleDateString()}</div>
                     </td>
                     <td className="hidden md:table-cell px-6 py-4 whitespace-nowrap">
                       <div className="text-sm text-gray-900">
@@ -483,14 +499,23 @@ export default function PurchaseOrders() {
             </div>
 
             <form onSubmit={handleSubmit} className="p-6 space-y-6">
+              {numberingError && !editingPO && (
+                <div className="bg-yellow-50 border border-yellow-200 text-yellow-800 px-4 py-3 rounded-lg">
+                  {numberingError} — you can enter a PO number manually below.
+                </div>
+              )}
+
               <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-2">PO Number</label>
                   <input
                     type="text"
                     value={formData.po_number}
-                    className="w-full px-3 py-2 border border-gray-300 rounded-lg bg-gray-100 text-gray-700"
-                    readOnly
+                    onChange={(e) => setFormData({ ...formData, po_number: e.target.value })}
+                    className={`w-full px-3 py-2 border border-gray-300 rounded-lg ${allowManualNumber ? '' : 'bg-gray-100 text-gray-700'}`}
+                    readOnly={!allowManualNumber}
+                    placeholder="PO-2025-0001"
+                    required
                   />
                 </div>
 
@@ -768,3 +793,4 @@ export default function PurchaseOrders() {
     </div>
   )
 }
+
