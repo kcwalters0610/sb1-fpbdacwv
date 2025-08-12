@@ -320,15 +320,29 @@ export default function Estimates() {
     if (!confirm('Convert this estimate to a project? This will mark the estimate as converted.')) return
 
     try {
+      // Get current user's company_id
+      const { data: { user } } = await supabase.auth.getUser()
+      if (!user) throw new Error('User not authenticated')
+      
+      const { data: profile } = await supabase
+        .from('profiles')
+        .select('company_id')
+        .eq('id', user.id)
+        .single()
+      
+      if (!profile) throw new Error('User profile not found')
+
       // Create project from estimate
       const projectData = {
+        company_id: profile.company_id,
         project_name: estimate.title,
         description: estimate.description,
         customer_id: estimate.customer_id,
+        customer_site_id: estimate.customer_site_id,
         total_budget: estimate.total_amount,
         estimate_id: estimate.id,
-        status: 'planning' as const,
-        priority: 'medium' as const
+        status: 'planning',
+        priority: 'medium'
       }
 
       const { error: projectError } = await supabase
