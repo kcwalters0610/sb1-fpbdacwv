@@ -332,6 +332,10 @@ export default function Estimates() {
       
       if (!profile) throw new Error('User profile not found')
 
+      
+      if (!projectNumber) {
+        throw new Error('Failed to generate project number')
+      }
       // Create project from estimate
       const projectData = {
         company_id: profile.company_id,

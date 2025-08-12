@@ -1,5 +1,23 @@
 import { supabase } from './supabase'
 
+const defaultNumberingSettings = {
+  workOrderPrefix: string
+  workOrderFormat: string
+  workOrderNext: string
+  estimatePrefix: string
+  estimateFormat: string
+  estimateNext: string
+  invoicePrefix: string
+  invoiceFormat: string
+  invoiceNext: string
+  projectPrefix: string
+  projectFormat: string
+  projectNext: string
+  purchaseOrderPrefix: string
+  purchaseOrderFormat: string
+  purchaseOrderNext: string
+}
+
 interface NumberingSettings {
   workOrderPrefix: string
   workOrderFormat: string
@@ -113,22 +131,11 @@ export async function getNextNumber(documentType: 'work_order' | 'estimate' | 'i
       .eq('id', profile.company_id)
       .single()
 
-    const numbering: NumberingSettings = company?.settings?.numbering || {
-      workOrderPrefix: 'WO',
-      workOrderFormat: 'WO-{YYYY}-{####}',
-      workOrderNext: '1',
-      estimatePrefix: 'EST',
-      estimateFormat: 'EST-{YYYY}-{####}',
-      estimateNext: '1',
-      invoicePrefix: 'INV',
-      invoiceFormat: 'INV-{YYYY}-{####}',
-      invoiceNext: '1',
-      projectPrefix: 'PROJ',
-      projectFormat: 'PROJ-{YYYY}-{####}',
-      projectNext: '1',
-      purchaseOrderPrefix: 'PO',
-      purchaseOrderFormat: 'PO-{YYYY}-{####}',
-      purchaseOrderNext: '1'
+    // Ensure all numbering settings are properly merged with defaults
+    const existingNumbering = company?.settings?.numbering || {}
+    const numbering: NumberingSettings = {
+      ...defaultNumberingSettings,
+      ...existingNumbering
     }
 
     // Check if there are existing documents with higher numbers
@@ -216,22 +223,11 @@ export async function updateNextNumber(documentType: 'work_order' | 'estimate' |
       .eq('id', profile.company_id)
       .single()
 
-    let numbering = company?.settings?.numbering || {
-      workOrderPrefix: 'WO',
-      workOrderFormat: 'WO-{YYYY}-{####}',
-      workOrderNext: '1',
-      estimatePrefix: 'EST',
-      estimateFormat: 'EST-{YYYY}-{####}',
-      estimateNext: '1',
-      invoicePrefix: 'INV',
-      invoiceFormat: 'INV-{YYYY}-{####}',
-      invoiceNext: '1',
-      projectPrefix: 'PROJ',
-      projectFormat: 'PROJ-{YYYY}-{####}',
-      projectNext: '1',
-      purchaseOrderPrefix: 'PO',
-      purchaseOrderFormat: 'PO-{YYYY}-{####}',
-      purchaseOrderNext: '1'
+    // Ensure all numbering settings are properly merged with defaults
+    const existingNumbering = company?.settings?.numbering || {}
+    let numbering = {
+      ...defaultNumberingSettings,
+      ...existingNumbering
     }
 
     // Update the next number in settings
