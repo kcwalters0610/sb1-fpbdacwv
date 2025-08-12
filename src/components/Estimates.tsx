@@ -4,7 +4,8 @@ import { supabase, Estimate, Customer, CustomerSite } from '../lib/supabase'
 import { useViewPreference } from '../hooks/useViewPreference'
 import ViewToggle from './ViewToggle'
 import { getNextNumber, updateNextNumber } from '../lib/numbering'
-import { jsPDF } from 'jspdf'
+import jsPDF from 'jspdf'
+import 'jspdf-autotable'
 
 // Extend jsPDF type to include autoTable
 declare module 'jspdf' {
