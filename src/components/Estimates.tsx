@@ -333,13 +333,13 @@ export default function Estimates() {
       
       if (!profile) throw new Error('User profile not found')
 
+      // Generate project number
+      const { formattedNumber: projectNumber, nextSequence } = await getNextNumber('project')
       
-      if (!projectNumber) {
-        throw new Error('Failed to generate project number')
-      }
       // Create project from estimate
       const projectData = {
         company_id: profile.company_id,
+        project_number: projectNumber,
         project_name: estimate.title,
         description: estimate.description,
         customer_id: estimate.customer_id,
@@ -356,6 +356,9 @@ export default function Estimates() {
 
       if (projectError) throw projectError
 
+      // Update the sequence number
+      await updateNextNumber('project', nextSequence)
+
       // Update estimate status to converted
       const { error: estimateError } = await supabase
         .from('estimates')
@@ -364,7 +367,7 @@ export default function Estimates() {
 
       if (estimateError) throw estimateError
 
-      alert('Estimate successfully converted to project!')
+      alert(`Project ${projectNumber} created successfully from estimate ${estimate.estimate_number}!`)
       loadData()
     } catch (error) {
       console.error('Error converting estimate to project:', error)
@@ -824,7 +827,6 @@ export default function Estimates() {
                     type="text"
                     value={formData.estimate_number}
                     className="w-full px-3 py-2 border border-gray-300 rounded-lg bg-gray-100 text-gray-700"
-                    readOnly
                     readOnly
                   />
                 </div>
