@@ -5,7 +5,7 @@ import { useViewPreference } from '../hooks/useViewPreference'
 import ViewToggle from './ViewToggle'
 import { getNextNumber, updateNextNumber } from '../lib/numbering'
 import { jsPDF } from 'jspdf'
-import 'jspdf-autotable'
+import autoTable from 'jspdf-autotable'
 
 interface LineItem {
   id: string
