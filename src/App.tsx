@@ -143,7 +143,7 @@ function App() {
       case 'dashboard':
         return <Dashboard />
       case 'crm':
-        return <CRMDashboard />  
+        return <CRMDashboard onPageChange={setCurrentPage} />
       case 'dispatch':
         return <Dispatch />
       case 'my-jobs':

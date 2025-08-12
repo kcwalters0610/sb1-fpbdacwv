@@ -24,7 +24,11 @@ interface Opportunity {
   customer?: any
 }
 
-export default function CRMDashboard() {
+interface CRMDashboardProps {
+  onPageChange?: (page: string) => void
+}
+
+export default function CRMDashboard({ onPageChange }: CRMDashboardProps = {}) {
   const [leads, setLeads] = useState<Lead[]>([])
   const [opportunities, setOpportunities] = useState<Opportunity[]>([])
   const [loading, setLoading] = useState(true)
@@ -130,14 +134,14 @@ export default function CRMDashboard() {
         </div>
         <div className="flex space-x-3">
           <button 
-            onClick={() => window.dispatchEvent(new CustomEvent('navigate', { detail: 'leads' }))}
+            onClick={() => onPageChange?.('leads')}
             className="inline-flex items-center px-4 py-2 border border-gray-300 rounded-lg text-gray-700 bg-white hover:bg-gray-50 transition-colors"
           >
             <Users className="w-5 h-5 mr-2" />
             Add Lead
           </button>
           <button 
-            onClick={() => window.dispatchEvent(new CustomEvent('navigate', { detail: 'opportunities' }))}
+            onClick={() => onPageChange?.('opportunities')}
             className="inline-flex items-center px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors"
           >
             <Plus className="w-5 h-5 mr-2" />
@@ -278,7 +282,7 @@ export default function CRMDashboard() {
           <div className="flex items-center justify-between mb-6">
             <h3 className="text-lg font-semibold text-gray-900">Recent Leads</h3>
             <button className="text-blue-600 hover:text-blue-800 text-sm font-medium flex items-center">
-              View All
+              <span onClick={() => onPageChange?.('leads')}>View All</span>
               <ArrowRight className="w-4 h-4 ml-1" />
             </button>
           </div>
@@ -323,7 +327,7 @@ export default function CRMDashboard() {
           <div className="flex items-center justify-between mb-6">
             <h3 className="text-lg font-semibold text-gray-900">Recent Opportunities</h3>
             <button className="text-blue-600 hover:text-blue-800 text-sm font-medium flex items-center">
-              View All
+              <span onClick={() => onPageChange?.('opportunities')}>View All</span>
               <ArrowRight className="w-4 h-4 ml-1" />
             </button>
           </div>
