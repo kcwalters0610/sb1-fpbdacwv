@@ -80,6 +80,7 @@ export default function PurchaseOrders() {
 
   // --- helpers for URL handling & one-time prefill consumption
   const hasConsumedStoragePrefillRef = useRef(false)
+  const suppressUrlCreateRef = useRef(false)
 
   const parseQuery = (): URLSearchParams => {
     try {
@@ -88,6 +89,42 @@ export default function PurchaseOrders() {
       return new URLSearchParams(search)
     } catch {
       return new URLSearchParams()
+    }
+  }
+
+  const clearPOCreateSignals = () => {
+    try {
+      localStorage.removeItem('po_prefill_from_wo')
+
+      const href = window.location.href
+      const url = new URL(href)
+
+      // Clean query params
+      url.searchParams.delete('create')
+      url.searchParams.delete('wo')
+
+      // Preserve base hash but strip any ?query in the hash
+      const [hashBase, hashQuery] = (url.hash || '').split('?')
+      const cleanedHash = hashBase || ''
+
+      const cleaned =
+        `${url.origin}${url.pathname}` +
+        (url.searchParams.toString() ? `?${url.searchParams.toString()}` : '') +
+        cleanedHash
+
+      window.history.replaceState({}, '', cleaned)
+
+      if (hashQuery) {
+        const params = new URLSearchParams(hashQuery)
+        params.delete('create')
+        params.delete('wo')
+        const newHash = cleanedHash + (params.toString() ? `?${params.toString()}` : '')
+        if (newHash !== window.location.hash) {
+          window.location.hash = newHash
+        }
+      }
+    } catch {
+      // no-op
     }
   }
 
@@ -171,7 +208,6 @@ export default function PurchaseOrders() {
 
   const handlePOCreatePayload = (payload: PrefillPayload | null) => {
     if (!payload?.work_order) {
-      // Still open create form (user intent), but without WO link
       setEditingPO(null)
       setShowForm(true)
       return
@@ -182,6 +218,12 @@ export default function PurchaseOrders() {
   // Listen for app bus events and cross-tab signals
   useEffect(() => {
     if (typeof window === 'undefined') return
+
+    // If user just hit Cancel, skip one cycle so the form doesn't pop back open
+    if (suppressUrlCreateRef.current) {
+      suppressUrlCreateRef.current = false
+      return
+    }
 
     // 1) Initial check: localStorage payload (one-time)
     if (!hasConsumedStoragePrefillRef.current) {
@@ -201,7 +243,6 @@ export default function PurchaseOrders() {
         const match = findWorkOrderByNumber(woParam)
         prefillFromWorkOrder(match || { wo_number: woParam })
       } else {
-        // Just open a blank create form
         setEditingPO(null)
         setShowForm(true)
       }
@@ -210,7 +251,6 @@ export default function PurchaseOrders() {
     // 3) Cross-tab storage ping
     const onStorage = (e: StorageEvent) => {
       if (e.key === 'po_create_ping') {
-        // Re-read payload if any, then open
         const payload = consumeLocalStoragePrefill()
         if (payload) handlePOCreatePayload(payload)
       }
@@ -273,7 +313,7 @@ export default function PurchaseOrders() {
         company_id: profile.company_id,
         vendor_id: formData.vendor_id,
         work_order_id: formData.work_order_id || null,
-        po_number: formData.po_number, // will be overwritten for new creates using settings
+        po_number: formData.po_number, // may be replaced for new creates
         status: formData.status,
         order_date: formData.order_date,
         expected_date: formData.expected_date || null,
@@ -308,10 +348,12 @@ export default function PurchaseOrders() {
         if (error) throw error
 
         if (nextSequence) {
-          // Only bump if we actually used auto-numbering
           await updateNextNumber('purchase_order', nextSequence)
         }
       }
+
+      // Clear URL/storage signals so the form doesn't pop open again
+      clearPOCreateSignals()
 
       setShowForm(false)
       setEditingPO(null)
@@ -323,6 +365,15 @@ export default function PurchaseOrders() {
     } finally {
       setLoading(false)
     }
+  }
+
+  const onCancelForm = () => {
+    // Prevent the URL-triggered open from firing right after cancel
+    suppressUrlCreateRef.current = true
+    setShowForm(false)
+    setEditingPO(null)
+    resetForm()
+    clearPOCreateSignals()
   }
 
   const resetForm = () => {
@@ -800,7 +851,7 @@ export default function PurchaseOrders() {
               <div className="flex justify-end space-x-3 pt-6 border-t border-gray-200">
                 <button
                   type="button"
-                  onClick={() => setShowForm(false)}
+                  onClick={onCancelForm}
                   className="px-6 py-2 text-gray-700 bg-gray-100 rounded-lg hover:bg-gray-200 transition-colors"
                 >
                   Cancel
@@ -894,7 +945,7 @@ export default function PurchaseOrders() {
                   </div>
                 </div>
               </div>
-
+              
               {/* Financial Summary */}
               <div className="mt-8 bg-gray-50 rounded-lg p-6">
                 <h4 className="text-lg font-medium text-gray-900 mb-4">Financial Summary</h4>
