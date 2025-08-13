@@ -22,6 +22,7 @@ export default function SubscriptionSettings() {
   const [upgrading, setUpgrading] = useState(false)
   const [currentUser, setCurrentUser] = useState<any>(null)
   const [activeUsers, setActiveUsers] = useState(0)
+  const [busyPlanId, setBusyPlanId] = useState<string | null>(null)
 
   useEffect(() => {
     getCurrentUser()
@@ -37,7 +38,6 @@ export default function SubscriptionSettings() {
           .select('*')
           .eq('id', user.id)
           .single()
-        
         setCurrentUser({ ...user, profile })
       }
     } catch (error) {
@@ -52,10 +52,9 @@ export default function SubscriptionSettings() {
 
       const { data: profile } = await supabase
         .from('profiles')
-        .select('company_id')
+        .select('company_id, role')
         .eq('id', user.id)
         .single()
-
       if (!profile) return
 
       // Load subscription plans
@@ -80,7 +79,7 @@ export default function SubscriptionSettings() {
 
       setCurrentSubscription(subscriptionData)
 
-      // Load current usage
+      // Load current usage window
       const currentMonth = new Date()
       const startOfMonth = new Date(currentMonth.getFullYear(), currentMonth.getMonth(), 1)
       const endOfMonth = new Date(currentMonth.getFullYear(), currentMonth.getMonth() + 1, 0)
@@ -103,7 +102,6 @@ export default function SubscriptionSettings() {
         .eq('is_active', true)
 
       setActiveUsers(count || 0)
-
     } catch (error) {
       console.error('Error loading subscription data:', error)
     } finally {
@@ -111,18 +109,71 @@ export default function SubscriptionSettings() {
     }
   }
 
-  const upgradePlan = async (planId: string) => {
+  // ──────────────────────────────────────────────────────────────
+  // Stripe helpers
+  // ──────────────────────────────────────────────────────────────
+  const startStripeCheckout = async (planId: string) => {
     if (!currentUser?.profile?.company_id) return
+    try {
+      setUpgrading(true)
+      setBusyPlanId(planId)
+      const { data, error } = await supabase.functions.invoke('create-checkout-session', {
+        body: {
+          company_id: currentUser.profile.company_id,
+          plan_id: planId,
+          success_url: `${window.location.origin}/settings/subscription?status=success`,
+          cancel_url: `${window.location.origin}/settings/subscription?status=cancel`,
+        }
+      })
+      if (error) throw error
+      if (data?.url) {
+        window.location.href = data.url
+      } else {
+        throw new Error('No checkout URL returned')
+      }
+    } catch (err: any) {
+      console.error('Stripe checkout error:', err)
+      alert(err.message || 'Unable to start checkout right now.')
+    } finally {
+      setUpgrading(false)
+      setBusyPlanId(null)
+    }
+  }
 
+  const openBillingPortal = async () => {
+    if (!currentUser?.profile?.company_id) return
+    try {
+      setUpgrading(true)
+      const { data, error } = await supabase.functions.invoke('create-billing-portal', {
+        body: {
+          company_id: currentUser.profile.company_id,
+          return_url: `${window.location.origin}/settings/subscription`,
+        }
+      })
+      if (error) throw error
+      if (data?.url) {
+        window.location.href = data.url
+      } else {
+        throw new Error('No portal URL returned')
+      }
+    } catch (err: any) {
+      console.error('Billing portal error:', err)
+      alert(err.message || 'Unable to open billing portal.')
+    } finally {
+      setUpgrading(false)
+    }
+  }
+
+  // Legacy internal updater (kept for fallback)
+  const upgradePlanInternally = async (planId: string) => {
+    if (!currentUser?.profile?.company_id) return
     setUpgrading(true)
     try {
-      const { data, error } = await supabase.rpc('update_company_subscription_plan', {
+      const { error } = await supabase.rpc('update_company_subscription_plan', {
         company_id_param: currentUser.profile.company_id,
         new_plan_id: planId
       })
-
       if (error) throw error
-
       alert('Subscription plan updated successfully!')
       loadSubscriptionData()
     } catch (error) {
@@ -134,21 +185,15 @@ export default function SubscriptionSettings() {
   }
 
   const calculateOverage = () => {
-    if (!currentSubscription?.plan) return { overageUsers: 0, overageCost: 0 }
-    
+    if (!currentSubscription?.plan) return { overageUsers: 0, overageCost: 0, perUserCost: 0, planLimit: 0 }
     const overageUsers = Math.max(0, activeUsers - currentSubscription.plan.user_limit)
-    const overageCost = overageUsers * currentSubscription.plan.overage_price
-    
-    return { 
-      overageUsers, 
-      overageCost,
-      perUserCost: currentSubscription.plan.overage_price,
-      planLimit: currentSubscription.plan.user_limit
-    }
+    const perUserCost = currentSubscription.plan.overage_price
+    const overageCost = overageUsers * perUserCost
+    return { overageUsers, overageCost, perUserCost, planLimit: currentSubscription.plan.user_limit }
   }
 
   const getPlanIcon = (planName: string) => {
-    switch (planName.toLowerCase()) {
+    switch ((planName || '').toLowerCase()) {
       case 'starter': return <Package className="w-6 h-6" />
       case 'pro': return <Zap className="w-6 h-6" />
       case 'business': return <Crown className="w-6 h-6" />
@@ -157,7 +202,7 @@ export default function SubscriptionSettings() {
   }
 
   const getPlanColor = (planName: string) => {
-    switch (planName.toLowerCase()) {
+    switch ((planName || '').toLowerCase()) {
       case 'starter': return 'from-blue-500 to-blue-600'
       case 'pro': return 'from-purple-500 to-purple-600'
       case 'business': return 'from-yellow-500 to-yellow-600'
@@ -181,8 +226,17 @@ export default function SubscriptionSettings() {
       {/* Current Subscription Status */}
       {currentSubscription && (
         <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-6">
-          <h3 className="text-lg font-semibold text-gray-900 mb-4">Current Subscription</h3>
-          
+          <div className="flex items-center justify-between mb-4">
+            <h3 className="text-lg font-semibold text-gray-900">Current Subscription</h3>
+            <button
+              onClick={openBillingPortal}
+              className="inline-flex items-center gap-2 px-3 py-2 rounded-md bg-blue-600 text-white hover:bg-blue-700"
+            >
+              <CreditCard className="w-4 h-4" />
+              Manage Billing
+            </button>
+          </div>
+
           <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
             <div className="flex items-center space-x-3">
               <div className={`w-12 h-12 bg-gradient-to-r ${getPlanColor(currentSubscription.plan?.name || '')} rounded-lg flex items-center justify-center text-white`}>
@@ -203,21 +257,13 @@ export default function SubscriptionSettings() {
                 <span className="text-sm text-gray-600">Users:</span>
                 <span className={`text-sm font-medium ${overageUsers > 0 ? 'text-red-600' : ''}`}>
                   {activeUsers} / {planLimit}
+                  {overageUsers > 0 && <span className="text-red-600 ml-1">(+{overageUsers} over)</span>}
                 </span>
-                  {activeUsers} / {planLimit}
-                  {overageUsers > 0 && (
-                    <span className="text-red-600 ml-1">
-                      (+{overageUsers} over)
-                    </span>
-                  )}
               </div>
               {overageUsers > 0 && (
                 <div className="flex items-center justify-between">
                   <span className="text-sm text-red-600">
                     Overage ({overageUsers} × ${perUserCost}):
-                  </span>
-                  <span className="text-sm font-medium text-red-600">
-                    +${overageCost.toFixed(2)}/mo
                   </span>
                   <span className="text-sm font-medium text-red-600">
                     +${overageCost.toFixed(2)}/mo
@@ -281,6 +327,7 @@ export default function SubscriptionSettings() {
           {plans.map((plan) => {
             const isCurrentPlan = currentSubscription?.plan_id === plan.id
             const canUpgrade = !isCurrentPlan && currentUser?.profile?.role === 'admin'
+            const showOverage = typeof plan.overage_price === 'number' && plan.overage_price > 0
             
             return (
               <div 
@@ -311,7 +358,11 @@ export default function SubscriptionSettings() {
                   <div className="text-3xl font-bold text-gray-900">${plan.monthly_price}</div>
                   <div className="text-sm text-gray-600">per month</div>
                   <div className="text-sm text-gray-600 mt-1">{plan.user_limit} users included</div>
-                  <div className="text-xs text-gray-500">+$20/user thereafter</div>
+                  {showOverage && (
+                    <div className="text-xs text-gray-500">
+                      +${Number(plan.overage_price).toFixed(0)}/user thereafter
+                    </div>
+                  )}
                 </div>
 
                 <div className="space-y-3 mb-6">
@@ -363,8 +414,8 @@ export default function SubscriptionSettings() {
 
                 {canUpgrade ? (
                   <button
-                    onClick={() => upgradePlan(plan.id)}
-                    disabled={upgrading}
+                    onClick={() => startStripeCheckout(plan.id)}
+                    disabled={upgrading || busyPlanId === plan.id}
                     className={`w-full py-3 px-4 rounded-lg font-medium transition-colors ${
                       plan.name === 'Business'
                         ? 'bg-gradient-to-r from-yellow-500 to-yellow-600 text-white hover:from-yellow-600 hover:to-yellow-700'
@@ -373,12 +424,15 @@ export default function SubscriptionSettings() {
                         : 'bg-gradient-to-r from-blue-500 to-blue-600 text-white hover:from-blue-600 hover:to-blue-700'
                     } disabled:opacity-50`}
                   >
-                    {upgrading ? 'Upgrading...' : `Upgrade to ${plan.name}`}
+                    {upgrading && busyPlanId === plan.id ? 'Processing…' : `Upgrade to ${plan.name}`}
                   </button>
                 ) : isCurrentPlan ? (
-                  <div className="w-full py-3 px-4 bg-blue-100 text-blue-800 rounded-lg text-center font-medium">
-                    Current Plan
-                  </div>
+                  <button
+                    onClick={openBillingPortal}
+                    className="w-full py-3 px-4 bg-blue-100 text-blue-800 rounded-lg text-center font-medium hover:bg-blue-200"
+                  >
+                    Current Plan • Manage Billing
+                  </button>
                 ) : (
                   <div className="w-full py-3 px-4 bg-gray-100 text-gray-600 rounded-lg text-center font-medium">
                     Contact Admin to Change Plans
@@ -431,7 +485,7 @@ export default function SubscriptionSettings() {
             <div className="flex items-center justify-between">
               <div>
                 <p className="text-sm font-medium text-purple-600">Monthly Cost</p>
-                <p className="text-2xl font-bold text-purple-900">${totalMonthlyCost}</p>
+                <p className="text-2xl font-bold text-purple-900">${totalMonthlyCost.toFixed(2)}</p>
               </div>
               <DollarSign className="w-8 h-8 text-purple-600" />
             </div>
@@ -446,7 +500,7 @@ export default function SubscriptionSettings() {
                 <h4 className="text-sm font-medium text-yellow-800">Overage Charges Apply</h4>
                 <p className="text-sm text-yellow-700 mt-1">
                   You have {overageUsers} user{overageUsers !== 1 ? 's' : ''} over your plan limit. 
-                  Additional charges of ${overageCost}/month will apply at $20 per user.
+                  Additional charges of ${overageCost.toFixed(2)}/month will apply at ${perUserCost}/user.
                 </p>
                 <p className="text-sm text-yellow-700 mt-2">
                   Consider upgrading to a higher plan to reduce per-user costs.
