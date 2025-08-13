@@ -462,7 +462,9 @@ export default function PurchaseOrders() {
     setAllowManualNumber(false)
   }
 
+  // FIX: close the Detail modal before opening the Edit form
   const startEdit = (po: PurchaseOrder) => {
+    setSelectedPO(null) // <— ensure detail modal closes
     setEditingPO(po)
     setFormData({
       po_number: po.po_number,
@@ -851,7 +853,7 @@ export default function PurchaseOrders() {
                   <div key={po.id} className="border border-gray-200 rounded-xl p-6 hover:shadow-md transition-shadow">
                     <div className="flex items-start justify-between mb-4">
                       <div className="flex-1">
-                        <div className="flex items-center gap-2 mb-1">
+                        <div className="flex items中心 gap-2 mb-1">
                           <span className={`h-2 w-2 rounded-full ${getDot(st)}`} />
                           <h3 className="text-lg font-semibold text-gray-900">{po.po_number}</h3>
                         </div>
@@ -943,7 +945,6 @@ export default function PurchaseOrders() {
                     onChange={(e) => setFormData({ ...formData, status: e.target.value as POStatus })}
                     className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
                   >
-                    {/* Keep current value visible even if now blocked */}
                     {!allowStatus(formData.status) && (
                       <option value={formData.status} disabled>
                         {statusLook[formData.status].label} (not allowed)
@@ -1092,9 +1093,9 @@ export default function PurchaseOrders() {
         </div>
       )}
 
-      {/* Detail Modal */}
-      {selectedPO && (
-        <div className="fixed inset-0 bg-gray-600/60 backdrop-blur-[1px] flex items-center justify-center p-4 z-50">
+      {/* Detail Modal (hidden while form is open) */}
+      {selectedPO && !showForm && (
+        <div className="fixed inset-0 bg-gray-600/60 backdrop-blur-[1px] flex items-center justify-center p-4 z-40">
           <div className="bg-white rounded-xl shadow-xl max-w-4xl w-full max-h-screen overflow-y-auto">
             <div className="p-6 border-b border-gray-200">
               <div className="flex items-center justify-between">
@@ -1188,18 +1189,9 @@ export default function PurchaseOrders() {
                 </div>
               </div>
 
-              {selectedPO.notes && (
-                <div className="mt-6">
-                  <h5 className="text-md font-medium text-gray-900 mb-3">Notes</h5>
-                  <div className="bg-gray-50 rounded-lg p-4">
-                    <p className="text-sm text-gray-700">{selectedPO.notes}</p>
-                  </div>
-                </div>
-              )}
-
               <div className="flex justify-end space-x-3 mt-8 pt-6 border-t border-gray-200">
                 <button
-                  onClick={() => startEdit(selectedPO)}
+                  onClick={() => { const po = selectedPO; if (po) startEdit(po) }}
                   className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors"
                 >
                   Edit PO
