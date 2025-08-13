@@ -109,7 +109,14 @@ const isStatusConstraintError = (err: any) => {
   return code === '23514' || msg.includes('status_check') || msg.includes('check constraint')
 }
 
-// all candidate statuses
+// Detect PostgREST "column missing in schema cache"
+const isMissingColumnError = (err: any, col: string) => {
+  const code = err?.code || err?.error?.code
+  const body = typeof err?.body === 'string' ? err.body : JSON.stringify(err?.body || '')
+  const msg = (err?.message || err?.error?.message || body || '').toLowerCase()
+  return code === 'PGRST204' || msg.includes(`'${col.toLowerCase()}'`) || msg.includes('schema cache')
+}
+
 const ALL_STATUSES: POStatus[] = ['draft','ordered','partially_received','received','cancelled']
 
 export default function PurchaseOrders() {
@@ -146,7 +153,16 @@ export default function PurchaseOrders() {
     localStorage.setItem('po_blocked_statuses', JSON.stringify(arr))
   }
 
-  // Allow list helper (hides anything we know the DB rejects)
+  // Remember if the column 'payment_date' exists in API schema
+  const [hasPaymentDate, setHasPaymentDate] = useState<boolean>(() => {
+    return localStorage.getItem('po_has_payment_date') !== '0'
+  })
+  const markNoPaymentDate = () => {
+    setHasPaymentDate(false)
+    localStorage.setItem('po_has_payment_date', '0')
+  }
+
+  // Allow list (hide statuses we know the DB rejects)
   const allowStatus = (s: POStatus) =>
     (supportsPartialStatus || s !== 'partially_received') && !blockedStatuses.includes(s)
 
@@ -168,7 +184,6 @@ export default function PurchaseOrders() {
 
   const parseQuery = (): URLSearchParams => {
     try {
-      // Handle both normal search (?a=b) and hash routers (#/path?a=b)
       const search = window.location.search || (window.location.hash.includes('?') ? window.location.hash.split('?')[1] : '')
       return new URLSearchParams(search)
     } catch {
@@ -179,23 +194,17 @@ export default function PurchaseOrders() {
   const clearPOCreateSignals = () => {
     try {
       localStorage.removeItem('po_prefill_from_wo')
-
       const href = window.location.href
       const url = new URL(href)
-
-      // Clean query params
       url.searchParams.delete('create')
       url.searchParams.delete('wo')
 
-      // Preserve base hash but strip any ?query in the hash
       const [hashBase, hashQuery] = (url.hash || '').split('?')
       const cleanedHash = hashBase || ''
-
       const cleaned =
         `${url.origin}${url.pathname}` +
         (url.searchParams.toString() ? `?${url.searchParams.toString()}` : '') +
         cleanedHash
-
       window.history.replaceState({}, '', cleaned)
 
       if (hashQuery) {
@@ -203,13 +212,9 @@ export default function PurchaseOrders() {
         params.delete('create')
         params.delete('wo')
         const newHash = cleanedHash + (params.toString() ? `?${params.toString()}` : '')
-        if (newHash !== window.location.hash) {
-          window.location.hash = newHash
-        }
+        if (newHash !== window.location.hash) window.location.hash = newHash
       }
-    } catch {
-      // no-op
-    }
+    } catch {}
   }
 
   const findWorkOrderByNumber = (woNumber: string) => {
@@ -222,7 +227,6 @@ export default function PurchaseOrders() {
       const raw = localStorage.getItem('po_prefill_from_wo')
       if (!raw) return null
       const parsed = JSON.parse(raw) as PrefillPayload
-      // Clear immediately to avoid re-open loops
       localStorage.removeItem('po_prefill_from_wo')
       return parsed
     } catch {
@@ -246,7 +250,6 @@ export default function PurchaseOrders() {
         supabase.from('vendors').select('*').order('name'),
         supabase.from('work_orders').select('id, wo_number, title').order('created_at', { ascending: false })
       ])
-      // normalize statuses on the way in
       setPOs((posResult.data || []).map(p => ({ ...p, status: normalizeStatus(p.status) })))
       setVendors(vendorsResult.data || [])
       setWorkOrders(workOrdersResult.data || [])
@@ -280,7 +283,7 @@ export default function PurchaseOrders() {
   const prefillFromWorkOrder = (wo: { id?: string; wo_number?: string; title?: string } | null | undefined) => {
     setEditingPO(null)
     setShowForm(true)
-    setAllowManualNumber(false) // default to auto-numbering
+    setAllowManualNumber(false)
     const defaultNote = wo?.wo_number
       ? `Created from Work Order ${wo.wo_number}${wo?.title ? ` — ${wo.title}` : ''}`
       : (formData.notes || '')
@@ -300,17 +303,12 @@ export default function PurchaseOrders() {
     prefillFromWorkOrder(payload.work_order)
   }
 
-  // Listen for app bus events and cross-tab signals
   useEffect(() => {
     if (typeof window === 'undefined') return
-
-    // If user just hit Cancel, skip one cycle so the form doesn't pop back open
     if (suppressUrlCreateRef.current) {
       suppressUrlCreateRef.current = false
       return
     }
-
-    // 1) Initial check: localStorage payload (one-time)
     if (!hasConsumedStoragePrefillRef.current) {
       const initialPayload = consumeLocalStoragePrefill()
       if (initialPayload) {
@@ -318,8 +316,6 @@ export default function PurchaseOrders() {
         handlePOCreatePayload(initialPayload)
       }
     }
-
-    // 2) URL query: ?create=1[&wo=WO-1234]
     const params = parseQuery()
     const wantsCreate = params.get('create') === '1'
     const woParam = (params.get('wo') || '').trim()
@@ -333,22 +329,18 @@ export default function PurchaseOrders() {
       }
     }
 
-    // 3) Cross-tab storage ping
     const onStorage = (e: StorageEvent) => {
       if (e.key === 'po_create_ping') {
         const payload = consumeLocalStoragePrefill()
         if (payload) handlePOCreatePayload(payload)
       }
     }
-
-    // 4) Custom app events
     const onPOCreateEvent = (evt: Event) => {
       try {
         // @ts-ignore
         const detail = (evt as CustomEvent)?.detail as PrefillPayload | undefined
         handlePOCreatePayload(detail || null)
-      } catch (err) {
-        console.warn('PO create event had no/invalid detail:', err)
+      } catch {
         handlePOCreatePayload(null)
       }
     }
@@ -398,7 +390,7 @@ export default function PurchaseOrders() {
         company_id: profile.company_id,
         vendor_id: formData.vendor_id,
         work_order_id: formData.work_order_id || null,
-        po_number: formData.po_number, // may be replaced for new creates
+        po_number: formData.po_number,
         status: formData.status,
         order_date: formData.order_date,
         expected_date: formData.expected_date || null,
@@ -416,7 +408,6 @@ export default function PurchaseOrders() {
           .eq('id', editingPO.id)
         if (error) throw error
       } else {
-        // Re-read next number at submit-time to avoid collisions
         let formattedNumber = formData.po_number
         let nextSequence: number | null = null
 
@@ -431,15 +422,10 @@ export default function PurchaseOrders() {
         poData.po_number = formattedNumber
         const { error } = await supabase.from('purchase_orders').insert([poData])
         if (error) throw error
-
-        if (nextSequence) {
-          await updateNextNumber('purchase_order', nextSequence)
-        }
+        if (nextSequence) await updateNextNumber('purchase_order', nextSequence)
       }
 
-      // Clear URL/storage signals so the form doesn't pop open again
       clearPOCreateSignals()
-
       setShowForm(false)
       setEditingPO(null)
       resetForm()
@@ -453,7 +439,6 @@ export default function PurchaseOrders() {
   }
 
   const onCancelForm = () => {
-    // Prevent the URL-triggered open from firing right after cancel
     suppressUrlCreateRef.current = true
     setShowForm(false)
     setEditingPO(null)
@@ -491,7 +476,7 @@ export default function PurchaseOrders() {
       notes: po.notes || ''
     })
     setNumberingError('')
-    setAllowManualNumber(true) // editing: allow number to be editable if needed
+    setAllowManualNumber(true)
     setShowForm(true)
   }
 
@@ -506,26 +491,31 @@ export default function PurchaseOrders() {
     }
   }
 
-  // Persist status with rollback & constraint awareness (blocks any failing status)
+  // Persist status with rollback, constraint awareness, and payment_date fallback
   const persistStatus = async (id: string, next: POStatus, previous: POStatus) => {
-    const updateData: any = { status: next }
-    if (next === 'received') {
+    let updateData: any = { status: next }
+    if (next === 'received' && hasPaymentDate) {
       updateData.payment_date = new Date().toISOString().split('T')[0]
     }
 
-    const { error } = await supabase.from('purchase_orders').update(updateData).eq('id', id)
+    let { error } = await supabase.from('purchase_orders').update(updateData).eq('id', id)
+
+    // If schema cache doesn't have 'payment_date', retry without it and remember
+    if (error && isMissingColumnError(error, 'payment_date') && 'payment_date' in updateData) {
+      markNoPaymentDate()
+      const retry = await supabase.from('purchase_orders').update({ status: next }).eq('id', id)
+      error = retry.error
+    }
 
     if (error) {
       // Roll back optimistic UI
       setPOs(list => list.map(p => (p.id === id ? { ...p, status: previous } : p)))
 
       if (isStatusConstraintError(error)) {
-        // Special-case compatibility for partially_received flag
         if (next === 'partially_received') {
           setSupportsPartialStatus(false)
           localStorage.setItem('po_supports_partial', '0')
         }
-        // General blocker list
         if (!blockedStatuses.includes(next)) {
           const updated = [...blockedStatuses, next]
           saveBlocked(updated)
@@ -594,6 +584,24 @@ export default function PurchaseOrders() {
       <div className="flex items-center justify-center h-64">
         <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600"></div>
       </div>
+    )
+  }
+
+  // Helper to render status <option>s while keeping current value visible even if blocked
+  const renderStatusOptions = (current: POStatus) => {
+    const allowed = ALL_STATUSES.filter(allowStatus)
+    const showGhost = !allowStatus(current)
+    return (
+      <>
+        {showGhost && (
+          <option value={current} disabled>
+            {statusLook[current].label} (not allowed)
+          </option>
+        )}
+        {allowed.map(s => (
+          <option key={s} value={s}>{statusLook[s].label}</option>
+        ))}
+      </>
     )
   }
 
@@ -698,7 +706,6 @@ export default function PurchaseOrders() {
       </div>
 
       {/* Content */}
-      {/* NOTE: no overflow-hidden to keep native <select> dropdowns visible */}
       <div className="bg-white rounded-xl shadow-sm border border-gray-200">
         {viewType === 'table' ? (
           <div className="overflow-x-auto">
@@ -761,16 +768,12 @@ export default function PurchaseOrders() {
                             onChange={(e) => {
                               const next = e.target.value as POStatus
                               const prev = st
-                              // optimistic UI
                               setPOs(prevList => prevList.map(p => p.id === po.id ? { ...p, status: next } : p))
-                              // persist or roll back
                               persistStatus(po.id, next, prev)
                             }}
                             className={`relative z-10 cursor-pointer text-xs font-semibold rounded-full px-2 py-1 border-0 ${getBadge(st)} focus:outline-none focus:ring-2 focus:ring-blue-500`}
                           >
-                            {ALL_STATUSES.filter(allowStatus).map(s => (
-                              <option key={s} value={s}>{statusLook[s].label}</option>
-                            ))}
+                            {renderStatusOptions(st)}
                           </select>
                         </div>
                       </td>
@@ -940,6 +943,12 @@ export default function PurchaseOrders() {
                     onChange={(e) => setFormData({ ...formData, status: e.target.value as POStatus })}
                     className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
                   >
+                    {/* Keep current value visible even if now blocked */}
+                    {!allowStatus(formData.status) && (
+                      <option value={formData.status} disabled>
+                        {statusLook[formData.status].label} (not allowed)
+                      </option>
+                    )}
                     {ALL_STATUSES.filter(allowStatus).map(s => (
                       <option key={s} value={s}>{statusLook[s].label}</option>
                     ))}
