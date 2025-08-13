@@ -47,6 +47,63 @@ type PrefillPayload = {
   }
 }
 
+/** ---------- UI helpers ---------- */
+const formatCurrency = (n: number) =>
+  (n ?? 0).toLocaleString(undefined, { style: 'currency', currency: 'USD' })
+
+const initialsOf = (name: string) =>
+  name
+    .split(' ')
+    .filter(Boolean)
+    .slice(0, 2)
+    .map(s => s[0]?.toUpperCase())
+    .join('') || 'VN'
+
+/** choose a color pair deterministically from a small palette
+ *  (classes listed literally so Tailwind keeps them in the build)
+ */
+const avatarColorFor = (seed: string) => {
+  const choices = [
+    'bg-indigo-50 text-indigo-700 ring-indigo-100',
+    'bg-rose-50 text-rose-700 ring-rose-100',
+    'bg-emerald-50 text-emerald-700 ring-emerald-100',
+    'bg-amber-50 text-amber-700 ring-amber-100',
+    'bg-cyan-50 text-cyan-700 ring-cyan-100',
+    'bg-violet-50 text-violet-700 ring-violet-100',
+  ]
+  let h = 0
+  for (let i = 0; i < seed.length; i++) h = (h * 31 + seed.charCodeAt(i)) % 997
+  return choices[h % choices.length]
+}
+
+const statusLook: Record<POStatus, { badge: string; dot: string; row: string }> = {
+  draft: {
+    badge: 'bg-gray-100 text-gray-700',
+    dot: 'bg-gray-500',
+    row: 'border-l-gray-300',
+  },
+  ordered: {
+    badge: 'bg-blue-100 text-blue-700',
+    dot: 'bg-blue-500',
+    row: 'border-l-blue-400',
+  },
+  partially_received: {
+    badge: 'bg-yellow-100 text-yellow-800',
+    dot: 'bg-yellow-500',
+    row: 'border-l-yellow-400',
+  },
+  received: {
+    badge: 'bg-green-100 text-green-700',
+    dot: 'bg-green-500',
+    row: 'border-l-green-400',
+  },
+  cancelled: {
+    badge: 'bg-gray-200 text-gray-700',
+    dot: 'bg-gray-500',
+    row: 'border-l-gray-400',
+  },
+}
+
 export default function PurchaseOrders() {
   const { viewType, setViewType } = useViewPreference('purchase_orders')
 
@@ -84,7 +141,6 @@ export default function PurchaseOrders() {
 
   const parseQuery = (): URLSearchParams => {
     try {
-      // Handle both normal search (?a=b) and hash routers (#/path?a=b)
       const search = window.location.search || (window.location.hash.includes('?') ? window.location.hash.split('?')[1] : '')
       return new URLSearchParams(search)
     } catch {
@@ -99,11 +155,9 @@ export default function PurchaseOrders() {
       const href = window.location.href
       const url = new URL(href)
 
-      // Clean query params
       url.searchParams.delete('create')
       url.searchParams.delete('wo')
 
-      // Preserve base hash but strip any ?query in the hash
       const [hashBase, hashQuery] = (url.hash || '').split('?')
       const cleanedHash = hashBase || ''
 
@@ -124,7 +178,7 @@ export default function PurchaseOrders() {
         }
       }
     } catch {
-      // no-op
+      /* no-op */
     }
   }
 
@@ -138,7 +192,6 @@ export default function PurchaseOrders() {
       const raw = localStorage.getItem('po_prefill_from_wo')
       if (!raw) return null
       const parsed = JSON.parse(raw) as PrefillPayload
-      // Clear immediately to avoid re-open loops
       localStorage.removeItem('po_prefill_from_wo')
       return parsed
     } catch {
@@ -190,12 +243,11 @@ export default function PurchaseOrders() {
     }
   }
 
-  // --- INCOMING CREATE REQUESTS (from Work Orders or URL) --------------------
-
+  // --- INCOMING CREATE REQUESTS (from Work Orders or URL)
   const prefillFromWorkOrder = (wo: { id?: string; wo_number?: string; title?: string } | null | undefined) => {
     setEditingPO(null)
     setShowForm(true)
-    setAllowManualNumber(false) // default to auto-numbering
+    setAllowManualNumber(false)
     const defaultNote = wo?.wo_number
       ? `Created from Work Order ${wo.wo_number}${wo?.title ? ` — ${wo.title}` : ''}`
       : (formData.notes || '')
@@ -215,17 +267,14 @@ export default function PurchaseOrders() {
     prefillFromWorkOrder(payload.work_order)
   }
 
-  // Listen for app bus events and cross-tab signals
   useEffect(() => {
     if (typeof window === 'undefined') return
 
-    // If user just hit Cancel, skip one cycle so the form doesn't pop back open
     if (suppressUrlCreateRef.current) {
       suppressUrlCreateRef.current = false
       return
     }
 
-    // 1) Initial check: localStorage payload (one-time)
     if (!hasConsumedStoragePrefillRef.current) {
       const initialPayload = consumeLocalStoragePrefill()
       if (initialPayload) {
@@ -234,7 +283,6 @@ export default function PurchaseOrders() {
       }
     }
 
-    // 2) URL query: ?create=1[&wo=WO-1234]
     const params = parseQuery()
     const wantsCreate = params.get('create') === '1'
     const woParam = (params.get('wo') || '').trim()
@@ -248,7 +296,6 @@ export default function PurchaseOrders() {
       }
     }
 
-    // 3) Cross-tab storage ping
     const onStorage = (e: StorageEvent) => {
       if (e.key === 'po_create_ping') {
         const payload = consumeLocalStoragePrefill()
@@ -256,7 +303,6 @@ export default function PurchaseOrders() {
       }
     }
 
-    // 4) Custom app events
     const onPOCreateEvent = (evt: Event) => {
       try {
         // @ts-ignore
@@ -288,8 +334,7 @@ export default function PurchaseOrders() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [workOrders.length, showForm, editingPO])
 
-  // --- form actions ---------------------------------------------------------
-
+  // --- form actions
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
     setLoading(true)
@@ -313,7 +358,7 @@ export default function PurchaseOrders() {
         company_id: profile.company_id,
         vendor_id: formData.vendor_id,
         work_order_id: formData.work_order_id || null,
-        po_number: formData.po_number, // may be replaced for new creates
+        po_number: formData.po_number,
         status: formData.status,
         order_date: formData.order_date,
         expected_date: formData.expected_date || null,
@@ -331,7 +376,6 @@ export default function PurchaseOrders() {
           .eq('id', editingPO.id)
         if (error) throw error
       } else {
-        // Re-read next number at submit-time to avoid collisions
         let formattedNumber = formData.po_number
         let nextSequence: number | null = null
 
@@ -352,9 +396,7 @@ export default function PurchaseOrders() {
         }
       }
 
-      // Clear URL/storage signals so the form doesn't pop open again
       clearPOCreateSignals()
-
       setShowForm(false)
       setEditingPO(null)
       resetForm()
@@ -368,7 +410,6 @@ export default function PurchaseOrders() {
   }
 
   const onCancelForm = () => {
-    // Prevent the URL-triggered open from firing right after cancel
     suppressUrlCreateRef.current = true
     setShowForm(false)
     setEditingPO(null)
@@ -406,7 +447,7 @@ export default function PurchaseOrders() {
       notes: po.notes || ''
     })
     setNumberingError('')
-    setAllowManualNumber(true) // editing: allow number to be editable if needed
+    setAllowManualNumber(true)
     setShowForm(true)
   }
 
@@ -435,17 +476,10 @@ export default function PurchaseOrders() {
     }
   }
 
-  // --- derived values / UI helpers -----------------------------------------
-
-  const getStatusColor = (status: POStatus) => {
-    switch (status) {
-      case 'received': return 'text-green-700 bg-green-100'
-      case 'ordered': return 'text-blue-700 bg-blue-100'
-      case 'partially_received': return 'text-yellow-700 bg-yellow-100'
-      case 'cancelled': return 'text-gray-700 bg-gray-100'
-      case 'draft': default: return 'text-gray-700 bg-gray-100'
-    }
-  }
+  // --- derived values / UI helpers
+  const getStatusColor = (status: POStatus) => statusLook[status].badge
+  const getRowAccent = (status: POStatus) => statusLook[status].row
+  const getDot = (status: POStatus) => statusLook[status].dot
 
   const filteredPOs = useMemo(() => {
     return pos.filter(po => {
@@ -468,8 +502,7 @@ export default function PurchaseOrders() {
     .reduce((sum, po) => sum + po.total_amount, 0)
   const outstanding = totalOrdered - receivedAmount
 
-  // --- render ---------------------------------------------------------------
-
+  // --- render
   if (loading && pos.length === 0) {
     return (
       <div className="flex items-center justify-center h-64">
@@ -485,7 +518,7 @@ export default function PurchaseOrders() {
         <h1 className="text-2xl font-bold text-gray-900">Purchase Orders</h1>
         <button
           onClick={() => { resetForm(); setEditingPO(null); setShowForm(true) }}
-          className="inline-flex items-center px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors"
+          className="inline-flex items-center px-4 py-2 rounded-lg bg-blue-600 text-white hover:bg-blue-700 transition-colors shadow-sm"
         >
           <Plus className="w-5 h-5 mr-2" />
           Create PO
@@ -494,52 +527,60 @@ export default function PurchaseOrders() {
 
       {/* Stats */}
       <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-        <div className="bg-white rounded-lg border border-gray-200 p-6">
-          <div className="flex items-center">
-            <DollarSign className="w-8 h-8" />
-            <div className="ml-4">
-              <p className="text-sm font-medium text-gray-600">Total Ordered</p>
-              <p className="text-2xl font-bold text-gray-900">${totalOrdered.toFixed(2)}</p>
+        <div className="rounded-xl border border-blue-100 bg-gradient-to-br from-blue-50 to-white p-6">
+          <div className="flex items-center gap-4">
+            <div className="rounded-xl p-3 bg-white shadow-sm ring-1 ring-blue-100">
+              <DollarSign className="w-6 h-6 text-blue-600" />
+            </div>
+            <div>
+              <p className="text-sm font-medium text-blue-800/70">Total Ordered</p>
+              <p className="text-2xl font-bold text-gray-900">{formatCurrency(totalOrdered)}</p>
             </div>
           </div>
         </div>
-        <div className="bg-white rounded-lg border border-gray-200 p-6">
-          <div className="flex items-center">
-            <FileText className="w-8 h-8" />
-            <div className="ml-4">
-              <p className="text-sm font-medium text-gray-600">Received</p>
-              <p className="text-2xl font-bold text-gray-900">${receivedAmount.toFixed(2)}</p>
+
+        <div className="rounded-xl border border-emerald-100 bg-gradient-to-br from-emerald-50 to-white p-6">
+          <div className="flex items-center gap-4">
+            <div className="rounded-xl p-3 bg-white shadow-sm ring-1 ring-emerald-100">
+              <FileText className="w-6 h-6 text-emerald-600" />
+            </div>
+            <div>
+              <p className="text-sm font-medium text-emerald-800/70">Received</p>
+              <p className="text-2xl font-bold text-gray-900">{formatCurrency(receivedAmount)}</p>
             </div>
           </div>
         </div>
-        <div className="bg-white rounded-lg border border-gray-200 p-6">
-          <div className="flex items-center">
-            <Calendar className="w-8 h-8" />
-            <div className="ml-4">
-              <p className="text-sm font-medium text-gray-600">Outstanding</p>
-              <p className="text-2xl font-bold text-gray-900">${outstanding.toFixed(2)}</p>
+
+        <div className="rounded-xl border border-amber-100 bg-gradient-to-br from-amber-50 to-white p-6">
+          <div className="flex items-center gap-4">
+            <div className="rounded-xl p-3 bg-white shadow-sm ring-1 ring-amber-100">
+              <Calendar className="w-6 h-6 text-amber-600" />
+            </div>
+            <div>
+              <p className="text-sm font-medium text-amber-800/70">Outstanding</p>
+              <p className="text-2xl font-bold text-gray-900">{formatCurrency(outstanding)}</p>
             </div>
           </div>
         </div>
       </div>
 
       {/* Filters */}
-      <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-6">
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+      <div className="rounded-xl shadow-sm border border-gray-200 bg-white/60 backdrop-blur p-4 sm:p-6">
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-3 md:gap-4">
           <div className="relative">
-            <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 w-5 h-5" />
+            <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 w-5 h-5 pointer-events-none" />
             <input
               type="text"
-              placeholder="Search POs..."
+              placeholder="Search POs or vendors…"
               value={searchTerm}
               onChange={(e) => setSearchTerm(e.target.value)}
-              className="w-full pl-10 pr-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+              className="w-full pl-10 pr-3 py-2 rounded-lg border border-gray-300 bg-gray-50 focus:bg-white focus:ring-2 focus:ring-blue-500 focus:border-transparent transition"
             />
           </div>
           <select
             value={statusFilter}
             onChange={(e) => setStatusFilter(e.target.value as POStatus | '')}
-            className="px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+            className="px-3 py-2 rounded-lg border border-gray-300 bg-gray-50 focus:bg-white focus:ring-2 focus:ring-blue-500 focus:border-transparent transition"
           >
             <option value="">All Statuses</option>
             <option value="draft">Draft</option>
@@ -555,145 +596,185 @@ export default function PurchaseOrders() {
       </div>
 
       {/* Content */}
-      {/* NOTE: removed `overflow-hidden` to prevent native <select> from being clipped */}
       <div className="bg-white rounded-xl shadow-sm border border-gray-200">
         {viewType === 'table' ? (
           <div className="overflow-x-auto">
             <table className="w-full">
-              <thead className="bg-gray-50">
+              <thead className="bg-gray-50 sticky top-0 z-10">
                 <tr>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">PO</th>
-                  <th className="hidden md:table-cell px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Vendor</th>
-                  <th className="hidden md:table-cell px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Amount</th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Status</th>
-                  <th className="hidden md:table-cell px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Expected</th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Actions</th>
+                  <th className="px-6 py-3 text-left text-xs font-semibold text-gray-600 uppercase tracking-wider">PO</th>
+                  <th className="hidden md:table-cell px-6 py-3 text-left text-xs font-semibold text-gray-600 uppercase tracking-wider">Vendor</th>
+                  <th className="hidden md:table-cell px-6 py-3 text-left text-xs font-semibold text-gray-600 uppercase tracking-wider">Amount</th>
+                  <th className="px-6 py-3 text-left text-xs font-semibold text-gray-600 uppercase tracking-wider">Status</th>
+                  <th className="hidden md:table-cell px-6 py-3 text-left text-xs font-semibold text-gray-600 uppercase tracking-wider">Expected</th>
+                  <th className="px-6 py-3 text-left text-xs font-semibold text-gray-600 uppercase tracking-wider">Actions</th>
                 </tr>
               </thead>
-              <tbody className="bg-white divide-y divide-gray-200">
-                {filteredPOs.map((po) => (
-                  <tr key={po.id} className="hover:bg-gray-50">
-                    <td className="px-6 py-4 whitespace-nowrap">
-                      <div className="text-sm font-medium text-gray-900">{po.po_number}</div>
-                      <div className="text-sm text-gray-500">{new Date(po.order_date).toLocaleDateString()}</div>
-                    </td>
-                    <td className="hidden md:table-cell px-6 py-4 whitespace-nowrap">
-                      <div className="text-sm text-gray-900">
-                        {po.vendor?.name || po.vendor?.company_name ||
-                          [po.vendor?.first_name, po.vendor?.last_name].filter(Boolean).join(' ')}
-                      </div>
-                      {po.work_order && (
-                        <div className="text-xs text-gray-500">WO: {po.work_order.wo_number}</div>
-                      )}
-                    </td>
-                    <td className="hidden md:table-cell px-6 py-4 whitespace-nowrap">
-                      <div className="text-sm font-medium text-gray-900">
-                        ${po.total_amount.toFixed(2)}
-                      </div>
-                    </td>
-                    <td className="px-6 py-4 whitespace-nowrap">
-                      <select
-                        value={po.status}
-                        onClick={(e) => e.stopPropagation()}
-                        onMouseDown={(e) => e.stopPropagation()}
-                        onChange={(e) => {
-                          const next = e.target.value as POStatus
-                          // Optimistic UI update
-                          setPOs(prev => prev.map(p => p.id === po.id ? { ...p, status: next } : p))
-                          // Persist
-                          updateStatus(po.id, next)
-                        }}
-                        className={`relative z-10 cursor-pointer text-xs font-semibold rounded-full px-2 py-1 border-0 ${getStatusColor(po.status)}`}
-                      >
-                        <option value="draft">Draft</option>
-                        <option value="ordered">Ordered</option>
-                        <option value="partially_received">Partially Received</option>
-                        <option value="received">Received</option>
-                        <option value="cancelled">Cancelled</option>
-                      </select>
-                    </td>
-                    <td className="hidden md:table-cell px-6 py-4 whitespace-nowrap text-sm text-gray-900">
-                      {po.expected_date ? new Date(po.expected_date).toLocaleDateString() : '-'}
-                    </td>
-                    <td className="px-6 py-4 whitespace-nowrap text-sm font-medium">
-                      <div className="flex space-x-2">
-                        <button
-                          onClick={() => setSelectedPO(po)}
-                          className="text-blue-600 hover:text-blue-800 p-1.5 transition-all duration-200 hover:bg-blue-100 rounded-full hover:shadow-sm transform hover:scale-110"
-                        >
-                          <Eye className="w-4 h-4" />
-                        </button>
-                        <button
-                          onClick={() => startEdit(po)}
-                          className="text-blue-600 hover:text-blue-800 p-1.5 transition-all duration-200 hover:bg-blue-100 rounded-full hover:shadow-sm transform hover:scale-110"
-                        >
-                          <Edit className="w-4 h-4" />
-                        </button>
-                        <button
-                          onClick={() => deletePO(po.id)}
-                          className="text-red-600 hover:text-red-800 p-1.5 transition-all duration-200 hover:bg-red-100 rounded-full hover:shadow-sm transform hover:scale-110"
-                        >
-                          <Trash2 className="w-4 h-4" />
-                        </button>
-                      </div>
+
+              <tbody className="bg-white divide-y divide-gray-100">
+                {filteredPOs.length === 0 && !loading && (
+                  <tr>
+                    <td colSpan={6} className="px-6 py-12 text-center text-gray-500">
+                      No purchase orders match your filters.
                     </td>
                   </tr>
-                ))}
+                )}
+
+                {filteredPOs.map((po) => {
+                  const vendorName =
+                    po.vendor?.name || po.vendor?.company_name ||
+                    [po.vendor?.first_name, po.vendor?.last_name].filter(Boolean).join(' ') || 'Vendor'
+
+                  const avatarColors = avatarColorFor(vendorName)
+
+                  return (
+                    <tr
+                      key={po.id}
+                      className={`hover:bg-gray-50 transition-colors border-l-4 ${getRowAccent(po.status)}`}
+                    >
+                      <td className="px-6 py-4 whitespace-nowrap align-top">
+                        <div className="text-sm font-semibold text-gray-900 tracking-tight">
+                          {po.po_number}
+                        </div>
+                        <div className="text-xs text-gray-500">
+                          {new Date(po.order_date).toLocaleDateString()}
+                        </div>
+                      </td>
+
+                      <td className="hidden md:table-cell px-6 py-4 whitespace-nowrap align-top">
+                        <div className="flex items-center gap-3">
+                          <div className={`h-8 w-8 rounded-full ring ${avatarColors} flex items-center justify-center text-xs font-bold`}>
+                            {initialsOf(vendorName)}
+                          </div>
+                          <div className="min-w-0">
+                            <div className="text-sm text-gray-900 truncate">{vendorName}</div>
+                            {po.work_order && (
+                              <div className="text-xs text-gray-500 truncate">WO: {po.work_order.wo_number}</div>
+                            )}
+                          </div>
+                        </div>
+                      </td>
+
+                      <td className="hidden md:table-cell px-6 py-4 whitespace-nowrap align-top">
+                        <div className="text-sm font-semibold text-gray-900 font-mono tabular-nums">
+                          {formatCurrency(po.total_amount)}
+                        </div>
+                      </td>
+
+                      <td className="px-6 py-4 whitespace-nowrap align-top">
+                        <div className="inline-flex items-center gap-2">
+                          <span className={`h-2 w-2 rounded-full ${getDot(po.status)}`} />
+                          <select
+                            value={po.status}
+                            title="Change status"
+                            onClick={(e) => e.stopPropagation()}
+                            onMouseDown={(e) => e.stopPropagation()}
+                            onChange={(e) => {
+                              const next = e.target.value as POStatus
+                              setPOs(prev => prev.map(p => p.id === po.id ? { ...p, status: next } : p))
+                              updateStatus(po.id, next)
+                            }}
+                            className={`cursor-pointer text-xs font-semibold rounded-full px-2 py-1 border-0 ring-1 ring-inset ${getStatusColor(po.status)} focus:outline-none focus:ring-2 focus:ring-blue-500`}
+                          >
+                            <option value="draft">Draft</option>
+                            <option value="ordered">Ordered</option>
+                            <option value="partially_received">Partially Received</option>
+                            <option value="received">Received</option>
+                            <option value="cancelled">Cancelled</option>
+                          </select>
+                        </div>
+                      </td>
+
+                      <td className="hidden md:table-cell px-6 py-4 whitespace-nowrap align-top text-sm text-gray-900">
+                        {po.expected_date ? new Date(po.expected_date).toLocaleDateString() : '—'}
+                      </td>
+
+                      <td className="px-6 py-4 whitespace-nowrap align-top text-sm font-medium">
+                        <div className="flex items-center gap-2">
+                          <button
+                            title="View details"
+                            onClick={() => setSelectedPO(po)}
+                            className="text-blue-600 hover:text-blue-800 p-1.5 rounded-full hover:bg-blue-50 transition"
+                          >
+                            <Eye className="w-4 h-4" />
+                          </button>
+                          <button
+                            title="Edit PO"
+                            onClick={() => startEdit(po)}
+                            className="text-blue-600 hover:text-blue-800 p-1.5 rounded-full hover:bg-blue-50 transition"
+                          >
+                            <Edit className="w-4 h-4" />
+                          </button>
+                          <button
+                            title="Delete PO"
+                            onClick={() => deletePO(po.id)}
+                            className="text-red-600 hover:text-red-800 p-1.5 rounded-full hover:bg-red-50 transition"
+                          >
+                            <Trash2 className="w-4 h-4" />
+                          </button>
+                        </div>
+                      </td>
+                    </tr>
+                  )
+                })}
               </tbody>
             </table>
           </div>
         ) : (
           <div className="p-6">
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-              {filteredPOs.map((po) => (
-                <div key={po.id} className="border border-gray-200 rounded-lg p-6 hover:shadow-md transition-shadow">
-                  <div className="flex items-start justify-between mb-4">
-                    <div className="flex-1">
-                      <h3 className="text-lg font-semibold text-gray-900 mb-1">{po.po_number}</h3>
-                      <p className="text-2xl font-bold text-blue-600 mb-2">${po.total_amount.toFixed(2)}</p>
-                      <span className={`inline-flex px-2 py-1 text-xs font-medium rounded-full ${getStatusColor(po.status)}`}>
-                        {po.status}
-                      </span>
-                    </div>
-                  </div>
+              {filteredPOs.map((po) => {
+                const vendorName =
+                  po.vendor?.name || po.vendor?.company_name ||
+                  [po.vendor?.first_name, po.vendor?.last_name].filter(Boolean).join(' ') || 'Vendor'
+                const avatarColors = avatarColorFor(vendorName)
 
-                  <div className="space-y-2 mb-4">
-                    <div className="flex items-center text-sm text-gray-600">
-                      <User className="w-4 h-4 mr-3" />
-                      <span>
-                        {po.vendor?.name || po.vendor?.company_name ||
-                          [po.vendor?.first_name, po.vendor?.last_name].filter(Boolean).join(' ')}
-                      </span>
-                    </div>
-
-                    <div className="flex items-center text-sm text-gray-600">
-                      <Calendar className="w-4 h-4 mr-3" />
-                      <span>Expected: {po.expected_date ? new Date(po.expected_date).toLocaleDateString() : '—'}</span>
-                    </div>
-
-                    {po.work_order && (
-                      <div className="flex items-center text-sm text-gray-600">
-                        <FileText className="w-4 h-4 mr-3" />
-                        <span>WO: {po.work_order.wo_number}</span>
+                return (
+                  <div key={po.id} className="border border-gray-200 rounded-xl p-6 hover:shadow-md transition-shadow">
+                    <div className="flex items-start justify-between mb-4">
+                      <div className="flex-1">
+                        <div className="flex items-center gap-2">
+                          <span className={`h-2 w-2 rounded-full ${getDot(po.status)}`} />
+                          <span className={`inline-flex px-2 py-1 text-xs font-semibold rounded-full ${getStatusColor(po.status)}`}>
+                            {po.status.replace('_', ' ')}
+                          </span>
+                        </div>
+                        <h3 className="text-lg font-semibold text-gray-900 mt-2">{po.po_number}</h3>
+                        <p className="text-2xl font-bold text-blue-600 font-mono tabular-nums mt-1">{formatCurrency(po.total_amount)}</p>
                       </div>
-                    )}
-                  </div>
+                    </div>
 
-                  <div className="flex justify-between items-center pt-4 border-t border-gray-200">
-                    <div className="text-sm text-gray-500">
-                      Ordered: {new Date(po.order_date).toLocaleDateString()}
+                    <div className="space-y-3 mb-4">
+                      <div className="flex items-center text-sm text-gray-700">
+                        <div className={`mr-3 h-8 w-8 rounded-full ring ${avatarColors} flex items-center justify-center text-xs font-bold`}>
+                          {initialsOf(vendorName)}
+                        </div>
+                        <span className="truncate">{vendorName}</span>
+                      </div>
+                      <div className="flex items-center text-sm text-gray-600">
+                        <Calendar className="w-4 h-4 mr-3" />
+                        <span>Expected: {po.expected_date ? new Date(po.expected_date).toLocaleDateString() : '—'}</span>
+                      </div>
+                      {po.work_order && (
+                        <div className="flex items-center text-sm text-gray-600">
+                          <FileText className="w-4 h-4 mr-3" />
+                          <span>WO: {po.work_order.wo_number}</span>
+                        </div>
+                      )}
                     </div>
-                    <div className="flex space-x-2">
-                      <button onClick={() => setSelectedPO(po)} className="text-blue-600 hover:text-blue-800 text-sm font-medium">
-                        View
-                      </button>
-                      <button onClick={() => startEdit(po)} className="text-blue-600 hover:text-blue-800 text-sm font-medium">
-                        Edit
-                      </button>
+
+                    <div className="flex justify-between items-center pt-4 border-t border-gray-200">
+                      <div className="text-sm text-gray-500">
+                        Ordered: {new Date(po.order_date).toLocaleDateString()}
+                      </div>
+                      <div className="flex gap-3">
+                        <button onClick={() => setSelectedPO(po)} className="text-blue-600 hover:text-blue-800 text-sm font-medium">View</button>
+                        <button onClick={() => startEdit(po)} className="text-blue-600 hover:text-blue-800 text-sm font-medium">Edit</button>
+                      </div>
                     </div>
                   </div>
-                </div>
-              ))}
+                )
+              })}
             </div>
           </div>
         )}
@@ -701,7 +782,7 @@ export default function PurchaseOrders() {
 
       {/* Form Modal */}
       {showForm && (
-        <div className="fixed inset-0 bg-gray-600 bg-opacity-50 flex items-center justify-center p-4 z-50">
+        <div className="fixed inset-0 bg-gray-600/40 backdrop-blur-sm flex items-center justify-center p-4 z-50">
           <div className="bg-white rounded-xl shadow-xl max-w-2xl w-full max-h-screen overflow-y-auto">
             <div className="p-6 border-b border-gray-200">
               <h3 className="text-lg font-semibold text-gray-900">
@@ -723,7 +804,7 @@ export default function PurchaseOrders() {
                     type="text"
                     value={formData.po_number}
                     onChange={(e) => setFormData({ ...formData, po_number: e.target.value })}
-                    className={`w-full px-3 py-2 border border-gray-300 rounded-lg ${allowManualNumber ? '' : 'bg-gray-100 text-gray-700'}`}
+                    className={`w-full px-3 py-2 border border-gray-300 rounded-lg ${allowManualNumber ? '' : 'bg-gray-100 text-gray-700'} focus:ring-2 focus:ring-blue-500 focus:border-transparent`}
                     readOnly={!allowManualNumber}
                     placeholder="PO-2025-0001"
                     required
@@ -809,7 +890,7 @@ export default function PurchaseOrders() {
                 </div>
 
                 <div>
-                  <label className="block text sm font-medium text-gray-700 mb-2">Tax Rate (%)</label>
+                  <label className="block text-sm font-medium text-gray-700 mb-2">Tax Rate (%)</label>
                   <input
                     type="number"
                     step="0.01"
@@ -838,26 +919,28 @@ export default function PurchaseOrders() {
                   <div className="space-y-2">
                     <div className="flex justify-between">
                       <span className="text-sm font-medium text-gray-700">Subtotal:</span>
-                      <span className="text-sm text-gray-900">${parseFloat(formData.subtotal || '0').toFixed(2)}</span>
+                      <span className="text-sm text-gray-900">{formatCurrency(parseFloat(formData.subtotal || '0'))}</span>
                     </div>
                     <div className="flex justify-between">
                       <span className="text-sm font-medium text-gray-700">Tax ({formData.tax_rate}%):</span>
                       <span className="text-sm text-gray-900">
-                        ${((parseFloat(formData.subtotal || '0') * parseFloat(formData.tax_rate || '0')) / 100).toFixed(2)}
+                        {formatCurrency((parseFloat(formData.subtotal || '0') * parseFloat(formData.tax_rate || '0')) / 100)}
                       </span>
                     </div>
                     <div className="flex justify-between pt-2 border-t border-gray-200">
                       <span className="text-lg font-bold text-gray-900">Total:</span>
                       <span className="text-lg font-bold text-blue-600">
-                        {(parseFloat(formData.subtotal || '0') +
-                          ((parseFloat(formData.subtotal || '0') * parseFloat(formData.tax_rate || '0')) / 100)).toFixed(2)}
+                        {formatCurrency(
+                          parseFloat(formData.subtotal || '0') +
+                          ((parseFloat(formData.subtotal || '0') * parseFloat(formData.tax_rate || '0')) / 100)
+                        )}
                       </span>
                     </div>
                   </div>
                 </div>
               )}
 
-              <div className="flex justify-end space-x-3 pt-6 border-t border-gray-200">
+              <div className="flex justify-end gap-3 pt-6 border-t border-gray-200">
                 <button
                   type="button"
                   onClick={onCancelForm}
@@ -880,7 +963,7 @@ export default function PurchaseOrders() {
 
       {/* Detail Modal */}
       {selectedPO && (
-        <div className="fixed inset-0 bg-gray-600 bg-opacity-50 flex items-center justify-center p-4 z-50">
+        <div className="fixed inset-0 bg-gray-600/40 backdrop-blur-sm flex items-center justify-center p-4 z-50">
           <div className="bg-white rounded-xl shadow-xl max-w-4xl w-full max-h-screen overflow-y-auto">
             <div className="p-6 border-b border-gray-200">
               <div className="flex items-center justify-between">
@@ -898,10 +981,10 @@ export default function PurchaseOrders() {
                 <div>
                   <h4 className="text-lg font-medium text-gray-900 mb-4">Order Information</h4>
                   <div className="space-y-3">
-                    <div className="flex justify-between">
-                      <span className="text-sm font-medium text-gray-700">Status:</span>
+                    <div className="flex items-center gap-2">
+                      <span className={`h-2 w-2 rounded-full ${getDot(selectedPO.status)}`} />
                       <span className={`inline-flex px-2 py-1 text-xs font-medium rounded-full ${getStatusColor(selectedPO.status)}`}>
-                        {selectedPO.status.toUpperCase()}
+                        {selectedPO.status.replace('_', ' ').toUpperCase()}
                       </span>
                     </div>
                     <div className="flex justify-between">
@@ -926,8 +1009,15 @@ export default function PurchaseOrders() {
                 <div>
                   <h4 className="text-lg font-medium text-gray-900 mb-4">Vendor Information</h4>
                   <div className="space-y-3">
-                    <div className="flex justify-between">
-                      <span className="text-sm font-medium text-gray-700">Vendor:</span>
+                    <div className="flex items-center gap-3">
+                      <div className={`h-8 w-8 rounded-full ring ${avatarColorFor(
+                        selectedPO.vendor?.name || selectedPO.vendor?.company_name || 'Vendor'
+                      )} flex items-center justify-center text-xs font-bold`}>
+                        {initialsOf(
+                          selectedPO.vendor?.name || selectedPO.vendor?.company_name ||
+                          [selectedPO.vendor?.first_name, selectedPO.vendor?.last_name].filter(Boolean).join(' ')
+                        )}
+                      </div>
                       <span className="text-sm text-gray-900">
                         {selectedPO.vendor?.name || selectedPO.vendor?.company_name ||
                           [selectedPO.vendor?.first_name, selectedPO.vendor?.last_name].filter(Boolean).join(' ')}
@@ -961,15 +1051,15 @@ export default function PurchaseOrders() {
                 <div className="space-y-3">
                   <div className="flex justify-between">
                     <span className="text-sm font-medium text-gray-700">Subtotal:</span>
-                    <span className="text-sm text-gray-900">${selectedPO.subtotal.toFixed(2)}</span>
+                    <span className="text-sm text-gray-900">{formatCurrency(selectedPO.subtotal)}</span>
                   </div>
                   <div className="flex justify-between">
                     <span className="text-sm font-medium text-gray-700">Tax ({selectedPO.tax_rate}%):</span>
-                    <span className="text-sm text-gray-900">${selectedPO.tax_amount.toFixed(2)}</span>
+                    <span className="text-sm text-gray-900">{formatCurrency(selectedPO.tax_amount)}</span>
                   </div>
                   <div className="flex justify-between pt-3 border-t border-gray-200">
                     <span className="text-lg font-bold text-gray-900">Total:</span>
-                    <span className="text-lg font-bold text-gray-900">${selectedPO.total_amount.toFixed(2)}</span>
+                    <span className="text-lg font-bold text-gray-900">{formatCurrency(selectedPO.total_amount)}</span>
                   </div>
                 </div>
               </div>
@@ -983,7 +1073,7 @@ export default function PurchaseOrders() {
                 </div>
               )}
 
-              <div className="flex justify-end space-x-3 mt-8 pt-6 border-t border-gray-200">
+              <div className="flex justify-end gap-3 mt-8 pt-6 border-t border-gray-200">
                 <button
                   onClick={() => startEdit(selectedPO)}
                   className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors"
@@ -1004,3 +1094,4 @@ export default function PurchaseOrders() {
     </div>
   )
 }
+
