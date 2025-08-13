@@ -156,55 +156,63 @@ export default function WorkOrders() {
     } catch {}
   }
 
-  /** Try several navigation fallbacks commonly used in SPAs */
-  const navigateToPurchaseOrders = () => {
-    try {
-      // Most custom routers
-      window.router?.navigate?.('/purchase-orders/new')
-      window.router?.navigate?.('/purchase-orders')
-      window.router?.push?.('/purchase-orders/new')
-      window.router?.replace?.('/purchase-orders/new')
-    } catch {}
+/** Strong, path-friendly navigation with fallbacks + URL signal */
+const navigateToPOCreateGuaranteed = (payload: any) => {
+  const base = (import.meta as any)?.env?.BASE_URL ?? '/'
+  const path = base.endsWith('/') ? `${base}purchase-orders` : `${base}/purchase-orders`
+  const url = `${path}?create=1&from=work-order&wo=${encodeURIComponent(payload.work_order.wo_number)}`
 
-    try {
-      window.goTo?.('purchase-orders')
-      window.appNavigate?.('purchase-orders')
-    } catch {}
+  // Soft navigate (BrowserRouter / History API)
+  try {
+    window.history.pushState({}, '', url)
+    window.dispatchEvent(new PopStateEvent('popstate'))
+  } catch {}
 
-    // Hash-router fallback
-    try {
-      if (window?.history?.pushState) {
-        const target = /\/purchase-orders/.test(location.hash) ? location.hash : '#/purchase-orders'
-        window.history.pushState({}, '', target)
-      } else {
-        window.location.hash = '#/purchase-orders'
-      }
-    } catch {}
+  // Hash-router fallback
+  try {
+    if (!/purchase\-orders/.test(location.hash)) {
+      window.location.hash = '#/purchase-orders?create=1'
+    }
+  } catch {}
 
-    // Last-resort hard change that still stays in-app if your router handles the path
-    try {
-      if (!/purchase-orders/.test(window.location.href)) {
-        window.location.assign('#/purchase-orders')
-      }
-    } catch {}
-  }
+  // Common app events some apps listen to
+  try {
+    window.dispatchEvent(new CustomEvent('navigate', { detail: 'purchase-orders' }))
+    window.dispatchEvent(new CustomEvent('purchase-orders:create', { detail: payload }))
+    window.dispatchEvent(new CustomEvent('app:navigate', { detail: { to: '/purchase-orders', action: 'create', payload } }))
+  } catch {}
 
-  /** Close the modal, then persist + broadcast + navigate */
-  const handleCreatePOClick = () => {
-    if (!selectedWorkOrder) return
-    const payload = buildPOPrefill(selectedWorkOrder)
+  // Router helpers if present
+  try { window.router?.navigate?.('/purchase-orders') } catch {}
+  try { window.router?.push?.('/purchase-orders') } catch {}
+  try { window.goTo?.('purchase-orders') } catch {}
+  try { window.appNavigate?.('purchase-orders') } catch {}
 
-    // 1) close the overlay first (prevents focus traps from blocking route change)
-    setSelectedWorkOrder(null)
+  // Last-resort hard nav to guarantee we land there
+  setTimeout(() => {
+    const here = location.pathname + location.search + location.hash
+    if (!/purchase\-orders/.test(here)) {
+      window.location.assign(url)
+    }
+  }, 40)
+}
 
-    // 2) after the modal unmounts, fire everything
-    setTimeout(() => {
-      console.info('[WO] Requesting PO create with payload:', payload)
-      persistPOPrefill(payload)
-      broadcastPOCreate(payload)
-      navigateToPurchaseOrders()
-    }, 0)
-  }
+/** Close modal → persist/broadcast → guaranteed navigate */
+const handleCreatePOClick = () => {
+  if (!selectedWorkOrder) return
+  const payload = buildPOPrefill(selectedWorkOrder)
+
+  // Persist + broadcast so the PO page can auto-open its create UI
+  persistPOPrefill(payload)
+  broadcastPOCreate(payload)
+
+  // Close the details modal to avoid focus-trap issues
+  setSelectedWorkOrder(null)
+
+  // Then navigate on the next tick
+  setTimeout(() => navigateToPOCreateGuaranteed(payload), 0)
+}
+
 
   // =========================
   // Data & UI logic
