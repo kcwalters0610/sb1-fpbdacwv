@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react'
+import React, { useEffect, useMemo, useRef, useState } from 'react'
 import {
   Plus, Search, DollarSign, Calendar, User, FileText,
   Edit, Trash2, Eye, X
@@ -32,6 +32,21 @@ interface PurchaseOrder {
   work_order?: any
 }
 
+type PrefillPayload = {
+  kind?: string
+  ts?: number
+  work_order?: {
+    id?: string
+    wo_number?: string
+    title?: string
+    customer_id?: string
+    customer_site_id?: string | null
+    project_id?: string | null
+    department_id?: string | null
+    customer_display?: string
+  }
+}
+
 export default function PurchaseOrders() {
   const { viewType, setViewType } = useViewPreference('purchase_orders')
 
@@ -63,26 +78,41 @@ export default function PurchaseOrders() {
     notes: ''
   })
 
+  // --- helpers for URL handling & one-time prefill consumption
+  const hasConsumedStoragePrefillRef = useRef(false)
+
+  const parseQuery = (): URLSearchParams => {
+    try {
+      // Handle both normal search (?a=b) and hash routers (#/path?a=b)
+      const search = window.location.search || (window.location.hash.includes('?') ? window.location.hash.split('?')[1] : '')
+      return new URLSearchParams(search)
+    } catch {
+      return new URLSearchParams()
+    }
+  }
+
+  const findWorkOrderByNumber = (woNumber: string) => {
+    const term = woNumber.trim().toLowerCase()
+    return workOrders.find((wo) => String(wo.wo_number || '').toLowerCase() === term)
+  }
+
+  const consumeLocalStoragePrefill = (): PrefillPayload | null => {
+    try {
+      const raw = localStorage.getItem('po_prefill_from_wo')
+      if (!raw) return null
+      const parsed = JSON.parse(raw) as PrefillPayload
+      // Clear immediately to avoid re-open loops
+      localStorage.removeItem('po_prefill_from_wo')
+      return parsed
+    } catch {
+      return null
+    }
+  }
+
+  // --- data
   useEffect(() => {
     loadData()
   }, [])
-
-  useEffect(() => {
-    if (showForm && !editingPO) generatePONumber()
-  }, [showForm, editingPO])
-
-  const generatePONumber = async () => {
-    setNumberingError('')
-    setAllowManualNumber(false)
-    try {
-      const { formattedNumber } = await getNextNumber('purchase_order')
-      setFormData(prev => ({ ...prev, po_number: formattedNumber }))
-    } catch (e: any) {
-      console.error('Error generating PO number:', e)
-      setNumberingError(e?.message || 'Unable to generate PO number from settings.')
-      setAllowManualNumber(true)
-    }
-  }
 
   const loadData = async () => {
     try {
@@ -104,6 +134,121 @@ export default function PurchaseOrders() {
       setLoading(false)
     }
   }
+
+  // --- numbering
+  useEffect(() => {
+    if (showForm && !editingPO) generatePONumber()
+  }, [showForm, editingPO])
+
+  const generatePONumber = async () => {
+    setNumberingError('')
+    setAllowManualNumber(false)
+    try {
+      const { formattedNumber } = await getNextNumber('purchase_order')
+      setFormData(prev => ({ ...prev, po_number: formattedNumber }))
+    } catch (e: any) {
+      console.error('Error generating PO number:', e)
+      setNumberingError(e?.message || 'Unable to generate PO number from settings.')
+      setAllowManualNumber(true)
+    }
+  }
+
+  // --- INCOMING CREATE REQUESTS (from Work Orders or URL) --------------------
+
+  const prefillFromWorkOrder = (wo: { id?: string; wo_number?: string; title?: string } | null | undefined) => {
+    setEditingPO(null)
+    setShowForm(true)
+    setAllowManualNumber(false) // default to auto-numbering
+    const defaultNote = wo?.wo_number
+      ? `Created from Work Order ${wo.wo_number}${wo?.title ? ` — ${wo.title}` : ''}`
+      : (formData.notes || '')
+    setFormData(prev => ({
+      ...prev,
+      work_order_id: (wo?.id as string) || '',
+      notes: prev.notes || defaultNote
+    }))
+  }
+
+  const handlePOCreatePayload = (payload: PrefillPayload | null) => {
+    if (!payload?.work_order) {
+      // Still open create form (user intent), but without WO link
+      setEditingPO(null)
+      setShowForm(true)
+      return
+    }
+    prefillFromWorkOrder(payload.work_order)
+  }
+
+  // Listen for app bus events and cross-tab signals
+  useEffect(() => {
+    if (typeof window === 'undefined') return
+
+    // 1) Initial check: localStorage payload (one-time)
+    if (!hasConsumedStoragePrefillRef.current) {
+      const initialPayload = consumeLocalStoragePrefill()
+      if (initialPayload) {
+        hasConsumedStoragePrefillRef.current = true
+        handlePOCreatePayload(initialPayload)
+      }
+    }
+
+    // 2) URL query: ?create=1[&wo=WO-1234]
+    const params = parseQuery()
+    const wantsCreate = params.get('create') === '1'
+    const woParam = (params.get('wo') || '').trim()
+    if (wantsCreate && !showForm && !editingPO) {
+      if (woParam && workOrders.length > 0) {
+        const match = findWorkOrderByNumber(woParam)
+        prefillFromWorkOrder(match || { wo_number: woParam })
+      } else {
+        // Just open a blank create form
+        setEditingPO(null)
+        setShowForm(true)
+      }
+    }
+
+    // 3) Cross-tab storage ping
+    const onStorage = (e: StorageEvent) => {
+      if (e.key === 'po_create_ping') {
+        // Re-read payload if any, then open
+        const payload = consumeLocalStoragePrefill()
+        if (payload) handlePOCreatePayload(payload)
+      }
+    }
+
+    // 4) Custom app events
+    const onPOCreateEvent = (evt: Event) => {
+      try {
+        // @ts-ignore
+        const detail = (evt as CustomEvent)?.detail as PrefillPayload | undefined
+        handlePOCreatePayload(detail || null)
+      } catch (err) {
+        console.warn('PO create event had no/invalid detail:', err)
+        handlePOCreatePayload(null)
+      }
+    }
+
+    window.addEventListener('storage', onStorage)
+    window.addEventListener('po:create', onPOCreateEvent as EventListener)
+    window.addEventListener('purchase-orders:create', onPOCreateEvent as EventListener)
+    window.addEventListener('po:new', onPOCreateEvent as EventListener)
+    document.addEventListener('po:create', onPOCreateEvent as EventListener)
+    document.addEventListener('purchase-orders:create', onPOCreateEvent as EventListener)
+    document.addEventListener('po:new', onPOCreateEvent as EventListener)
+
+    return () => {
+      window.removeEventListener('storage', onStorage)
+      window.removeEventListener('po:create', onPOCreateEvent as EventListener)
+      window.removeEventListener('purchase-orders:create', onPOCreateEvent as EventListener)
+      window.removeEventListener('po:new', onPOCreateEvent as EventListener)
+      document.removeEventListener('po:create', onPOCreateEvent as EventListener)
+      document.removeEventListener('purchase-orders:create', onPOCreateEvent as EventListener)
+      document.removeEventListener('po:new', onPOCreateEvent as EventListener)
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [workOrders.length, showForm, editingPO])
+
+  // --- form actions ---------------------------------------------------------
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
@@ -239,6 +384,8 @@ export default function PurchaseOrders() {
     }
   }
 
+  // --- derived values / UI helpers -----------------------------------------
+
   const getStatusColor = (status: POStatus) => {
     switch (status) {
       case 'received': return 'text-green-700 bg-green-100'
@@ -249,24 +396,28 @@ export default function PurchaseOrders() {
     }
   }
 
-  const filteredPOs = pos.filter(po => {
-    const term = searchTerm.toLowerCase()
-    const vendorName =
-      po.vendor?.name ||
-      po.vendor?.company_name ||
-      [po.vendor?.first_name, po.vendor?.last_name].filter(Boolean).join(' ')
-    const matchesSearch =
-      po.po_number?.toLowerCase().includes(term) ||
-      (vendorName ? vendorName.toLowerCase().includes(term) : false)
-    const matchesStatus = !statusFilter || po.status === statusFilter
-    return matchesSearch && matchesStatus
-  })
+  const filteredPOs = useMemo(() => {
+    return pos.filter(po => {
+      const term = searchTerm.toLowerCase()
+      const vendorName =
+        po.vendor?.name ||
+        po.vendor?.company_name ||
+        [po.vendor?.first_name, po.vendor?.last_name].filter(Boolean).join(' ')
+      const matchesSearch =
+        po.po_number?.toLowerCase().includes(term) ||
+        (vendorName ? vendorName.toLowerCase().includes(term) : false)
+      const matchesStatus = !statusFilter || po.status === statusFilter
+      return matchesSearch && matchesStatus
+    })
+  }, [pos, searchTerm, statusFilter])
 
   const totalOrdered = pos.reduce((sum, po) => sum + po.total_amount, 0)
   const receivedAmount = pos
     .filter(po => po.status === 'received' || po.status === 'partially_received')
     .reduce((sum, po) => sum + po.total_amount, 0)
   const outstanding = totalOrdered - receivedAmount
+
+  // --- render ---------------------------------------------------------------
 
   if (loading && pos.length === 0) {
     return (
@@ -275,26 +426,6 @@ export default function PurchaseOrders() {
       </div>
     )
   }
-
-  // Open the "Create PO" form prefilled from a Work Order
-const openCreateFromWO = (payload: WOPrefill) => {
-  // Make sure we’re in create mode
-  setEditingPO(null)
-  setAllowManualNumber(false)
-  setNumberingError('')
-
-  // Prefill: link WO + a helpful note. Vendor left for user to pick.
-  setFormData(prev => ({
-    ...prev,
-    work_order_id: payload.work_order.id || '',
-    notes:
-      prev.notes?.trim() ||
-      `PO created from Work Order ${payload.work_order.wo_number} — ${payload.work_order.title}`,
-    // Keep order_date default; number will be auto-generated by your existing useEffect
-  }))
-
-  setShowForm(true)
-}
 
   return (
     <div className="space-y-6">
@@ -813,4 +944,3 @@ const openCreateFromWO = (payload: WOPrefill) => {
     </div>
   )
 }
-
