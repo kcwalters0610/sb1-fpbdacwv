@@ -101,13 +101,16 @@ const normalizeStatus = (s: any): POStatus => {
   }
 }
 
-// constraint detector for Postgres CHECK constraint failures
+// Detect Postgres CHECK-constraint error
 const isStatusConstraintError = (err: any) => {
   const code = err?.code || err?.error?.code
   const body = typeof err?.body === 'string' ? err.body : JSON.stringify(err?.body || {})
   const msg = (err?.message || err?.error?.message || body || '').toLowerCase()
   return code === '23514' || msg.includes('status_check') || msg.includes('check constraint')
 }
+
+// all candidate statuses
+const ALL_STATUSES: POStatus[] = ['draft','ordered','partially_received','received','cancelled']
 
 export default function PurchaseOrders() {
   const { viewType, setViewType } = useViewPreference('purchase_orders')
@@ -128,10 +131,24 @@ export default function PurchaseOrders() {
   const [numberingError, setNumberingError] = useState<string>('') 
   const [allowManualNumber, setAllowManualNumber] = useState(false)
 
-  // Remember if DB supports 'partially_received'
+  // Back-compat flag for 'partially_received'
   const [supportsPartialStatus, setSupportsPartialStatus] = useState<boolean>(() => {
     return localStorage.getItem('po_supports_partial') !== '0'
   })
+
+  // General blocker list for any statuses the DB rejects
+  const [blockedStatuses, setBlockedStatuses] = useState<POStatus[]>(() => {
+    try { return JSON.parse(localStorage.getItem('po_blocked_statuses') || '[]') }
+    catch { return [] }
+  })
+  const saveBlocked = (arr: POStatus[]) => {
+    setBlockedStatuses(arr)
+    localStorage.setItem('po_blocked_statuses', JSON.stringify(arr))
+  }
+
+  // Allow list helper (hides anything we know the DB rejects)
+  const allowStatus = (s: POStatus) =>
+    (supportsPartialStatus || s !== 'partially_received') && !blockedStatuses.includes(s)
 
   const [formData, setFormData] = useState({
     po_number: '',
@@ -489,7 +506,7 @@ export default function PurchaseOrders() {
     }
   }
 
-  // Persist status with rollback & constraint awareness
+  // Persist status with rollback & constraint awareness (blocks any failing status)
   const persistStatus = async (id: string, next: POStatus, previous: POStatus) => {
     const updateData: any = { status: next }
     if (next === 'received') {
@@ -502,14 +519,18 @@ export default function PurchaseOrders() {
       // Roll back optimistic UI
       setPOs(list => list.map(p => (p.id === id ? { ...p, status: previous } : p)))
 
-      // Hide 'partially_received' if the DB rejects it due to a CHECK constraint
-      if (next === 'partially_received' && isStatusConstraintError(error)) {
-        setSupportsPartialStatus(false)
-        localStorage.setItem('po_supports_partial', '0')
-        alert(
-          "Your database doesn't allow the 'Partially Received' status yet. " +
-          "I’ve hidden that option for now. Update the DB constraint to enable it."
-        )
+      if (isStatusConstraintError(error)) {
+        // Special-case compatibility for partially_received flag
+        if (next === 'partially_received') {
+          setSupportsPartialStatus(false)
+          localStorage.setItem('po_supports_partial', '0')
+        }
+        // General blocker list
+        if (!blockedStatuses.includes(next)) {
+          const updated = [...blockedStatuses, next]
+          saveBlocked(updated)
+        }
+        alert(`Your database constraint doesn’t allow status "${statusLook[next].label}". I’ve hidden it in the UI.`)
         return
       }
 
@@ -559,7 +580,10 @@ export default function PurchaseOrders() {
 
   const totalOrdered = pos.reduce((sum, po) => sum + po.total_amount, 0)
   const receivedAmount = pos
-    .filter(po => normalizeStatus(po.status) === 'received' || normalizeStatus(po.status) === 'partially_received')
+    .filter(po => {
+      const st = normalizeStatus(po.status)
+      return st === 'received' || st === 'partially_received'
+    })
     .reduce((sum, po) => sum + po.total_amount, 0)
   const outstanding = totalOrdered - receivedAmount
 
@@ -643,11 +667,9 @@ export default function PurchaseOrders() {
             className="px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
           >
             <option value="">All Statuses</option>
-            <option value="draft">Draft</option>
-            <option value="ordered">Ordered</option>
-            {supportsPartialStatus && <option value="partially_received">Partially Received</option>}
-            <option value="received">Received</option>
-            <option value="cancelled">Cancelled</option>
+            {ALL_STATUSES.filter(allowStatus).map(s => (
+              <option key={s} value={s}>{statusLook[s].label}</option>
+            ))}
           </select>
           <div className="flex items-center justify-end">
             <ViewToggle viewType={viewType} onViewChange={setViewType} />
@@ -656,7 +678,7 @@ export default function PurchaseOrders() {
 
         {/* quick filters */}
         <div className="mt-4 flex flex-wrap gap-2">
-          {(['draft','ordered','partially_received','received','cancelled'] as POStatus[]).map(s => (
+          {ALL_STATUSES.filter(allowStatus).map(s => (
             <button
               key={s}
               onClick={() => setStatusFilter(prev => prev === s ? '' : s)}
@@ -746,13 +768,9 @@ export default function PurchaseOrders() {
                             }}
                             className={`relative z-10 cursor-pointer text-xs font-semibold rounded-full px-2 py-1 border-0 ${getBadge(st)} focus:outline-none focus:ring-2 focus:ring-blue-500`}
                           >
-                            <option value="draft">{statusLook.draft.label}</option>
-                            <option value="ordered">{statusLook.ordered.label}</option>
-                            {supportsPartialStatus && (
-                              <option value="partially_received">{statusLook.partially_received.label}</option>
-                            )}
-                            <option value="received">{statusLook.received.label}</option>
-                            <option value="cancelled">{statusLook.cancelled.label}</option>
+                            {ALL_STATUSES.filter(allowStatus).map(s => (
+                              <option key={s} value={s}>{statusLook[s].label}</option>
+                            ))}
                           </select>
                         </div>
                       </td>
@@ -922,11 +940,9 @@ export default function PurchaseOrders() {
                     onChange={(e) => setFormData({ ...formData, status: e.target.value as POStatus })}
                     className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
                   >
-                    <option value="draft">{statusLook.draft.label}</option>
-                    <option value="ordered">{statusLook.ordered.label}</option>
-                    {supportsPartialStatus && <option value="partially_received">{statusLook.partially_received.label}</option>}
-                    <option value="received">{statusLook.received.label}</option>
-                    <option value="cancelled">{statusLook.cancelled.label}</option>
+                    {ALL_STATUSES.filter(allowStatus).map(s => (
+                      <option key={s} value={s}>{statusLook[s].label}</option>
+                    ))}
                   </select>
                 </div>
 
