@@ -454,11 +454,11 @@ export default function PurchaseOrders() {
     setAllowManualNumber(false)
   }
 
-  // --- important: bulletproof edit opener
+  // --- bulletproof edit opener
   const startEdit = (po: PurchaseOrder) => {
-    // ensure row/overlay click never conflicts
+    // close detail first (if open)
     setSelectedPO(null)
-    // populate form
+    // fill form
     setEditingPO(po)
     setFormData({
       po_number: po.po_number,
@@ -473,8 +473,8 @@ export default function PurchaseOrders() {
     })
     setNumberingError('')
     setAllowManualNumber(true)
-    // open on next tick to avoid any render race with Detail modal unmount
-    setTimeout(() => setShowForm(true), 0)
+    // open on next frame to avoid any race with the detail modal unmount
+    requestAnimationFrame(() => setShowForm(true))
   }
 
   const deletePO = async (id: string) => {
@@ -600,6 +600,7 @@ export default function PurchaseOrders() {
       <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
         <h1 className="text-2xl font-bold text-gray-900">Purchase Orders</h1>
         <button
+          type="button"
           onClick={() => { resetForm(); setEditingPO(null); setShowForm(true) }}
           className="inline-flex items-center px-4 py-2 bg-blue-600 text-white rounded-lg shadow-sm hover:shadow-md hover:bg-blue-700 transition-all"
         >
@@ -678,6 +679,7 @@ export default function PurchaseOrders() {
           {ALL_STATUSES.filter(allowStatus).map(s => (
             <button
               key={s}
+              type="button"
               onClick={() => setStatusFilter(prev => prev === s ? '' : s)}
               className={`text-xs px-2.5 py-1 rounded-full ${getChip(s)} ${statusFilter === s ? 'ring-2 ring-offset-1 ring-blue-400' : ''}`}
             >
@@ -685,9 +687,7 @@ export default function PurchaseOrders() {
             </button>
           ))}
           {statusFilter && (
-            <button className="text-xs px-2.5 py-1 rounded-full bg-gray-100 hover:bg-gray-200"
-              onClick={() => setStatusFilter('')}
-            >
+            <button className="text-xs px-2.5 py-1 rounded-full bg-gray-100 hover:bg-gray-200" type="button" onClick={() => setStatusFilter('')}>
               Clear
             </button>
           )}
@@ -752,8 +752,8 @@ export default function PurchaseOrders() {
                           <span className={`h-2 w-2 rounded-full ${getDot(st)}`} />
                           <select
                             value={st}
-                            onClick={(e) => e.stopPropagation()}
                             onMouseDown={(e) => e.stopPropagation()}
+                            onClick={(e) => e.stopPropagation()}
                             onChange={(e) => {
                               const next = e.target.value as POStatus
                               const prev = st
@@ -788,8 +788,10 @@ export default function PurchaseOrders() {
                       </td>
 
                       <td className="px-6 py-4 whitespace-nowrap text-sm font-medium">
-                        <div className="flex space-x-2" onClick={(e) => e.stopPropagation()}>
+                        <div className="flex space-x-2" onMouseDown={(e) => e.stopPropagation()} onClick={(e) => e.stopPropagation()}>
                           <button
+                            type="button"
+                            onMouseDown={(e) => e.stopPropagation()}
                             onClick={(e) => { e.stopPropagation(); setSelectedPO(po) }}
                             className="text-blue-600 hover:text-blue-800 p-1.5 transition-all duration-200 hover:bg-blue-100 rounded-full hover:shadow-sm"
                             title="View"
@@ -797,6 +799,8 @@ export default function PurchaseOrders() {
                             <Eye className="w-4 h-4" />
                           </button>
                           <button
+                            type="button"
+                            onMouseDown={(e) => e.stopPropagation()}
                             onClick={(e) => { e.stopPropagation(); startEdit(po) }}
                             className="text-blue-600 hover:text-blue-800 p-1.5 transition-all duration-200 hover:bg-blue-100 rounded-full hover:shadow-sm"
                             title="Edit"
@@ -804,6 +808,8 @@ export default function PurchaseOrders() {
                             <Edit className="w-4 h-4" />
                           </button>
                           <button
+                            type="button"
+                            onMouseDown={(e) => e.stopPropagation()}
                             onClick={(e) => { e.stopPropagation(); deletePO(po.id) }}
                             className="text-rose-600 hover:text-rose-800 p-1.5 transition-all duration-200 hover:bg-rose-100 rounded-full hover:shadow-sm"
                             title="Delete"
@@ -877,11 +883,11 @@ export default function PurchaseOrders() {
                       <div className="text-sm text-gray-500">
                         Ordered: {new Date(po.order_date).toLocaleDateString()}
                       </div>
-                      <div className="flex space-x-2">
-                        <button onClick={() => setSelectedPO(po)} className="text-blue-600 hover:text-blue-800 text-sm font-medium">
+                      <div className="flex space-x-2" onMouseDown={(e) => e.stopPropagation()} onClick={(e) => e.stopPropagation()}>
+                        <button type="button" onMouseDown={(e) => e.stopPropagation()} onClick={() => setSelectedPO(po)} className="text-blue-600 hover:text-blue-800 text-sm font-medium">
                           View
                         </button>
-                        <button onClick={(e) => { e.stopPropagation(); startEdit(po) }} className="text-blue-600 hover:text-blue-800 text-sm font-medium">
+                        <button type="button" onMouseDown={(e) => e.stopPropagation()} onClick={(e) => { e.stopPropagation(); startEdit(po) }} className="text-blue-600 hover:text-blue-800 text-sm font-medium">
                           Edit
                         </button>
                       </div>
@@ -1089,7 +1095,7 @@ export default function PurchaseOrders() {
                 <h3 className="text-xl font-semibold text-gray-900">
                   PO {selectedPO.po_number}
                 </h3>
-                <button onClick={() => setSelectedPO(null)} className="text-gray-400 hover:text-gray-600">
+                <button type="button" onClick={() => setSelectedPO(null)} className="text-gray-400 hover:text-gray-600">
                   <X className="w-6 h-6" />
                 </button>
               </div>
@@ -1178,12 +1184,15 @@ export default function PurchaseOrders() {
 
               <div className="flex justify-end space-x-3 mt-8 pt-6 border-t border-gray-200">
                 <button
+                  type="button"
+                  onMouseDown={(e) => e.stopPropagation()}
                   onClick={(e) => { e.stopPropagation(); startEdit(selectedPO) }}
                   className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors"
                 >
                   Edit PO
                 </button>
                 <button
+                  type="button"
                   onClick={() => setSelectedPO(null)}
                   className="px-4 py-2 border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-50 transition-colors"
                 >
