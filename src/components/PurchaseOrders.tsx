@@ -555,7 +555,8 @@ export default function PurchaseOrders() {
       </div>
 
       {/* Content */}
-      <div className="bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden">
+      {/* NOTE: removed `overflow-hidden` to prevent native <select> from being clipped */}
+      <div className="bg-white rounded-xl shadow-sm border border-gray-200">
         {viewType === 'table' ? (
           <div className="overflow-x-auto">
             <table className="w-full">
@@ -593,8 +594,16 @@ export default function PurchaseOrders() {
                     <td className="px-6 py-4 whitespace-nowrap">
                       <select
                         value={po.status}
-                        onChange={(e) => updateStatus(po.id, e.target.value as POStatus)}
-                        className={`text-xs font-semibold rounded-full px-2 py-1 border-0 ${getStatusColor(po.status)}`}
+                        onClick={(e) => e.stopPropagation()}
+                        onMouseDown={(e) => e.stopPropagation()}
+                        onChange={(e) => {
+                          const next = e.target.value as POStatus
+                          // Optimistic UI update
+                          setPOs(prev => prev.map(p => p.id === po.id ? { ...p, status: next } : p))
+                          // Persist
+                          updateStatus(po.id, next)
+                        }}
+                        className={`relative z-10 cursor-pointer text-xs font-semibold rounded-full px-2 py-1 border-0 ${getStatusColor(po.status)}`}
                       >
                         <option value="draft">Draft</option>
                         <option value="ordered">Ordered</option>
@@ -800,7 +809,7 @@ export default function PurchaseOrders() {
                 </div>
 
                 <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-2">Tax Rate (%)</label>
+                  <label className="block text sm font-medium text-gray-700 mb-2">Tax Rate (%)</label>
                   <input
                     type="number"
                     step="0.01"
