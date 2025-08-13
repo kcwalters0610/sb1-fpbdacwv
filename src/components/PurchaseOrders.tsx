@@ -16,14 +16,14 @@ interface PurchaseOrder {
   vendor_id: string
   work_order_id?: string | null
   po_number: string
-  status: POStatus | null
-  order_date: string
+  status: POStatus | null // tolerate bad/legacy data
+  order_date: string | null
   expected_date?: string | null
-  subtotal: number
-  tax_rate: number
-  tax_amount: number
-  total_amount: number
-  paid_amount: number
+  subtotal: number | null
+  tax_rate: number | null
+  tax_amount: number | null
+  total_amount: number | null
+  paid_amount: number | null
   payment_date?: string | null
   notes?: string | null
   created_at: string
@@ -87,18 +87,18 @@ const statusLook: Record<POStatus, { label: string; badge: string; dot: string; 
   },
 }
 
-const normalizeStatus = (s: any): POStatus => {
-  switch (s) {
-    case 'draft':
-    case 'ordered':
-    case 'partially_received':
-    case 'received':
-    case 'cancelled':
-      return s
-    default:
-      return 'draft'
-  }
+// ---------- small helpers (null-safe) ----------
+const normalizeStatus = (s: any): POStatus =>
+  s === 'draft' || s === 'ordered' || s === 'partially_received' || s === 'received' || s === 'cancelled' ? s : 'draft'
+
+const numToStr = (n: any, fallback = 0) => String(n ?? fallback)
+const toISODateInput = (d?: string | null) => {
+  if (!d) return ''
+  const dt = new Date(d)
+  return isNaN(dt.getTime()) ? '' : dt.toISOString().slice(0, 10)
 }
+const safeDateOrToday = (d?: string | null) =>
+  toISODateInput(d) || new Date().toISOString().slice(0, 10)
 
 // Detect Postgres CHECK-constraint error
 const isStatusConstraintError = (err: any) => {
@@ -165,7 +165,7 @@ export default function PurchaseOrders() {
     vendor_id: '',
     work_order_id: '',
     status: 'draft' as POStatus,
-    order_date: new Date().toISOString().split('T')[0],
+    order_date: new Date().toISOString().slice(0, 10),
     expected_date: '',
     subtotal: '',
     tax_rate: '0',
@@ -244,7 +244,20 @@ export default function PurchaseOrders() {
         supabase.from('vendors').select('*').order('name'),
         supabase.from('work_orders').select('id, wo_number, title').order('created_at', { ascending: false })
       ])
-      setPOs((posResult.data || []).map(p => ({ ...p, status: normalizeStatus(p.status) })))
+
+      // Normalize incoming rows (make numeric nulls safe, status normalized)
+      const normalized = (posResult.data || []).map((p: any) => ({
+        ...p,
+        status: normalizeStatus(p.status),
+        subtotal: p.subtotal ?? 0,
+        tax_rate: p.tax_rate ?? 0,
+        tax_amount: p.tax_amount ?? 0,
+        total_amount: p.total_amount ?? 0,
+        paid_amount: p.paid_amount ?? 0,
+        order_date: p.order_date ?? null,
+        expected_date: p.expected_date ?? null,
+      }))
+      setPOs(normalized)
       setVendors(vendorsResult.data || [])
       setWorkOrders(workOrdersResult.data || [])
     } catch (e) {
@@ -272,7 +285,7 @@ export default function PurchaseOrders() {
     }
   }
 
-  // --- incoming create requests
+  // --- INCOMING CREATE REQUESTS
   const prefillFromWorkOrder = (wo: { id?: string; wo_number?: string; title?: string } | null | undefined) => {
     setEditingPO(null)
     setShowForm(true)
@@ -382,7 +395,7 @@ export default function PurchaseOrders() {
         company_id: profile.company_id,
         vendor_id: formData.vendor_id,
         work_order_id: formData.work_order_id || null,
-        po_number: formData.po_number,
+        po_number: formData.po_number, // may be replaced for new creates
         status: formData.status,
         order_date: formData.order_date,
         expected_date: formData.expected_date || null,
@@ -400,6 +413,7 @@ export default function PurchaseOrders() {
           .eq('id', editingPO.id)
         if (error) throw error
       } else {
+        // re-read number at submit-time to avoid collisions
         let formattedNumber = formData.po_number
         let nextSequence: number | null = null
 
@@ -444,7 +458,7 @@ export default function PurchaseOrders() {
       vendor_id: '',
       work_order_id: '',
       status: 'draft',
-      order_date: new Date().toISOString().split('T')[0],
+      order_date: new Date().toISOString().slice(0, 10),
       expected_date: '',
       subtotal: '',
       tax_rate: '0',
@@ -454,22 +468,26 @@ export default function PurchaseOrders() {
     setAllowManualNumber(false)
   }
 
-  // --- bulletproof edit opener
-  const startEdit = (po: PurchaseOrder) => {
+  // --- bulletproof edit opener (null-safe & race-free)
+  const startEdit = (po?: PurchaseOrder | null) => {
+    if (!po) {
+      console.warn('startEdit called without a PO')
+      return
+    }
     // close detail first (if open)
     setSelectedPO(null)
-    // fill form
+    // fill form with null-safe conversions
     setEditingPO(po)
     setFormData({
-      po_number: po.po_number,
-      vendor_id: po.vendor_id,
-      work_order_id: po.work_order_id || '',
+      po_number: String(po.po_number ?? ''),
+      vendor_id: String(po.vendor_id ?? ''),
+      work_order_id: po.work_order_id ?? '',
       status: normalizeStatus(po.status),
-      order_date: po.order_date,
-      expected_date: po.expected_date || '',
-      subtotal: po.subtotal.toString(),
-      tax_rate: po.tax_rate.toString(),
-      notes: po.notes || ''
+      order_date: safeDateOrToday(po.order_date),
+      expected_date: toISODateInput(po.expected_date),
+      subtotal: numToStr(po.subtotal, 0),
+      tax_rate: numToStr(po.tax_rate, 0),
+      notes: po.notes ?? ''
     })
     setNumberingError('')
     setAllowManualNumber(true)
@@ -492,11 +510,12 @@ export default function PurchaseOrders() {
   const persistStatus = async (id: string, next: POStatus, previous: POStatus) => {
     let updateData: any = { status: next }
     if (next === 'received' && hasPaymentDate) {
-      updateData.payment_date = new Date().toISOString().split('T')[0]
+      updateData.payment_date = new Date().toISOString().slice(0, 10)
     }
 
     let { error } = await supabase.from('purchase_orders').update(updateData).eq('id', id)
 
+    // If schema cache doesn't have 'payment_date', retry without it and remember
     if (error && isMissingColumnError(error, 'payment_date') && 'payment_date' in updateData) {
       markNoPaymentDate()
       const retry = await supabase.from('purchase_orders').update({ status: next }).eq('id', id)
@@ -504,7 +523,9 @@ export default function PurchaseOrders() {
     }
 
     if (error) {
+      // Roll back optimistic UI
       setPOs(list => list.map(p => (p.id === id ? { ...p, status: previous } : p)))
+
       if (isStatusConstraintError(error)) {
         if (next === 'partially_received') {
           setSupportsPartialStatus(false)
@@ -517,6 +538,7 @@ export default function PurchaseOrders() {
         alert(`Your database constraint doesn’t allow status "${statusLook[next].label}". I’ve hidden it in the UI.`)
         return
       }
+
       alert('Could not update status: ' + (error.message || 'Unknown error'))
     }
   }
@@ -540,6 +562,7 @@ export default function PurchaseOrders() {
   const daysUntil = (date?: string | null) => {
     if (!date) return null
     const d = new Date(date)
+    if (isNaN(d.getTime())) return null
     const today = new Date()
     const diff = Math.ceil((d.getTime() - new Date(today.toDateString()).getTime()) / (1000 * 60 * 60 * 24))
     return diff
@@ -560,15 +583,16 @@ export default function PurchaseOrders() {
     })
   }, [pos, searchTerm, statusFilter])
 
-  const totalOrdered = pos.reduce((sum, po) => sum + po.total_amount, 0)
+  const totalOrdered = pos.reduce((sum, po) => sum + (po.total_amount ?? 0), 0)
   const receivedAmount = pos
     .filter(po => {
       const st = normalizeStatus(po.status)
       return st === 'received' || st === 'partially_received'
     })
-    .reduce((sum, po) => sum + po.total_amount, 0)
+    .reduce((sum, po) => sum + (po.total_amount ?? 0), 0)
   const outstanding = totalOrdered - receivedAmount
 
+  // --- render ---------------------------------------------------------------
   if (loading && pos.length === 0) {
     return (
       <div className="flex items-center justify-center h-64">
@@ -724,7 +748,7 @@ export default function PurchaseOrders() {
                     >
                       <td className="px-6 py-4 whitespace-nowrap">
                         <div className="text-sm font-semibold text-gray-900">{po.po_number}</div>
-                        <div className="text-xs text-gray-500">{new Date(po.order_date).toLocaleDateString()}</div>
+                        <div className="text-xs text-gray-500">{po.order_date ? new Date(po.order_date).toLocaleDateString() : '—'}</div>
                       </td>
 
                       <td className="hidden md:table-cell px-6 py-4 whitespace-nowrap">
@@ -743,7 +767,7 @@ export default function PurchaseOrders() {
 
                       <td className="hidden md:table-cell px-6 py-4 whitespace-nowrap">
                         <div className="text-sm font-semibold text-gray-900">
-                          {currency.format(po.total_amount)}
+                          {currency.format((po.total_amount ?? 0))}
                         </div>
                       </td>
 
@@ -850,7 +874,7 @@ export default function PurchaseOrders() {
                           <span className={`h-2 w-2 rounded-full ${getDot(st)}`} />
                           <h3 className="text-lg font-semibold text-gray-900">{po.po_number}</h3>
                         </div>
-                        <p className="text-2xl font-bold text-blue-600 mb-2">{currency.format(po.total_amount)}</p>
+                        <p className="text-2xl font-bold text-blue-600 mb-2">{currency.format((po.total_amount ?? 0))}</p>
                         <span className={`inline-flex px-2 py-1 text-xs font-semibold rounded-full ${getBadge(st)}`}>
                           {labelFor(st)}
                         </span>
@@ -879,11 +903,11 @@ export default function PurchaseOrders() {
                       )}
                     </div>
 
-                    <div className="flex justify-between items-center pt-4 border-t border-gray-200">
+                    <div className="flex justify-between items-center pt-4 border-t border-gray-200" onMouseDown={(e) => e.stopPropagation()} onClick={(e) => e.stopPropagation()}>
                       <div className="text-sm text-gray-500">
-                        Ordered: {new Date(po.order_date).toLocaleDateString()}
+                        Ordered: {po.order_date ? new Date(po.order_date).toLocaleDateString() : '—'}
                       </div>
-                      <div className="flex space-x-2" onMouseDown={(e) => e.stopPropagation()} onClick={(e) => e.stopPropagation()}>
+                      <div className="flex space-x-2">
                         <button type="button" onMouseDown={(e) => e.stopPropagation()} onClick={() => setSelectedPO(po)} className="text-blue-600 hover:text-blue-800 text-sm font-medium">
                           View
                         </button>
@@ -1114,7 +1138,7 @@ export default function PurchaseOrders() {
                     </div>
                     <div className="flex justify-between">
                       <span className="text-sm font-medium text-gray-700">Order Date:</span>
-                      <span className="text-sm text-gray-900">{new Date(selectedPO.order_date).toLocaleDateString()}</span>
+                      <span className="text-sm text-gray-900">{selectedPO.order_date ? new Date(selectedPO.order_date).toLocaleDateString() : '—'}</span>
                     </div>
                     {selectedPO.expected_date && (
                       <div className="flex justify-between">
@@ -1159,25 +1183,6 @@ export default function PurchaseOrders() {
                         <span className="text-sm text-gray-900">{selectedPO.vendor.address}</span>
                       </div>
                     )}
-                  </div>
-                </div>
-              </div>
-              
-              {/* Financial Summary */}
-              <div className="mt-8 bg-gray-50 rounded-lg p-6">
-                <h4 className="text-lg font-medium text-gray-900 mb-4">Financial Summary</h4>
-                <div className="space-y-3">
-                  <div className="flex justify-between">
-                    <span className="text-sm font-medium text-gray-700">Subtotal:</span>
-                    <span className="text-sm text-gray-900">{currency.format(selectedPO.subtotal)}</span>
-                  </div>
-                  <div className="flex justify-between">
-                    <span className="text-sm font-medium text-gray-700">Tax ({selectedPO.tax_rate}%):</span>
-                    <span className="text-sm text-gray-900">{currency.format(selectedPO.tax_amount)}</span>
-                  </div>
-                  <div className="flex justify-between pt-3 border-t border-gray-200">
-                    <span className="text-lg font-bold text-gray-900">Total:</span>
-                    <span className="text-lg font-bold text-gray-900">{currency.format(selectedPO.total_amount)}</span>
                   </div>
                 </div>
               </div>
