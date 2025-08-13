@@ -16,7 +16,7 @@ interface PurchaseOrder {
   vendor_id: string
   work_order_id?: string | null
   po_number: string
-  status: POStatus | null // tolerate bad/legacy data
+  status: POStatus | null
   order_date: string
   expected_date?: string | null
   subtotal: number
@@ -87,7 +87,6 @@ const statusLook: Record<POStatus, { label: string; badge: string; dot: string; 
   },
 }
 
-// normalize unknown / null to a safe value
 const normalizeStatus = (s: any): POStatus => {
   switch (s) {
     case 'draft':
@@ -134,16 +133,13 @@ export default function PurchaseOrders() {
   const [searchTerm, setSearchTerm] = useState('')
   const [statusFilter, setStatusFilter] = useState<POStatus | ''>('')
 
-  // Numbering fallback — if generation fails, allow manual number typing
   const [numberingError, setNumberingError] = useState<string>('') 
   const [allowManualNumber, setAllowManualNumber] = useState(false)
 
-  // Back-compat flag for 'partially_received'
   const [supportsPartialStatus, setSupportsPartialStatus] = useState<boolean>(() => {
     return localStorage.getItem('po_supports_partial') !== '0'
   })
 
-  // General blocker list for any statuses the DB rejects
   const [blockedStatuses, setBlockedStatuses] = useState<POStatus[]>(() => {
     try { return JSON.parse(localStorage.getItem('po_blocked_statuses') || '[]') }
     catch { return [] }
@@ -153,7 +149,6 @@ export default function PurchaseOrders() {
     localStorage.setItem('po_blocked_statuses', JSON.stringify(arr))
   }
 
-  // Remember if the column 'payment_date' exists in API schema
   const [hasPaymentDate, setHasPaymentDate] = useState<boolean>(() => {
     return localStorage.getItem('po_has_payment_date') !== '0'
   })
@@ -162,7 +157,6 @@ export default function PurchaseOrders() {
     localStorage.setItem('po_has_payment_date', '0')
   }
 
-  // Allow list (hide statuses we know the DB rejects)
   const allowStatus = (s: POStatus) =>
     (supportsPartialStatus || s !== 'partially_received') && !blockedStatuses.includes(s)
 
@@ -278,8 +272,7 @@ export default function PurchaseOrders() {
     }
   }
 
-  // --- INCOMING CREATE REQUESTS (from Work Orders or URL) --------------------
-
+  // --- incoming create requests
   const prefillFromWorkOrder = (wo: { id?: string; wo_number?: string; title?: string } | null | undefined) => {
     setEditingPO(null)
     setShowForm(true)
@@ -365,8 +358,7 @@ export default function PurchaseOrders() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [workOrders.length, showForm, editingPO])
 
-  // --- form actions ---------------------------------------------------------
-
+  // --- form actions
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
     setLoading(true)
@@ -462,9 +454,11 @@ export default function PurchaseOrders() {
     setAllowManualNumber(false)
   }
 
-  // FIX: close the Detail modal before opening the Edit form
+  // --- important: bulletproof edit opener
   const startEdit = (po: PurchaseOrder) => {
-    setSelectedPO(null) // <— ensure detail modal closes
+    // ensure row/overlay click never conflicts
+    setSelectedPO(null)
+    // populate form
     setEditingPO(po)
     setFormData({
       po_number: po.po_number,
@@ -479,7 +473,8 @@ export default function PurchaseOrders() {
     })
     setNumberingError('')
     setAllowManualNumber(true)
-    setShowForm(true)
+    // open on next tick to avoid any render race with Detail modal unmount
+    setTimeout(() => setShowForm(true), 0)
   }
 
   const deletePO = async (id: string) => {
@@ -502,7 +497,6 @@ export default function PurchaseOrders() {
 
     let { error } = await supabase.from('purchase_orders').update(updateData).eq('id', id)
 
-    // If schema cache doesn't have 'payment_date', retry without it and remember
     if (error && isMissingColumnError(error, 'payment_date') && 'payment_date' in updateData) {
       markNoPaymentDate()
       const retry = await supabase.from('purchase_orders').update({ status: next }).eq('id', id)
@@ -510,9 +504,7 @@ export default function PurchaseOrders() {
     }
 
     if (error) {
-      // Roll back optimistic UI
       setPOs(list => list.map(p => (p.id === id ? { ...p, status: previous } : p)))
-
       if (isStatusConstraintError(error)) {
         if (next === 'partially_received') {
           setSupportsPartialStatus(false)
@@ -525,13 +517,11 @@ export default function PurchaseOrders() {
         alert(`Your database constraint doesn’t allow status "${statusLook[next].label}". I’ve hidden it in the UI.`)
         return
       }
-
       alert('Could not update status: ' + (error.message || 'Unknown error'))
     }
   }
 
-  // --- derived values / UI helpers -----------------------------------------
-
+  // --- derived values / UI helpers
   const getBadge = (status: POStatus | null | undefined) => statusLook[normalizeStatus(status)].badge
   const getDot = (status: POStatus | null | undefined) => statusLook[normalizeStatus(status)].dot
   const getRowAccent = (status: POStatus | null | undefined) => statusLook[normalizeStatus(status)].row
@@ -579,8 +569,6 @@ export default function PurchaseOrders() {
     .reduce((sum, po) => sum + po.total_amount, 0)
   const outstanding = totalOrdered - receivedAmount
 
-  // --- render ---------------------------------------------------------------
-
   if (loading && pos.length === 0) {
     return (
       <div className="flex items-center justify-center h-64">
@@ -589,7 +577,6 @@ export default function PurchaseOrders() {
     )
   }
 
-  // Helper to render status <option>s while keeping current value visible even if blocked
   const renderStatusOptions = (current: POStatus) => {
     const allowed = ALL_STATUSES.filter(allowStatus)
     const showGhost = !allowStatus(current)
@@ -803,21 +790,21 @@ export default function PurchaseOrders() {
                       <td className="px-6 py-4 whitespace-nowrap text-sm font-medium">
                         <div className="flex space-x-2" onClick={(e) => e.stopPropagation()}>
                           <button
-                            onClick={() => setSelectedPO(po)}
+                            onClick={(e) => { e.stopPropagation(); setSelectedPO(po) }}
                             className="text-blue-600 hover:text-blue-800 p-1.5 transition-all duration-200 hover:bg-blue-100 rounded-full hover:shadow-sm"
                             title="View"
                           >
                             <Eye className="w-4 h-4" />
                           </button>
                           <button
-                            onClick={() => startEdit(po)}
+                            onClick={(e) => { e.stopPropagation(); startEdit(po) }}
                             className="text-blue-600 hover:text-blue-800 p-1.5 transition-all duration-200 hover:bg-blue-100 rounded-full hover:shadow-sm"
                             title="Edit"
                           >
                             <Edit className="w-4 h-4" />
                           </button>
                           <button
-                            onClick={() => deletePO(po.id)}
+                            onClick={(e) => { e.stopPropagation(); deletePO(po.id) }}
                             className="text-rose-600 hover:text-rose-800 p-1.5 transition-all duration-200 hover:bg-rose-100 rounded-full hover:shadow-sm"
                             title="Delete"
                           >
@@ -853,7 +840,7 @@ export default function PurchaseOrders() {
                   <div key={po.id} className="border border-gray-200 rounded-xl p-6 hover:shadow-md transition-shadow">
                     <div className="flex items-start justify-between mb-4">
                       <div className="flex-1">
-                        <div className="flex items中心 gap-2 mb-1">
+                        <div className="flex items-center gap-2 mb-1">
                           <span className={`h-2 w-2 rounded-full ${getDot(st)}`} />
                           <h3 className="text-lg font-semibold text-gray-900">{po.po_number}</h3>
                         </div>
@@ -894,7 +881,7 @@ export default function PurchaseOrders() {
                         <button onClick={() => setSelectedPO(po)} className="text-blue-600 hover:text-blue-800 text-sm font-medium">
                           View
                         </button>
-                        <button onClick={() => startEdit(po)} className="text-blue-600 hover:text-blue-800 text-sm font-medium">
+                        <button onClick={(e) => { e.stopPropagation(); startEdit(po) }} className="text-blue-600 hover:text-blue-800 text-sm font-medium">
                           Edit
                         </button>
                       </div>
@@ -1191,7 +1178,7 @@ export default function PurchaseOrders() {
 
               <div className="flex justify-end space-x-3 mt-8 pt-6 border-t border-gray-200">
                 <button
-                  onClick={() => { const po = selectedPO; if (po) startEdit(po) }}
+                  onClick={(e) => { e.stopPropagation(); startEdit(selectedPO) }}
                   className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors"
                 >
                   Edit PO
