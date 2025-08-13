@@ -16,7 +16,7 @@ interface PurchaseOrder {
   vendor_id: string
   work_order_id?: string | null
   po_number: string
-  status: any // runtime can be anything from DB; we safely coerce for UI
+  status: any
   order_date: string
   expected_date?: string | null
   subtotal: number
@@ -47,39 +47,24 @@ type PrefillPayload = {
   }
 }
 
-/* ---------- Status helpers (prevents reverting to 'draft') ---------- */
-
-const statusLook: Record<POStatus, {
-  label: string
-  badge: string   // text/bg for chips
-}> = {
-  draft: { label: 'Draft', badge: 'text-gray-700 bg-gray-100' },
-  ordered: { label: 'Ordered', badge: 'text-blue-700 bg-blue-100' },
-  partially_received: { label: 'Partially Received', badge: 'text-yellow-700 bg-yellow-100' },
-  received: { label: 'Received', badge: 'text-green-700 bg-green-100' },
-  cancelled: { label: 'Cancelled', badge: 'text-gray-700 bg-gray-200' }
+/* ====== Status helpers (colored pill + safe coercion) ====== */
+const statusLook: Record<POStatus, { label: string; badge: string }> = {
+  draft:               { label: 'Draft',               badge: 'text-gray-700 bg-gray-100' },
+  ordered:             { label: 'Ordered',             badge: 'text-blue-700 bg-blue-100' },
+  partially_received:  { label: 'Partially Received',  badge: 'text-yellow-700 bg-yellow-100' },
+  received:            { label: 'Received',            badge: 'text-green-700 bg-green-100' },
+  cancelled:           { label: 'Cancelled',           badge: 'text-gray-700 bg-gray-200' },
 }
 
-// Coerce any DB/string value to a known slug, but only for *display*.
-// We never mutate incoming records to 'draft' unless we must render.
 const toStatusSlug = (s: any): POStatus | null => {
   const v = String(s ?? '').toLowerCase()
-  switch (v) {
-    case 'draft':
-    case 'ordered':
-    case 'partially_received':
-    case 'received':
-    case 'cancelled':
-      return v
-    default:
-      return null
-  }
+  if (['draft','ordered','partially_received','received','cancelled'].includes(v)) return v as POStatus
+  return null
 }
 const safeStatus = (s: any): POStatus => toStatusSlug(s) ?? 'draft'
-const getStatusBadge = (s: any) => statusLook[safeStatus(s)].badge
+const badgeFor = (s: any) => statusLook[safeStatus(s)].badge
 const labelFor = (s: any) => statusLook[safeStatus(s)].label
-
-/* -------------------------------------------------------------------- */
+/* =========================================================== */
 
 export default function PurchaseOrders() {
   const { viewType, setViewType } = useViewPreference('purchase_orders')
@@ -96,7 +81,6 @@ export default function PurchaseOrders() {
   const [searchTerm, setSearchTerm] = useState('')
   const [statusFilter, setStatusFilter] = useState<POStatus | ''>('')
 
-  // Numbering fallback — if generation fails, allow manual number typing
   const [numberingError, setNumberingError] = useState<string>('') 
   const [allowManualNumber, setAllowManualNumber] = useState(false)
 
@@ -112,7 +96,6 @@ export default function PurchaseOrders() {
     notes: ''
   })
 
-  // --- helpers for URL handling & one-time prefill consumption
   const hasConsumedStoragePrefillRef = useRef(false)
   const suppressUrlCreateRef = useRef(false)
 
@@ -134,7 +117,10 @@ export default function PurchaseOrders() {
       url.searchParams.delete('wo')
       const [hashBase, hashQuery] = (url.hash || '').split('?')
       const cleanedHash = hashBase || ''
-      const cleaned = `${url.origin}${url.pathname}` + (url.searchParams.toString() ? `?${url.searchParams.toString()}` : '') + cleanedHash
+      const cleaned =
+        `${url.origin}${url.pathname}` +
+        (url.searchParams.toString() ? `?${url.searchParams.toString()}` : '') +
+        cleanedHash
       window.history.replaceState({}, '', cleaned)
       if (hashQuery) {
         const params = new URLSearchParams(hashQuery)
@@ -143,7 +129,7 @@ export default function PurchaseOrders() {
         const newHash = cleanedHash + (params.toString() ? `?${params.toString()}` : '')
         if (newHash !== window.location.hash) window.location.hash = newHash
       }
-    } catch { /* no-op */ }
+    } catch {}
   }
 
   const findWorkOrderByNumber = (woNumber: string) => {
@@ -179,7 +165,6 @@ export default function PurchaseOrders() {
         supabase.from('vendors').select('*').order('name'),
         supabase.from('work_orders').select('id, wo_number, title').order('created_at', { ascending: false })
       ])
-      // Keep DB values as-is; don't force status to 'draft' here
       setPOs(posResult.data || [])
       setVendors(vendorsResult.data || [])
       setWorkOrders(workOrdersResult.data || [])
@@ -208,7 +193,7 @@ export default function PurchaseOrders() {
     }
   }
 
-  // --- INCOMING CREATE REQUESTS (from Work Orders or URL) --------------------
+  // --- INCOMING CREATE REQUESTS ---------------------------------------------
 
   const prefillFromWorkOrder = (wo: { id?: string; wo_number?: string; title?: string } | null | undefined) => {
     setSelectedPO(null)
@@ -235,7 +220,6 @@ export default function PurchaseOrders() {
     prefillFromWorkOrder(payload.work_order)
   }
 
-  // Listen for app bus events and cross-tab signals
   useEffect(() => {
     if (typeof window === 'undefined') return
     if (suppressUrlCreateRef.current) { suppressUrlCreateRef.current = false; return }
@@ -354,7 +338,6 @@ export default function PurchaseOrders() {
         poData.po_number = formattedNumber
         const { error } = await supabase.from('purchase_orders').insert([poData])
         if (error) throw error
-
         if (nextSequence) await updateNextNumber('purchase_order', nextSequence)
       }
 
@@ -396,7 +379,6 @@ export default function PurchaseOrders() {
   }
 
   const startEdit = (po: PurchaseOrder) => {
-    // make sure any detail modal is closed and the click doesn't bubble
     setSelectedPO(null)
     setEditingPO(po)
     setFormData({
@@ -411,7 +393,7 @@ export default function PurchaseOrders() {
       notes: po.notes || ''
     })
     setNumberingError('')
-    setAllowManualNumber(true) // editing: allow number editing if needed
+    setAllowManualNumber(true)
     setShowForm(true)
   }
 
@@ -426,15 +408,15 @@ export default function PurchaseOrders() {
     }
   }
 
-  // Optimistic, no immediate reload (prevents revert)
-  const updateStatus = async (id: string, status: POStatus) => {
-    try {
-      await supabase.from('purchase_orders').update({ status }).eq('id', id)
-      // optional delayed refresh if you want: setTimeout(loadData, 300)
-    } catch (e) {
-      console.error('Error updating status:', e)
-      // roll back optimistic change
-      loadData()
+  // ✅ Persist to DB and roll back on error (no silent failures)
+  const persistStatus = async (id: string, next: POStatus, previous: any) => {
+    const updateData: any = { status: next }
+    if (next === 'received') updateData.payment_date = new Date().toISOString().split('T')[0]
+    const { error } = await supabase.from('purchase_orders').update(updateData).eq('id', id)
+    if (error) {
+      // rollback
+      setPOs((list) => list.map(p => p.id === id ? { ...p, status: previous } : p))
+      alert('Could not update status: ' + error.message)
     }
   }
 
@@ -457,7 +439,10 @@ export default function PurchaseOrders() {
 
   const totalOrdered = pos.reduce((sum, po) => sum + po.total_amount, 0)
   const receivedAmount = pos
-    .filter(po => safeStatus(po.status) === 'received' || safeStatus(po.status) === 'partially_received')
+    .filter(po => {
+      const s = safeStatus(po.status)
+      return s === 'received' || s === 'partially_received'
+    })
     .reduce((sum, po) => sum + po.total_amount, 0)
   const outstanding = totalOrdered - receivedAmount
 
@@ -547,8 +532,7 @@ export default function PurchaseOrders() {
         </div>
       </div>
 
-      {/* Content */}
-      {/* NOTE: no overflow-hidden so native <select> menus aren't clipped */}
+      {/* Content (no overflow-hidden so native dropdowns aren't clipped) */}
       <div className="bg-white rounded-xl shadow-sm border border-gray-200">
         {viewType === 'table' ? (
           <div className="overflow-x-auto">
@@ -585,25 +569,33 @@ export default function PurchaseOrders() {
                       </div>
                     </td>
                     <td className="px-6 py-4 whitespace-nowrap">
-                      <select
-                        value={safeStatus(po.status)}
-                        onClick={(e) => e.stopPropagation()}
-                        onMouseDown={(e) => e.stopPropagation()}
-                        onChange={(e) => {
-                          const next = (e.target.value as string).toLowerCase() as POStatus
-                          // optimistic UI
-                          setPOs(prev => prev.map(p => p.id === po.id ? { ...p, status: next } : p))
-                          // persist
-                          updateStatus(po.id, next)
-                        }}
-                        className={`relative z-10 cursor-pointer text-xs font-semibold rounded-full px-2 py-1 border-0 ${getStatusBadge(po.status)} focus:outline-none focus:ring-2 focus:ring-blue-500`}
-                      >
-                        <option value="draft">{statusLook.draft.label}</option>
-                        <option value="ordered">{statusLook.ordered.label}</option>
-                        <option value="partially_received">{statusLook.partially_received.label}</option>
-                        <option value="received">{statusLook.received.label}</option>
-                        <option value="cancelled">{statusLook.cancelled.label}</option>
-                      </select>
+                      <div className="flex items-center gap-2">
+                        {/* Colored pill always visible */}
+                        <span className={`inline-flex px-2 py-1 text-xs font-semibold rounded-full ${badgeFor(po.status)}`}>
+                          {labelFor(po.status)}
+                        </span>
+                        {/* Native select for changing value */}
+                        <select
+                          value={safeStatus(po.status)}
+                          onClick={(e) => e.stopPropagation()}
+                          onMouseDown={(e) => e.stopPropagation()}
+                          onChange={(e) => {
+                            const next = (e.target.value as string).toLowerCase() as POStatus
+                            const prev = po.status
+                            // optimistic
+                            setPOs(list => list.map(p => p.id === po.id ? ({ ...p, status: next }) : p))
+                            // persist (and roll back on error)
+                            persistStatus(po.id, next, prev)
+                          }}
+                          className="text-xs px-2 py-1 rounded-md border border-gray-300 bg-white focus:outline-none focus:ring-2 focus:ring-blue-500"
+                        >
+                          <option value="draft">Draft</option>
+                          <option value="ordered">Ordered</option>
+                          <option value="partially_received">Partially Received</option>
+                          <option value="received">Received</option>
+                          <option value="cancelled">Cancelled</option>
+                        </select>
+                      </div>
                     </td>
                     <td className="hidden md:table-cell px-6 py-4 whitespace-nowrap text-sm text-gray-900">
                       {po.expected_date ? new Date(po.expected_date).toLocaleDateString() : '-'}
@@ -647,7 +639,7 @@ export default function PurchaseOrders() {
                     <div className="flex-1">
                       <h3 className="text-lg font-semibold text-gray-900 mb-1">{po.po_number}</h3>
                       <p className="text-2xl font-bold text-blue-600 mb-2">${po.total_amount.toFixed(2)}</p>
-                      <span className={`inline-flex px-2 py-1 text-xs font-medium rounded-full ${getStatusBadge(po.status)}`}>
+                      <span className={`inline-flex px-2 py-1 text-xs font-medium rounded-full ${badgeFor(po.status)}`}>
                         {labelFor(po.status)}
                       </span>
                     </div>
@@ -823,7 +815,7 @@ export default function PurchaseOrders() {
                     value={formData.notes}
                     onChange={(e) => setFormData({ ...formData, notes: e.target.value })}
                     rows={3}
-                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus-border-transparent"
                   />
                 </div>
               </div>
@@ -896,7 +888,7 @@ export default function PurchaseOrders() {
                   <div className="space-y-3">
                     <div className="flex justify-between">
                       <span className="text-sm font-medium text-gray-700">Status:</span>
-                      <span className={`inline-flex px-2 py-1 text-xs font-medium rounded-full ${getStatusBadge(selectedPO.status)}`}>
+                      <span className={`inline-flex px-2 py-1 text-xs font-medium rounded-full ${badgeFor(selectedPO.status)}`}>
                         {labelFor(selectedPO.status)}
                       </span>
                     </div>
@@ -1000,5 +992,6 @@ export default function PurchaseOrders() {
     </div>
   )
 }
+
 
 
