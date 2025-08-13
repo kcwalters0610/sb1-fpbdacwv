@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react'
+import React, { useEffect, useState } from 'react'
 import {
   Plus,
   Search,
@@ -13,9 +13,9 @@ import {
   DollarSign,
   Users,
   Package,
-  Play,
   Square,
-  Building2
+  Play,
+  Building2,
 } from 'lucide-react'
 import { supabase, WorkOrder, Customer, Profile, CustomerSite } from '../lib/supabase'
 import { useViewPreference } from '../hooks/useViewPreference'
@@ -31,12 +31,15 @@ export default function WorkOrders() {
   const [departments, setDepartments] = useState<any[]>([])
   const [customerSites, setCustomerSites] = useState<CustomerSite[]>([])
   const [projects, setProjects] = useState<any[]>([])
+
   const [loading, setLoading] = useState(true)
   const [showForm, setShowForm] = useState(false)
   const [showAssignModal, setShowAssignModal] = useState(false)
+
   const [editingWorkOrder, setEditingWorkOrder] = useState<WorkOrder | null>(null)
   const [selectedWorkOrder, setSelectedWorkOrder] = useState<WorkOrder | null>(null)
   const [assigningWorkOrder, setAssigningWorkOrder] = useState<WorkOrder | null>(null)
+
   const [searchTerm, setSearchTerm] = useState('')
   const [statusFilter, setStatusFilter] = useState('')
   const [priorityFilter, setPriorityFilter] = useState('')
@@ -44,6 +47,7 @@ export default function WorkOrders() {
   const [loadingSites, setLoadingSites] = useState(false)
   const [selectedTechnicians, setSelectedTechnicians] = useState<string[]>([])
   const [primaryTechnician, setPrimaryTechnician] = useState<string>('')
+
   const [workOrderPhotos, setWorkOrderPhotos] = useState<any[]>([])
   const [showPhotoModal, setShowPhotoModal] = useState(false)
   const [photoCaption, setPhotoCaption] = useState('')
@@ -58,9 +62,9 @@ export default function WorkOrders() {
     start_time: '',
     end_time: '',
     description: '',
-    duration_minutes: 0
+    duration_minutes: 0,
   })
-  const [activeTimer, setActiveTimer] = useState<any>(null)
+  const [activeTimer, setActiveTimer] = useState<{ id: string; start_time: string; work_order_id: string } | null>(null)
   const [timerInterval, setTimerInterval] = useState<ReturnType<typeof setInterval> | null>(null)
 
   const [formData, setFormData] = useState({
@@ -75,8 +79,55 @@ export default function WorkOrders() {
     status: 'open',
     scheduled_date: '',
     work_type: '',
-    notes: ''
+    notes: '',
   })
+
+  // ---------- PO helper: store WO and navigate resiliently ----------
+  const createPOFromWorkOrder = (wo: WorkOrder) => {
+    if (!wo) return
+    // 1) Save in both formats (string + JSON)
+    try {
+      localStorage.setItem('preselected_work_order', wo.id)
+      localStorage.setItem(
+        'preselected_work_order_payload',
+        JSON.stringify({ id: wo.id, wo_number: wo.wo_number, title: wo.title })
+      )
+    } catch {}
+
+    // 2) Fire several event shapes so whatever listener you have catches one
+    const events = [
+      new CustomEvent('navigate', { detail: 'purchase-orders' }),
+      new CustomEvent('navigate', { detail: { page: 'purchase-orders' } }),
+      new CustomEvent('route', { detail: 'purchase-orders' }),
+      new CustomEvent('app:navigate', { detail: { to: 'purchase-orders' } }),
+    ]
+    for (const evt of events) {
+      try {
+        window.dispatchEvent(evt)
+      } catch {}
+      try {
+        document.dispatchEvent(evt)
+      } catch {}
+    }
+
+    // 3) Optional router helpers if present
+    try {
+      ;(window as any)?.router?.navigate?.('purchase-orders')
+    } catch {}
+    try {
+      ;(window as any)?.goTo?.('purchase-orders')
+    } catch {}
+
+    // 4) URL fallback for hash routers
+    try {
+      if (window?.history?.pushState) {
+        window.history.pushState({}, '', '#/purchase-orders')
+      } else {
+        window.location.hash = '#/purchase-orders'
+      }
+    } catch {}
+  }
+  // -----------------------------------------------------------------
 
   useEffect(() => {
     getCurrentUser()
@@ -94,7 +145,7 @@ export default function WorkOrders() {
       loadCustomerSites(formData.customer_id)
     } else {
       setCustomerSites([])
-      setFormData(prev => ({ ...prev, customer_site_id: '' }))
+      setFormData((prev) => ({ ...prev, customer_site_id: '' }))
     }
   }, [formData.customer_id])
 
@@ -108,12 +159,7 @@ export default function WorkOrders() {
     try {
       const { data: { user } } = await supabase.auth.getUser()
       if (user) {
-        const { data: profile } = await supabase
-          .from('profiles')
-          .select('*')
-          .eq('id', user.id)
-          .single()
-
+        const { data: profile } = await supabase.from('profiles').select('*').eq('id', user.id).single()
         setCurrentUser({ ...user, profile })
       }
     } catch (error) {
@@ -124,7 +170,7 @@ export default function WorkOrders() {
   const generateWONumber = async () => {
     try {
       const { formattedNumber: woNumber } = await getNextNumber('work_order')
-      setFormData(prev => ({ ...prev, wo_number: woNumber }))
+      setFormData((prev) => ({ ...prev, wo_number: woNumber }))
     } catch (error) {
       console.error('Error generating WO number:', error)
     }
@@ -153,7 +199,7 @@ export default function WorkOrders() {
         supabase.from('customers').select('*').order('first_name'),
         supabase.from('profiles').select('*').in('role', ['tech', 'admin', 'manager']).order('first_name'),
         supabase.from('departments').select('*').eq('is_active', true).order('name'),
-        supabase.from('projects').select('*').in('status', ['planning', 'in_progress']).order('project_name')
+        supabase.from('projects').select('*').in('status', ['planning', 'in_progress']).order('project_name'),
       ])
 
       setWorkOrders(workOrdersResult.data || [])
@@ -230,7 +276,7 @@ export default function WorkOrders() {
         .order('start_time', { ascending: false })
       setTimeEntries(times || [])
 
-      const wo = workOrders.find(w => w.id === workOrderId)
+      const wo = workOrders.find((w) => w.id === workOrderId)
       if (wo) setWorkOrderNotes(wo.notes || '')
     } catch (error) {
       console.error('Error loading work order details:', error)
@@ -244,40 +290,42 @@ export default function WorkOrders() {
       const { data: { user } } = await supabase.auth.getUser()
       if (!user) throw new Error('User not authenticated')
 
-      const { data: profile } = await supabase
-        .from('profiles')
-        .select('company_id')
-        .eq('id', user.id)
-        .single()
+      const { data: profile } = await supabase.from('profiles').select('company_id').eq('id', user.id).single()
       if (!profile) throw new Error('User profile not found')
 
       const { data: timeEntries, error: timeError } = await supabase
         .from('time_entries')
-        .select(`
+        .select(
+          `
           *,
           user:profiles(id, first_name, last_name, role)
-        `)
+        `
+        )
         .eq('work_order_id', workOrder.id)
         .eq('status', 'approved')
       if (timeError) console.error('Error fetching time entries:', timeError)
 
       const { data: purchaseOrders, error: poError } = await supabase
         .from('purchase_orders')
-        .select(`
+        .select(
+          `
           *,
           vendor:vendors(name),
           items:purchase_order_items(*)
-        `)
+        `
+        )
         .eq('work_order_id', workOrder.id)
         .in('status', ['approved', 'received'])
       if (poError) console.error('Error fetching purchase orders:', poError)
 
       const { data: truckInventory, error: inventoryError } = await supabase
         .from('truck_inventory')
-        .select(`
+        .select(
+          `
           *,
           inventory_item:inventory_items(name, unit_price)
-        `)
+        `
+        )
         .eq('work_order_id', workOrder.id)
       if (inventoryError) console.error('Error fetching truck inventory:', inventoryError)
 
@@ -294,44 +342,42 @@ export default function WorkOrders() {
       const costBreakdown: string[] = []
 
       if (timeEntries && timeEntries.length > 0) {
-        for (const entry of timeEntries) {
+        for (const entry of timeEntries as any[]) {
           const hours = entry.duration_minutes / 60
-          const rate = laborRates?.find(r =>
-            r.role === entry.user.role &&
-            (!r.department_id || r.department_id === workOrder.department_id)
+          const rate = laborRates?.find(
+            (r: any) => r.role === entry.user.role && (!r.department_id || r.department_id === workOrder.department_id)
           )
           const hourlyRate = rate?.hourly_rate || 50
           const entryCost = hours * hourlyRate
           laborCost += entryCost
           costBreakdown.push(
-            `Labor - ${entry.user.first_name} ${entry.user.last_name}: ${hours.toFixed(1)}h × $${hourlyRate}/h = $${entryCost.toFixed(2)}`
+            `Labor - ${entry.user.first_name} ${entry.user.last_name}: ${hours.toFixed(1)}h × $${hourlyRate}/h = $${entryCost.toFixed(
+              2
+            )}`
           )
         }
       }
 
       if (purchaseOrders && purchaseOrders.length > 0) {
-        for (const po of purchaseOrders) {
+        for (const po of purchaseOrders as any[]) {
           purchaseOrderCost += po.total_amount
           costBreakdown.push(`Purchase Order ${po.po_number} (${po.vendor?.name}): $${po.total_amount.toFixed(2)}`)
         }
       }
 
       if (truckInventory && truckInventory.length > 0) {
-        for (const item of truckInventory) {
-          const each = item.inventory_item?.unit_price || 0
-          const itemCost = item.quantity_used * each
+        for (const item of truckInventory as any[]) {
+          const itemCost = item.quantity_used * (item.inventory_item?.unit_price || 0)
           materialsCost += itemCost
-          costBreakdown.push(`Materials - ${item.inventory_item?.name}: ${item.quantity_used} × $${each} = $${itemCost.toFixed(2)}`)
+          costBreakdown.push(
+            `Materials - ${item.inventory_item?.name}: ${item.quantity_used} × $${item.inventory_item?.unit_price || 0} = $${itemCost.toFixed(2)}`
+          )
         }
       }
 
       const subtotal = laborCost + purchaseOrderCost + materialsCost
 
-      const { data: company } = await supabase
-        .from('companies')
-        .select('settings')
-        .eq('id', profile.company_id)
-        .single()
+      const { data: company } = await supabase.from('companies').select('settings').eq('id', profile.company_id).single()
       const taxRate = company?.settings?.tax_rate || 8.5
       const taxAmount = (subtotal * taxRate) / 100
       const totalAmount = subtotal + taxAmount
@@ -344,7 +390,7 @@ export default function WorkOrders() {
         'Cost Breakdown:',
         ...costBreakdown,
         '',
-        `Total: $${subtotal.toFixed(2)}`
+        `Total: $${subtotal.toFixed(2)}`,
       ].join('\n')
 
       const invoiceData = {
@@ -360,19 +406,20 @@ export default function WorkOrders() {
         tax_amount: 0,
         total_amount: subtotal,
         paid_amount: 0,
-        notes
+        notes,
       }
 
-      const { error: invoiceError } = await supabase.from('invoices').insert([invoiceData])
+      const { error: invoiceError } = await supabase.from('invoices').insert([invoiceData]).select().single()
       if (invoiceError) throw invoiceError
 
       await updateNextNumber('invoice', nextSequence)
 
       alert(`Invoice ${invoiceNumber} created successfully!\nSubtotal: $${subtotal.toFixed(2)}\nTotal: $${totalAmount.toFixed(2)}`)
-      window.dispatchEvent(new CustomEvent('navigate', { detail: 'invoices' as any }))
-    } catch (error) {
+
+      window.dispatchEvent(new CustomEvent('navigate', { detail: 'invoices' }))
+    } catch (error: any) {
       console.error('Error creating invoice:', error)
-      alert('Error creating invoice: ' + (error as Error).message)
+      alert('Error creating invoice: ' + error.message)
     }
   }
 
@@ -384,11 +431,7 @@ export default function WorkOrders() {
       const { data: { user } } = await supabase.auth.getUser()
       if (!user) throw new Error('User not authenticated')
 
-      const { data: profile } = await supabase
-        .from('profiles')
-        .select('company_id')
-        .eq('id', user.id)
-        .single()
+      const { data: profile } = await supabase.from('profiles').select('company_id').eq('id', user.id).single()
       if (!profile) throw new Error('User profile not found')
 
       const workOrderData: any = {
@@ -404,7 +447,7 @@ export default function WorkOrders() {
         status: formData.status,
         scheduled_date: formData.scheduled_date || null,
         work_type: formData.work_type || null,
-        notes: formData.notes || null
+        notes: formData.notes || null,
       }
 
       if (editingWorkOrder) {
@@ -422,9 +465,9 @@ export default function WorkOrders() {
       setEditingWorkOrder(null)
       resetForm()
       loadData()
-    } catch (error) {
+    } catch (error: any) {
       console.error('Error saving work order:', error)
-      alert('Error saving work order: ' + (error as Error).message)
+      alert('Error saving work order: ' + error.message)
     } finally {
       setLoading(false)
     }
@@ -443,7 +486,7 @@ export default function WorkOrders() {
       status: 'open',
       scheduled_date: '',
       work_type: '',
-      notes: ''
+      notes: '',
     })
     setCustomerSites([])
   }
@@ -460,15 +503,12 @@ export default function WorkOrders() {
       department_id: workOrder.department_id || '',
       priority: workOrder.priority,
       status: workOrder.status,
-      scheduled_date: workOrder.scheduled_date || '',
+      scheduled_date: (workOrder as any).scheduled_date || '',
       work_type: workOrder.work_type || '',
-      notes: workOrder.notes || ''
+      notes: workOrder.notes || '',
     })
 
-    if (workOrder.customer_id) {
-      loadCustomerSites(workOrder.customer_id)
-    }
-
+    if (workOrder.customer_id) loadCustomerSites(workOrder.customer_id)
     setShowForm(true)
   }
 
@@ -499,33 +539,29 @@ export default function WorkOrders() {
 
   const openAssignModal = (workOrder: WorkOrder) => {
     setAssigningWorkOrder(workOrder)
-    setSelectedTechnicians(workOrder.assignments?.map(a => a.tech_id) || [])
-    setPrimaryTechnician(workOrder.assignments?.find(a => a.is_primary)?.tech_id || '')
+    setSelectedTechnicians(workOrder.assignments?.map((a: any) => a.tech_id) || [])
+    setPrimaryTechnician(workOrder.assignments?.find((a: any) => a.is_primary)?.tech_id || '')
     setShowAssignModal(true)
   }
 
   const handleAssignTechnicians = async () => {
     if (!assigningWorkOrder || selectedTechnicians.length === 0) return
+
     try {
       const { data: { user } } = await supabase.auth.getUser()
       if (!user) throw new Error('User not authenticated')
 
-      const { data: profile } = await supabase
-        .from('profiles')
-        .select('company_id')
-        .eq('id', user.id)
-        .single()
+      const { data: profile } = await supabase.from('profiles').select('company_id').eq('id', user.id).single()
       if (!profile) throw new Error('User profile not found')
 
       await supabase.from('work_order_assignments').delete().eq('work_order_id', assigningWorkOrder.id)
 
-      const assignments = selectedTechnicians.map(techId => ({
+      const assignments = selectedTechnicians.map((techId) => ({
         work_order_id: assigningWorkOrder.id,
         tech_id: techId,
         is_primary: techId === primaryTechnician,
-        company_id: profile.company_id
+        company_id: profile.company_id,
       }))
-
       const { error } = await supabase.from('work_order_assignments').insert(assignments)
       if (error) throw error
 
@@ -544,13 +580,9 @@ export default function WorkOrders() {
     if (!selectedWorkOrder) return
     setSavingNotes(true)
     try {
-      const { error } = await supabase
-        .from('work_orders')
-        .update({ notes: workOrderNotes })
-        .eq('id', selectedWorkOrder.id)
+      const { error } = await supabase.from('work_orders').update({ notes: workOrderNotes }).eq('id', selectedWorkOrder.id)
       if (error) throw error
-
-      setWorkOrders(prev => prev.map(wo => wo.id === selectedWorkOrder.id ? { ...wo, notes: workOrderNotes } : wo))
+      setWorkOrders((prev) => prev.map((wo) => (wo.id === selectedWorkOrder.id ? { ...wo, notes: workOrderNotes } : wo)))
       alert('Notes saved successfully!')
     } catch (error) {
       console.error('Error saving notes:', error)
@@ -569,11 +601,7 @@ export default function WorkOrders() {
       const { data: { user } } = await supabase.auth.getUser()
       if (!user) throw new Error('User not authenticated')
 
-      const { data: profile } = await supabase
-        .from('profiles')
-        .select('company_id')
-        .eq('id', user.id)
-        .single()
+      const { data: profile } = await supabase.from('profiles').select('company_id').eq('id', user.id).single()
       if (!profile) throw new Error('User profile not found')
 
       const fileExt = file.name.split('.').pop()
@@ -582,15 +610,19 @@ export default function WorkOrders() {
       const { error: uploadError } = await supabase.storage.from('work-order-photos').upload(fileName, file)
       if (uploadError) throw uploadError
 
-      const { data: { publicUrl } } = supabase.storage.from('work-order-photos').getPublicUrl(fileName)
+      const {
+        data: { publicUrl },
+      } = supabase.storage.from('work-order-photos').getPublicUrl(fileName)
 
-      const { error: dbError } = await supabase.from('work_order_photos').insert([{
-        work_order_id: selectedWorkOrder.id,
-        company_id: profile.company_id,
-        photo_url: publicUrl,
-        caption: photoCaption,
-        uploaded_by: user.id
-      }])
+      const { error: dbError } = await supabase.from('work_order_photos').insert([
+        {
+          work_order_id: selectedWorkOrder.id,
+          company_id: profile.company_id,
+          photo_url: publicUrl,
+          caption: photoCaption,
+          uploaded_by: user.id,
+        },
+      ])
       if (dbError) throw dbError
 
       setPhotoCaption('')
@@ -612,33 +644,28 @@ export default function WorkOrders() {
       const { data: { user } } = await supabase.auth.getUser()
       if (!user) throw new Error('User not authenticated')
 
-      const { data: profile } = await supabase
-        .from('profiles')
-        .select('company_id')
-        .eq('id', user.id)
-        .single()
+      const { data: profile } = await supabase.from('profiles').select('company_id').eq('id', user.id).single()
       if (!profile) throw new Error('User profile not found')
 
       const { data, error } = await supabase
         .from('time_entries')
-        .insert([{
-          user_id: user.id,
-          company_id: profile.company_id,
-          work_order_id: selectedWorkOrder.id,
-          start_time: now,
-          description: `Working on ${selectedWorkOrder.title}`,
-          entry_type: 'work',
-          status: 'pending'
-        }])
+        .insert([
+          {
+            user_id: user.id,
+            company_id: profile.company_id,
+            work_order_id: selectedWorkOrder.id,
+            start_time: now,
+            description: `Working on ${selectedWorkOrder.title}`,
+            entry_type: 'work',
+            status: 'pending',
+          },
+        ])
         .select()
         .single()
       if (error) throw error
 
       setActiveTimer({ id: data.id, start_time: now, work_order_id: selectedWorkOrder.id })
-
-      const interval = setInterval(() => {
-        setActiveTimer(prev => (prev ? { ...prev } : null))
-      }, 1000)
+      const interval = setInterval(() => setActiveTimer((prev) => (prev ? { ...prev } : null)), 1000)
       setTimerInterval(interval)
     } catch (error) {
       console.error('Error starting timer:', error)
@@ -654,10 +681,7 @@ export default function WorkOrders() {
       const endTime = new Date(now)
       const durationMinutes = Math.round((endTime.getTime() - startTime.getTime()) / (1000 * 60))
 
-      const { error } = await supabase
-        .from('time_entries')
-        .update({ end_time: now, duration_minutes: durationMinutes })
-        .eq('id', activeTimer.id)
+      const { error } = await supabase.from('time_entries').update({ end_time: now, duration_minutes: durationMinutes }).eq('id', activeTimer.id)
       if (error) throw error
 
       setActiveTimer(null)
@@ -665,7 +689,6 @@ export default function WorkOrders() {
         clearInterval(timerInterval)
         setTimerInterval(null)
       }
-
       if (selectedWorkOrder) loadWorkOrderDetails(selectedWorkOrder.id)
     } catch (error) {
       console.error('Error stopping timer:', error)
@@ -679,24 +702,22 @@ export default function WorkOrders() {
       const { data: { user } } = await supabase.auth.getUser()
       if (!user) throw new Error('User not authenticated')
 
-      const { data: profile } = await supabase
-        .from('profiles')
-        .select('company_id')
-        .eq('id', user.id)
-        .single()
+      const { data: profile } = await supabase.from('profiles').select('company_id').eq('id', user.id).single()
       if (!profile) throw new Error('User profile not found')
 
-      const { error } = await supabase.from('time_entries').insert([{
-        user_id: user.id,
-        company_id: profile.company_id,
-        work_order_id: selectedWorkOrder.id,
-        start_time: timeFormData.start_time,
-        end_time: timeFormData.end_time || null,
-        duration_minutes: timeFormData.duration_minutes,
-        description: timeFormData.description,
-        entry_type: 'work',
-        status: 'pending'
-      }])
+      const { error } = await supabase.from('time_entries').insert([
+        {
+          user_id: user.id,
+          company_id: profile.company_id,
+          work_order_id: selectedWorkOrder.id,
+          start_time: timeFormData.start_time,
+          end_time: timeFormData.end_time || null,
+          duration_minutes: timeFormData.duration_minutes,
+          description: timeFormData.description,
+          entry_type: 'work',
+          status: 'pending',
+        },
+      ])
       if (error) throw error
 
       setShowTimeModal(false)
@@ -712,9 +733,8 @@ export default function WorkOrders() {
     if (timeFormData.start_time && timeFormData.end_time) {
       const start = new Date(timeFormData.start_time)
       const end = new Date(timeFormData.end_time)
-      const diffMs = end.getTime() - start.getTime()
-      const diffMins = Math.round(diffMs / (1000 * 60))
-      setTimeFormData(prev => ({ ...prev, duration_minutes: diffMins }))
+      const diffMins = Math.round((end.getTime() - start.getTime()) / (1000 * 60))
+      setTimeFormData((prev) => ({ ...prev, duration_minutes: diffMins }))
     }
   }
 
@@ -726,42 +746,54 @@ export default function WorkOrders() {
 
   const getStatusColor = (status: string) => {
     switch (status) {
-      case 'completed': return 'text-green-700 bg-green-100'
-      case 'in_progress': return 'text-blue-700 bg-blue-100'
-      case 'scheduled': return 'text-purple-700 bg-purple-100'
-      case 'cancelled': return 'text-red-700 bg-red-100'
-      case 'open': return 'text-yellow-700 bg-yellow-100'
-      default: return 'text-gray-700 bg-gray-100'
+      case 'completed':
+        return 'text-green-700 bg-green-100'
+      case 'in_progress':
+        return 'text-blue-700 bg-blue-100'
+      case 'scheduled':
+        return 'text-purple-700 bg-purple-100'
+      case 'cancelled':
+        return 'text-red-700 bg-red-100'
+      case 'open':
+        return 'text-yellow-700 bg-yellow-100'
+      default:
+        return 'text-gray-700 bg-gray-100'
     }
   }
 
   const getPriorityColor = (priority: string) => {
     switch (priority) {
-      case 'urgent': return 'text-red-700 bg-red-100'
-      case 'high': return 'text-orange-700 bg-orange-100'
-      case 'medium': return 'text-yellow-700 bg-yellow-100'
-      case 'low': return 'text-green-700 bg-green-100'
-      default: return 'text-gray-700 bg-gray-100'
+      case 'urgent':
+        return 'text-red-700 bg-red-100'
+      case 'high':
+        return 'text-orange-700 bg-orange-100'
+      case 'medium':
+        return 'text-yellow-700 bg-yellow-100'
+      case 'low':
+        return 'text-green-700 bg-green-100'
+      default:
+        return 'text-gray-700 bg-gray-100'
     }
   }
 
-  const filteredWorkOrders = workOrders.filter(workOrder => {
-    const name = workOrder.customer?.customer_type === 'residential'
-      ? `${workOrder.customer?.first_name ?? ''} ${workOrder.customer?.last_name ?? ''}`.trim()
-      : (workOrder.customer?.company_name ?? '')
+  const filteredWorkOrders = workOrders.filter((wo) => {
+    const customerName =
+      wo.customer?.customer_type === 'residential'
+        ? `${wo.customer?.first_name ?? ''} ${wo.customer?.last_name ?? ''}`.trim()
+        : wo.customer?.company_name ?? ''
     const matchesSearch =
-      workOrder.wo_number.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      workOrder.title.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      name.toLowerCase().includes(searchTerm.toLowerCase())
-    const matchesStatus = !statusFilter || workOrder.status === statusFilter
-    const matchesPriority = !priorityFilter || workOrder.priority === priorityFilter
+      wo.wo_number.toLowerCase().includes(searchTerm.toLowerCase()) ||
+      wo.title.toLowerCase().includes(searchTerm.toLowerCase()) ||
+      customerName.toLowerCase().includes(searchTerm.toLowerCase())
+    const matchesStatus = !statusFilter || wo.status === statusFilter
+    const matchesPriority = !priorityFilter || wo.priority === priorityFilter
     return matchesSearch && matchesStatus && matchesPriority
   })
 
   if (loading && workOrders.length === 0) {
     return (
       <div className="flex items-center justify-center h-64">
-        <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600"></div>
+        <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600" />
       </div>
     )
   }
@@ -826,7 +858,7 @@ export default function WorkOrders() {
         </div>
       </div>
 
-      {/* Work Orders Content */}
+      {/* Work Orders List */}
       <div className="bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden">
         {viewType === 'table' ? (
           <div className="overflow-x-auto">
@@ -863,16 +895,14 @@ export default function WorkOrders() {
                     </td>
                     <td className="hidden md:table-cell px-6 py-4 whitespace-nowrap">
                       <div className="text-sm text-gray-900">
-                        {workOrder.assignments && workOrder.assignments.length > 0 ? (
+                        {workOrder.assignments && (workOrder as any).assignments.length > 0 ? (
                           <div>
-                            {workOrder.assignments.map((assignment) => (
+                            {(workOrder as any).assignments.map((assignment: any) => (
                               <div key={assignment.id} className="flex items-center">
                                 <span className={assignment.is_primary ? 'font-semibold' : ''}>
                                   {assignment.technician?.first_name} {assignment.technician?.last_name}
                                 </span>
-                                {assignment.is_primary && (
-                                  <span className="ml-1 text-xs text-blue-600">(Primary)</span>
-                                )}
+                                {assignment.is_primary && <span className="ml-1 text-xs text-blue-600">(Primary)</span>}
                               </div>
                             ))}
                           </div>
@@ -896,7 +926,7 @@ export default function WorkOrders() {
                       </select>
                     </td>
                     <td className="hidden md:table-cell px-6 py-4 whitespace-nowrap text-sm text-gray-900">
-                      {workOrder.scheduled_date ? new Date(workOrder.scheduled_date).toLocaleDateString() : 'Not scheduled'}
+                      {(workOrder as any).scheduled_date ? new Date((workOrder as any).scheduled_date).toLocaleDateString() : 'Not scheduled'}
                     </td>
                     <td className="px-6 py-4 whitespace-nowrap text-sm font-medium">
                       <div className="flex space-x-2">
@@ -906,7 +936,9 @@ export default function WorkOrders() {
                         >
                           <Eye className="w-4 h-4" />
                         </button>
-                        {(currentUser?.profile?.role === 'admin' || currentUser?.profile?.role === 'manager' || currentUser?.profile?.role === 'office') && (
+                        {(currentUser?.profile?.role === 'admin' ||
+                          currentUser?.profile?.role === 'manager' ||
+                          currentUser?.profile?.role === 'office') && (
                           <>
                             <button
                               onClick={() => openAssignModal(workOrder)}
@@ -980,31 +1012,26 @@ export default function WorkOrders() {
                       </div>
                     )}
 
-                    {workOrder.scheduled_date && (
+                    {(workOrder as any).scheduled_date && (
                       <div className="flex items-center text-sm text-gray-600">
                         <Calendar className="w-4 h-4 mr-3" />
-                        <span>{new Date(workOrder.scheduled_date).toLocaleDateString()}</span>
+                        <span>{new Date((workOrder as any).scheduled_date).toLocaleDateString()}</span>
                       </div>
                     )}
 
                     <div className="flex items-center text-sm text-gray-600">
                       <Users className="w-4 h-4 mr-3" />
                       <span>
-                        {workOrder.assignments && workOrder.assignments.length > 0
-                          ? `${workOrder.assignments.length} technician${workOrder.assignments.length > 1 ? 's' : ''}`
+                        {(workOrder as any).assignments && (workOrder as any).assignments.length > 0
+                          ? `${(workOrder as any).assignments.length} technician${(workOrder as any).assignments.length > 1 ? 's' : ''}`
                           : 'Unassigned'}
                       </span>
                     </div>
                   </div>
 
                   <div className="flex justify-between items-center pt-4 border-t border-gray-200">
-                    <div className="text-sm text-gray-500">
-                      {workOrder.project && `Project: ${workOrder.project.project_name}`}
-                    </div>
-                    <button
-                      onClick={() => setSelectedWorkOrder(workOrder)}
-                      className="text-blue-600 hover:text-blue-800 text-sm font-medium"
-                    >
+                    <div className="text-sm text-gray-500">{(workOrder as any).project && `Project: ${(workOrder as any).project.project_name}`}</div>
+                    <button onClick={() => setSelectedWorkOrder(workOrder)} className="text-blue-600 hover:text-blue-800 text-sm font-medium">
                       View Details →
                     </button>
                   </div>
@@ -1021,12 +1048,8 @@ export default function WorkOrders() {
           <div className="bg-white rounded-xl shadow-xl max-w-4xl w-full max-h-screen overflow-y-auto">
             <div className="p-6 border-b border-gray-200">
               <div className="flex items-center justify-between">
-                <h3 className="text-lg font-semibold text-gray-900">
-                  {editingWorkOrder ? 'Edit Work Order' : 'Create New Work Order'}
-                </h3>
-                <div className="text-sm text-blue-600 font-medium">
-                  WO Number: {formData.wo_number}
-                </div>
+                <h3 className="text-lg font-semibold text-gray-900">{editingWorkOrder ? 'Edit Work Order' : 'Create New Work Order'}</h3>
+                <div className="text-sm text-blue-600 font-medium">WO Number: {formData.wo_number}</div>
               </div>
             </div>
 
@@ -1052,11 +1075,9 @@ export default function WorkOrders() {
                     required
                   >
                     <option value="">Select Customer</option>
-                    {customers.map((customer) => (
-                      <option key={customer.id} value={customer.id}>
-                        {customer.customer_type === 'residential'
-                          ? `${customer.first_name} ${customer.last_name}`
-                          : customer.company_name}
+                    {customers.map((c) => (
+                      <option key={c.id} value={c.id}>
+                        {c.customer_type === 'residential' ? `${c.first_name} ${c.last_name}` : c.company_name}
                       </option>
                     ))}
                   </select>
@@ -1189,19 +1210,11 @@ export default function WorkOrders() {
               </div>
 
               <div className="flex justify-end space-x-3 pt-6 border-t border-gray-200">
-                <button
-                  type="button"
-                  onClick={() => setShowForm(false)}
-                  className="px-6 py-2 text-gray-700 bg-gray-100 rounded-lg hover:bg-gray-200 transition-colors"
-                >
+                <button type="button" onClick={() => setShowForm(false)} className="px-6 py-2 text-gray-700 bg-gray-100 rounded-lg hover:bg-gray-200 transition-colors">
                   Cancel
                 </button>
-                <button
-                  type="submit"
-                  disabled={loading}
-                  className="px-6 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50 transition-colors"
-                >
-                  {loading ? 'Saving...' : (editingWorkOrder ? 'Update Work Order' : 'Create Work Order')}
+                <button type="submit" disabled={loading} className="px-6 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50 transition-colors">
+                  {loading ? 'Saving...' : editingWorkOrder ? 'Update Work Order' : 'Create Work Order'}
                 </button>
               </div>
             </form>
@@ -1214,9 +1227,7 @@ export default function WorkOrders() {
         <div className="fixed inset-0 bg-gray-600 bg-opacity-50 flex items-center justify-center p-4 z-50">
           <div className="bg-white rounded-xl shadow-xl max-w-md w-full">
             <div className="p-6 border-b border-gray-200">
-              <h3 className="text-lg font-semibold text-gray-900">
-                Assign Technicians to {assigningWorkOrder.wo_number}
-              </h3>
+              <h3 className="text-lg font-semibold text-gray-900">Assign Technicians to {assigningWorkOrder.wo_number}</h3>
             </div>
 
             <div className="p-6 space-y-4">
@@ -1233,10 +1244,8 @@ export default function WorkOrders() {
                           if (e.target.checked) {
                             setSelectedTechnicians([...selectedTechnicians, tech.id])
                           } else {
-                            setSelectedTechnicians(selectedTechnicians.filter(id => id !== tech.id))
-                            if (primaryTechnician === tech.id) {
-                              setPrimaryTechnician('')
-                            }
+                            setSelectedTechnicians(selectedTechnicians.filter((id) => id !== tech.id))
+                            if (primaryTechnician === tech.id) setPrimaryTechnician('')
                           }
                         }}
                         className="h-4 w-4 text-blue-600 focus:ring-blue-500 border-gray-300 rounded"
@@ -1259,7 +1268,7 @@ export default function WorkOrders() {
                   >
                     <option value="">Select Primary</option>
                     {selectedTechnicians.map((techId) => {
-                      const tech = technicians.find(t => t.id === techId)
+                      const tech = technicians.find((t) => t.id === techId)
                       return (
                         <option key={techId} value={techId}>
                           {tech?.first_name} {tech?.last_name}
@@ -1271,17 +1280,10 @@ export default function WorkOrders() {
               )}
 
               <div className="flex justify-end space-x-3 pt-4">
-                <button
-                  onClick={() => setShowAssignModal(false)}
-                  className="px-4 py-2 text-gray-700 bg-gray-100 rounded-lg hover:bg-gray-200 transition-colors"
-                >
+                <button onClick={() => setShowAssignModal(false)} className="px-4 py-2 text-gray-700 bg-gray-100 rounded-lg hover:bg-gray-200 transition-colors">
                   Cancel
                 </button>
-                <button
-                  onClick={handleAssignTechnicians}
-                  disabled={selectedTechnicians.length === 0}
-                  className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50 transition-colors"
-                >
+                <button onClick={handleAssignTechnicians} disabled={selectedTechnicians.length === 0} className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50 transition-colors">
                   Assign Technicians
                 </button>
               </div>
@@ -1296,23 +1298,17 @@ export default function WorkOrders() {
           <div className="bg-white rounded-xl shadow-xl max-w-6xl w-full max-h-screen overflow-y-auto">
             <div className="p-6 border-b border-gray-200">
               <div className="flex items-center justify-between">
-                <h3 className="text-xl font-semibold text-gray-900">
-                  Work Order {selectedWorkOrder.wo_number}
-                </h3>
+                <h3 className="text-xl font-semibold text-gray-900">Work Order {selectedWorkOrder.wo_number}</h3>
                 <div className="flex items-center space-x-3">
-                  {(currentUser?.profile?.role === 'admin' || currentUser?.profile?.role === 'manager' || currentUser?.profile?.role === 'office') && (
-                    <button
-                      onClick={() => handleCreateInvoice(selectedWorkOrder)}
-                      className="inline-flex items-center px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 transition-colors"
-                    >
+                  {(currentUser?.profile?.role === 'admin' ||
+                    currentUser?.profile?.role === 'manager' ||
+                    currentUser?.profile?.role === 'office') && (
+                    <button onClick={() => handleCreateInvoice(selectedWorkOrder)} className="inline-flex items-center px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 transition-colors">
                       <DollarSign className="w-4 h-4 mr-2" />
                       Create Invoice
                     </button>
                   )}
-                  <button
-                    onClick={() => setSelectedWorkOrder(null)}
-                    className="text-gray-400 hover:text-gray-600"
-                  >
+                  <button onClick={() => setSelectedWorkOrder(null)} className="text-gray-400 hover:text-gray-600">
                     <X className="w-6 h-6" />
                   </button>
                 </div>
@@ -1321,7 +1317,7 @@ export default function WorkOrders() {
 
             <div className="p-6">
               <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
-                {/* Left Column - Work Order Info */}
+                {/* Left Column */}
                 <div className="space-y-6">
                   <div>
                     <h4 className="text-lg font-medium text-gray-900 mb-4">Work Order Information</h4>
@@ -1342,12 +1338,10 @@ export default function WorkOrders() {
                           {selectedWorkOrder.priority.toUpperCase()}
                         </span>
                       </div>
-                      {selectedWorkOrder.scheduled_date && (
+                      {(selectedWorkOrder as any).scheduled_date && (
                         <div className="flex justify-between">
                           <span className="text-sm font-medium text-gray-700">Scheduled:</span>
-                          <span className="text-sm text-gray-900">
-                            {new Date(selectedWorkOrder.scheduled_date).toLocaleString()}
-                          </span>
+                          <span className="text-sm text-gray-900">{new Date((selectedWorkOrder as any).scheduled_date).toLocaleString()}</span>
                         </div>
                       )}
                       {selectedWorkOrder.work_type && (
@@ -1404,9 +1398,9 @@ export default function WorkOrders() {
                   {/* Assigned Technicians */}
                   <div>
                     <h4 className="text-lg font-medium text-gray-900 mb-4">Assigned Technicians</h4>
-                    {selectedWorkOrder.assignments && selectedWorkOrder.assignments.length > 0 ? (
+                    {(selectedWorkOrder as any).assignments && (selectedWorkOrder as any).assignments.length > 0 ? (
                       <div className="space-y-2">
-                        {selectedWorkOrder.assignments.map((assignment) => (
+                        {(selectedWorkOrder as any).assignments.map((assignment: any) => (
                           <div key={assignment.id} className="flex items-center justify-between p-3 bg-gray-50 rounded-lg">
                             <div className="flex items-center space-x-3">
                               <div className="w-8 h-8 bg-blue-100 rounded-full flex items-center justify-center">
@@ -1420,9 +1414,7 @@ export default function WorkOrders() {
                               </div>
                             </div>
                             {assignment.is_primary && (
-                              <span className="inline-flex px-2 py-1 text-xs font-medium rounded-full text-blue-700 bg-blue-100">
-                                Primary
-                              </span>
+                              <span className="inline-flex px-2 py-1 text-xs font-medium rounded-full text-blue-700 bg-blue-100">Primary</span>
                             )}
                           </div>
                         ))}
@@ -1435,15 +1427,11 @@ export default function WorkOrders() {
 
                 {/* Right Column - Activities */}
                 <div className="space-y-6">
-                  {/* Notes Section */}
+                  {/* Notes */}
                   <div>
                     <div className="flex items-center justify-between mb-4">
                       <h4 className="text-lg font-medium text-gray-900">Notes</h4>
-                      <button
-                        onClick={saveNotes}
-                        disabled={savingNotes}
-                        className="inline-flex items-center px-3 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50 transition-colors text-sm"
-                      >
+                      <button onClick={saveNotes} disabled={savingNotes} className="inline-flex items-center px-3 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50 transition-colors text-sm">
                         {savingNotes ? 'Saving...' : 'Save Notes'}
                       </button>
                     </div>
@@ -1456,14 +1444,11 @@ export default function WorkOrders() {
                     />
                   </div>
 
-                  {/* Photos Section */}
+                  {/* Photos */}
                   <div>
                     <div className="flex items-center justify-between mb-4">
                       <h4 className="text-lg font-medium text-gray-900">Photos ({workOrderPhotos.length})</h4>
-                      <button
-                        onClick={() => setShowPhotoModal(true)}
-                        className="inline-flex items-center px-3 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors text-sm"
-                      >
+                      <button onClick={() => setShowPhotoModal(true)} className="inline-flex items-center px-3 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors text-sm">
                         <Camera className="w-4 h-4 mr-2" />
                         Add Photo
                       </button>
@@ -1472,16 +1457,8 @@ export default function WorkOrders() {
                       <div className="grid grid-cols-2 gap-4">
                         {workOrderPhotos.map((photo) => (
                           <div key={photo.id} className="relative">
-                            <img
-                              src={photo.photo_url}
-                              alt={photo.caption || 'Work order photo'}
-                              className="w-full h-32 object-cover rounded-lg border border-gray-200"
-                            />
-                            {photo.caption && (
-                              <div className="absolute bottom-0 left-0 right-0 bg-black bg-opacity-50 text-white text-xs p-2 rounded-b-lg">
-                                {photo.caption}
-                              </div>
-                            )}
+                            <img src={photo.photo_url} alt={photo.caption || 'Work order photo'} className="w-full h-32 object-cover rounded-lg border border-gray-200" />
+                            {photo.caption && <div className="absolute bottom-0 left-0 right-0 bg-black bg-opacity-50 text-white text-xs p-2 rounded-b-lg">{photo.caption}</div>}
                           </div>
                         ))}
                       </div>
@@ -1490,16 +1467,13 @@ export default function WorkOrders() {
                     )}
                   </div>
 
-                  {/* Purchase Orders Section */}
+                  {/* Purchase Orders */}
                   <div>
                     <div className="flex items-center justify-between mb-4">
                       <h4 className="text-lg font-medium text-gray-900">Purchase Orders ({purchaseOrders.length})</h4>
                       <button
-                        onClick={() => {
-                          if (!selectedWorkOrder) return
-                          localStorage.setItem('preselected_work_order', selectedWorkOrder.id)
-                          window.dispatchEvent(new CustomEvent('navigate', { detail: 'purchase-orders' as any }))
-                        }}
+                        type="button"
+                        onClick={() => createPOFromWorkOrder(selectedWorkOrder!)}
                         className="inline-flex items-center px-3 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 transition-colors text-sm"
                       >
                         <Plus className="w-4 h-4 mr-2" />
@@ -1508,7 +1482,7 @@ export default function WorkOrders() {
                     </div>
                     {purchaseOrders.length > 0 ? (
                       <div className="space-y-3">
-                        {purchaseOrders.map((po) => (
+                        {purchaseOrders.map((po: any) => (
                           <div key={po.id} className="flex items-center justify-between p-3 bg-gray-50 rounded-lg">
                             <div>
                               <p className="text-sm font-medium text-gray-900">{po.po_number}</p>
@@ -1518,9 +1492,11 @@ export default function WorkOrders() {
                               <p className="text-sm font-medium text-gray-900">${po.total_amount.toFixed(2)}</p>
                               <span
                                 className={`inline-flex px-2 py-1 text-xs font-medium rounded-full ${
-                                  po.status === 'approved' ? 'text-blue-700 bg-blue-100'
-                                    : po.status === 'received' ? 'text-green-700 bg-green-100'
-                                      : 'text-yellow-700 bg-yellow-100'
+                                  po.status === 'approved'
+                                    ? 'text-blue-700 bg-blue-100'
+                                    : po.status === 'received'
+                                    ? 'text-green-700 bg-green-100'
+                                    : 'text-yellow-700 bg-yellow-100'
                                 }`}
                               >
                                 {po.status}
@@ -1534,20 +1510,18 @@ export default function WorkOrders() {
                     )}
                   </div>
 
-                  {/* Truck Inventory Section */}
+                  {/* Truck Inventory */}
                   <div>
                     <div className="flex items-center justify-between mb-4">
                       <h4 className="text-lg font-medium text-gray-900">Truck Inventory ({truckInventory.length})</h4>
-                      <button
-                        className="inline-flex items-center px-3 py-2 bg-orange-600 text-white rounded-lg hover:bg-orange-700 transition-colors text-sm"
-                      >
+                      <button className="inline-flex items-center px-3 py-2 bg-orange-600 text-white rounded-lg hover:bg-orange-700 transition-colors text-sm">
                         <Package className="w-4 h-4 mr-2" />
                         Add Item
                       </button>
                     </div>
                     {truckInventory.length > 0 ? (
                       <div className="space-y-3">
-                        {truckInventory.map((item) => (
+                        {truckInventory.map((item: any) => (
                           <div key={item.id} className="flex items-center justify-between p-3 bg-gray-50 rounded-lg">
                             <div>
                               <p className="text-sm font-medium text-gray-900">{item.inventory_item?.name}</p>
@@ -1558,18 +1532,17 @@ export default function WorkOrders() {
                               <p className="text-sm font-medium text-gray-900">
                                 ${((item.inventory_item?.unit_price || 0) * item.quantity_used).toFixed(2)}
                               </p>
-                              <p className="text-xs text-gray-500">
-                                ${(item.inventory_item?.unit_price || 0).toFixed(2)} each
-                              </p>
+                              <p className="text-xs text-gray-500">${(item.inventory_item?.unit_price || 0).toFixed(2)} each</p>
                             </div>
                           </div>
                         ))}
                         <div className="flex justify-between items-center pt-3 border-t border-gray-200">
                           <span className="text-sm font-medium text-gray-700">Total Materials Cost:</span>
                           <span className="text-lg font-bold text-green-600">
-                            ${truckInventory.reduce((sum, item) =>
-                              sum + ((item.inventory_item?.unit_price || 0) * item.quantity_used), 0
-                            ).toFixed(2)}
+                            $
+                            {truckInventory
+                              .reduce((sum: number, item: any) => sum + (item.inventory_item?.unit_price || 0) * item.quantity_used, 0)
+                              .toFixed(2)}
                           </span>
                         </div>
                       </div>
@@ -1578,32 +1551,23 @@ export default function WorkOrders() {
                     )}
                   </div>
 
-                  {/* Time Tracking Section */}
+                  {/* Time Tracking */}
                   <div>
                     <div className="flex items-center justify-between mb-4">
                       <h4 className="text-lg font-medium text-gray-900">Time Tracking ({timeEntries.length})</h4>
                       <div className="flex space-x-2">
                         {!activeTimer ? (
-                          <button
-                            onClick={startTimer}
-                            className="inline-flex items-center px-3 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 transition-colors text-sm"
-                          >
+                          <button onClick={startTimer} className="inline-flex items-center px-3 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 transition-colors text-sm">
                             <Play className="w-4 h-4 mr-2" />
                             Start Timer
                           </button>
                         ) : (
-                          <button
-                            onClick={stopTimer}
-                            className="inline-flex items-center px-3 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700 transition-colors text-sm"
-                          >
+                          <button onClick={stopTimer} className="inline-flex items-center px-3 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700 transition-colors text-sm">
                             <Square className="w-4 h-4 mr-2" />
                             Stop Timer
                           </button>
                         )}
-                        <button
-                          onClick={() => setShowTimeModal(true)}
-                          className="inline-flex items-center px-3 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors text-sm"
-                        >
+                        <button onClick={() => setShowTimeModal(true)} className="inline-flex items-center px-3 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors text-sm">
                           <Clock className="w-4 h-4 mr-2" />
                           Add Time
                         </button>
@@ -1614,21 +1578,17 @@ export default function WorkOrders() {
                       <div className="mb-4 p-3 bg-green-50 border border-green-200 rounded-lg">
                         <div className="flex items-center justify-between">
                           <span className="text-sm font-medium text-green-800">Timer Running</span>
-                          <span className="text-sm text-green-600">
-                            Started: {new Date(activeTimer.start_time).toLocaleTimeString()}
-                          </span>
+                          <span className="text-sm text-green-600">Started: {new Date(activeTimer.start_time).toLocaleTimeString()}</span>
                         </div>
                       </div>
                     )}
 
                     {timeEntries.length > 0 ? (
                       <div className="space-y-3">
-                        {timeEntries.map((entry) => (
+                        {timeEntries.map((entry: any) => (
                           <div key={entry.id} className="flex items-center justify-between p-3 bg-gray-50 rounded-lg">
                             <div>
-                              <p className="text-sm font-medium text-gray-900">
-                                {formatDuration(entry.duration_minutes)}
-                              </p>
+                              <p className="text-sm font-medium text-gray-900">{formatDuration(entry.duration_minutes)}</p>
                               <p className="text-xs text-gray-500">
                                 {entry.user?.first_name} {entry.user?.last_name}
                               </p>
@@ -1639,9 +1599,11 @@ export default function WorkOrders() {
                             <div className="text-right">
                               <span
                                 className={`inline-flex px-2 py-1 text-xs font-medium rounded-full ${
-                                  entry.status === 'approved' ? 'text-green-700 bg-green-100'
-                                    : entry.status === 'rejected' ? 'text-red-700 bg-red-100'
-                                      : 'text-yellow-700 bg-yellow-100'
+                                  entry.status === 'approved'
+                                    ? 'text-green-700 bg-green-100'
+                                    : entry.status === 'rejected'
+                                    ? 'text-red-700 bg-red-100'
+                                    : 'text-yellow-700 bg-yellow-100'
                                 }`}
                               >
                                 {entry.status}
@@ -1693,10 +1655,7 @@ export default function WorkOrders() {
               </div>
 
               <div className="flex justify-end space-x-3 pt-4">
-                <button
-                  onClick={() => setShowPhotoModal(false)}
-                  className="px-4 py-2 text-gray-700 bg-gray-100 rounded-lg hover:bg-gray-200 transition-colors"
-                >
+                <button onClick={() => setShowPhotoModal(false)} className="px-4 py-2 text-gray-700 bg-gray-100 rounded-lg hover:bg-gray-200 transition-colors">
                   Cancel
                 </button>
               </div>
@@ -1761,16 +1720,10 @@ export default function WorkOrders() {
               </div>
 
               <div className="flex justify-end space-x-3 pt-4">
-                <button
-                  onClick={() => setShowTimeModal(false)}
-                  className="px-4 py-2 text-gray-700 bg-gray-100 rounded-lg hover:bg-gray-200 transition-colors"
-                >
+                <button onClick={() => setShowTimeModal(false)} className="px-4 py-2 text-gray-700 bg-gray-100 rounded-lg hover:bg-gray-200 transition-colors">
                   Cancel
                 </button>
-                <button
-                  onClick={addTimeEntry}
-                  className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors"
-                >
+                <button onClick={addTimeEntry} className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors">
                   Add Time Entry
                 </button>
               </div>
