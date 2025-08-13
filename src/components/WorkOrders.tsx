@@ -156,75 +156,61 @@ export default function WorkOrders() {
     } catch {}
   }
 
-/** Build the right PO URL for hash or browser routing */
-const getPOLink = () => {
-  const usesHashRouter =
-    location.hash.startsWith('#/') ||
-    document.querySelector('script[src*="hash"]') != null; // best-effort hint
-
-  const qs = '?create=1&from=work-order';
-  return usesHashRouter ? `#/purchase-orders${qs}` : `/purchase-orders${qs}`;
-};
-
-/** Cross-router navigation with events and a last-resort redirect */
-const goToPurchaseOrders = (payload: any) => {
-  const url = getPOLink();
-  let navigated = false;
-
-  // Try common router helpers if your app exposes them
-  try { window.router?.navigate?.('/purchase-orders'); navigated = true; } catch {}
-  try { window.router?.push?.('/purchase-orders');     navigated = true; } catch {}
-  try { window.goTo?.('purchase-orders');              navigated = true; } catch {}
-  try { window.appNavigate?.('purchase-orders');       navigated = true; } catch {}
-
-  // History / Hash navigation
-  if (!navigated) {
-    try {
-      if (url.startsWith('#/')) {
-        location.hash = url;
-        window.dispatchEvent(new HashChangeEvent('hashchange'));
-      } else {
-        window.history.pushState({}, '', url);
-        window.dispatchEvent(new PopStateEvent('popstate'));
-      }
-      navigated = true;
-    } catch {}
+  // --- NEW: robust navigation helpers (nav button → hash → hard reload) ---
+  const clickNavToPO = () => {
+    const byDataAttr = document.querySelector('[data-nav="purchase-orders"]') as HTMLElement | null
+    if (byDataAttr) {
+      byDataAttr.click()
+      return true
+    }
+    const candidates = Array.from(document.querySelectorAll('a,button'))
+    const found = candidates.find((el) => /purchase\s*orders/i.test((el as HTMLElement).innerText || '')) as
+      | HTMLElement
+      | undefined
+    if (found) {
+      found.click()
+      return true
+    }
+    return false
   }
 
-  // Fire common app events many apps listen for
-  try {
-    window.dispatchEvent(new CustomEvent('navigate', { detail: 'purchase-orders' }));
-    window.dispatchEvent(new CustomEvent('purchase-orders:create', { detail: payload }));
-    window.dispatchEvent(new CustomEvent('app:navigate', { detail: { to: 'purchase-orders', action: 'create', payload } }));
-  } catch {}
+  const getPOUrl = () => {
+    const qs = `?create=1&from=work-order&ts=${Date.now()}`
+    const isHash = location.hash.startsWith('#/')
+    return isHash ? `#/purchase-orders${qs}` : `/purchase-orders${qs}`
+  }
 
-  // Last-resort: force the URL so we definitely land on the page
-  setTimeout(() => {
-    const here = location.pathname + location.search + location.hash;
-    if (!/purchase\-orders/.test(here)) {
-      window.location.href = url;
-    }
-  }, 30);
-};
+  /** NEW: Close modal → persist/broadcast → try nav button → hash → hard nav */
+  const handleCreatePOClick = () => {
+    if (!selectedWorkOrder) return
+    const payload = buildPOPrefill(selectedWorkOrder)
 
+    persistPOPrefill(payload)
+    broadcastPOCreate(payload)
 
-/** Close modal → persist/broadcast → go */
-const handleCreatePOClick = () => {
-  if (!selectedWorkOrder) return;
-  const payload = buildPOPrefill(selectedWorkOrder);
+    // Close the details modal before navigation
+    setSelectedWorkOrder(null)
 
-  // Make the PO page aware of the source + data
-  persistPOPrefill(payload);
-  broadcastPOCreate(payload);
+    setTimeout(() => {
+      const url = getPOUrl()
+      const clicked = clickNavToPO()
+      if (clicked) return
 
-  // Close the details modal first to avoid focus-trap issues
-  setSelectedWorkOrder(null);
+      // Hash update for hash routers
+      try {
+        location.hash = url
+      } catch {}
 
-  // Navigate on the next tick
-  setTimeout(() => goToPurchaseOrders(payload), 0);
-};
-
-
+      // Force navigation if shell didn’t react
+      setTimeout(() => {
+        try {
+          window.location.assign(url)
+        } catch {
+          window.location.href = url
+        }
+      }, 25)
+    }, 0)
+  }
 
   // =========================
   // Data & UI logic
@@ -633,9 +619,7 @@ const handleCreatePOClick = () => {
   const updateStatus = async (id: string, status: string) => {
     try {
       const updateData: any = { status }
-      if (status === 'completed') {
-        updateData.completed_date = new Date().toISOString()
-      }
+      if (status === 'completed') updateData.completed_date = new Date().toISOString()
       const { error } = await supabase.from('work_orders').update(updateData).eq('id', id)
       if (error) throw error
       loadData()
