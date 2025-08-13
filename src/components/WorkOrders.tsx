@@ -22,6 +22,16 @@ import { useViewPreference } from '../hooks/useViewPreference'
 import ViewToggle from './ViewToggle'
 import { getNextNumber, updateNextNumber } from '../lib/numbering'
 
+/** Helpful globals so TS doesn't complain if these exist in your app */
+declare global {
+  interface Window {
+    router?: { navigate?: (to: string) => void; push?: (to: string) => void; replace?: (to: string) => void }
+    goTo?: (to: string) => void
+    appNavigate?: (to: string) => void
+    openPOCreate?: (payload: any) => void
+  }
+}
+
 export default function WorkOrders() {
   const { viewType, setViewType } = useViewPreference('workOrders')
 
@@ -82,25 +92,55 @@ export default function WorkOrders() {
     notes: '',
   })
 
-  // ---------- PO helper: store WO and navigate resiliently ----------
-  const createPOFromWorkOrder = (wo: WorkOrder) => {
-    if (!wo) return
-    // 1) Save in both formats (string + JSON)
-    try {
-      localStorage.setItem('preselected_work_order', wo.id)
-      localStorage.setItem(
-        'preselected_work_order_payload',
-        JSON.stringify({ id: wo.id, wo_number: wo.wo_number, title: wo.title })
-      )
-    } catch {}
+  // =========================
+  // Purchase Order Helpers
+  // =========================
 
-    // 2) Fire several event shapes so whatever listener you have catches one
+  /** Build a compact payload the PO page can use to prefill the creation table */
+  const buildPOPrefill = (wo: WorkOrder) => {
+    const customerName =
+      wo.customer?.customer_type === 'residential'
+        ? `${wo.customer?.first_name ?? ''} ${wo.customer?.last_name ?? ''}`.trim()
+        : wo.customer?.company_name ?? ''
+
+    return {
+      kind: 'po:create_from_work_order',
+      ts: Date.now(),
+      work_order: {
+        id: wo.id,
+        wo_number: wo.wo_number,
+        title: wo.title,
+        customer_id: wo.customer_id,
+        customer_site_id: (wo as any).customer_site_id || null,
+        project_id: (wo as any).project_id || null,
+        department_id: (wo as any).department_id || null,
+        customer_display: customerName,
+      },
+    }
+  }
+
+  /** Persist to localStorage (also fires a "storage" event for cross-tab listeners) */
+  const persistPOPrefill = (payload: any) => {
+    try {
+      localStorage.setItem('po_prefill_from_wo', JSON.stringify(payload))
+      // ping listeners that rely on a fresh key to trigger
+      localStorage.setItem('po_create_ping', JSON.stringify({ ts: Date.now() }))
+    } catch (e) {
+      console.warn('Failed to persist PO prefill payload', e)
+    }
+  }
+
+  /** Broadcast multiple event shapes to maximize compatibility with your app’s bus */
+  const broadcastPOCreate = (payload: any) => {
     const events = [
+      new CustomEvent('po:create', { detail: payload }),
+      new CustomEvent('purchase-orders:create', { detail: payload }),
+      new CustomEvent('po:new', { detail: payload }),
       new CustomEvent('navigate', { detail: 'purchase-orders' }),
-      new CustomEvent('navigate', { detail: { page: 'purchase-orders' } }),
-      new CustomEvent('route', { detail: 'purchase-orders' }),
-      new CustomEvent('app:navigate', { detail: { to: 'purchase-orders' } }),
+      new CustomEvent('navigate', { detail: { page: 'purchase-orders', action: 'create', payload } }),
+      new CustomEvent('app:navigate', { detail: { to: 'purchase-orders', action: 'create', payload } }),
     ]
+
     for (const evt of events) {
       try {
         window.dispatchEvent(evt)
@@ -110,24 +150,65 @@ export default function WorkOrders() {
       } catch {}
     }
 
-    // 3) Optional router helpers if present
+    // if a global hook exists, call it
     try {
-      ;(window as any)?.router?.navigate?.('purchase-orders')
+      window.openPOCreate?.(payload)
     } catch {}
+  }
+
+  /** Try several navigation fallbacks commonly used in SPAs */
+  const navigateToPurchaseOrders = () => {
     try {
-      ;(window as any)?.goTo?.('purchase-orders')
+      // Most custom routers
+      window.router?.navigate?.('/purchase-orders/new')
+      window.router?.navigate?.('/purchase-orders')
+      window.router?.push?.('/purchase-orders/new')
+      window.router?.replace?.('/purchase-orders/new')
     } catch {}
 
-    // 4) URL fallback for hash routers
+    try {
+      window.goTo?.('purchase-orders')
+      window.appNavigate?.('purchase-orders')
+    } catch {}
+
+    // Hash-router fallback
     try {
       if (window?.history?.pushState) {
-        window.history.pushState({}, '', '#/purchase-orders')
+        const target = /\/purchase-orders/.test(location.hash) ? location.hash : '#/purchase-orders'
+        window.history.pushState({}, '', target)
       } else {
         window.location.hash = '#/purchase-orders'
       }
     } catch {}
+
+    // Last-resort hard change that still stays in-app if your router handles the path
+    try {
+      if (!/purchase-orders/.test(window.location.href)) {
+        window.location.assign('#/purchase-orders')
+      }
+    } catch {}
   }
-  // -----------------------------------------------------------------
+
+  /** Close the modal, then persist + broadcast + navigate */
+  const handleCreatePOClick = () => {
+    if (!selectedWorkOrder) return
+    const payload = buildPOPrefill(selectedWorkOrder)
+
+    // 1) close the overlay first (prevents focus traps from blocking route change)
+    setSelectedWorkOrder(null)
+
+    // 2) after the modal unmounts, fire everything
+    setTimeout(() => {
+      console.info('[WO] Requesting PO create with payload:', payload)
+      persistPOPrefill(payload)
+      broadcastPOCreate(payload)
+      navigateToPurchaseOrders()
+    }, 0)
+  }
+
+  // =========================
+  // Data & UI logic
+  // =========================
 
   useEffect(() => {
     getCurrentUser()
@@ -157,7 +238,9 @@ export default function WorkOrders() {
 
   const getCurrentUser = async () => {
     try {
-      const { data: { user } } = await supabase.auth.getUser()
+      const {
+        data: { user },
+      } = await supabase.auth.getUser()
       if (user) {
         const { data: profile } = await supabase.from('profiles').select('*').eq('id', user.id).single()
         setCurrentUser({ ...user, profile })
@@ -287,7 +370,9 @@ export default function WorkOrders() {
     if (!confirm(`Create invoice for Work Order ${workOrder.wo_number}?`)) return
 
     try {
-      const { data: { user } } = await supabase.auth.getUser()
+      const {
+        data: { user },
+      } = await supabase.auth.getUser()
       if (!user) throw new Error('User not authenticated')
 
       const { data: profile } = await supabase.from('profiles').select('company_id').eq('id', user.id).single()
@@ -351,9 +436,7 @@ export default function WorkOrders() {
           const entryCost = hours * hourlyRate
           laborCost += entryCost
           costBreakdown.push(
-            `Labor - ${entry.user.first_name} ${entry.user.last_name}: ${hours.toFixed(1)}h × $${hourlyRate}/h = $${entryCost.toFixed(
-              2
-            )}`
+            `Labor - ${entry.user.first_name} ${entry.user.last_name}: ${hours.toFixed(1)}h × $${hourlyRate}/h = $${entryCost.toFixed(2)}`
           )
         }
       }
@@ -414,7 +497,9 @@ export default function WorkOrders() {
 
       await updateNextNumber('invoice', nextSequence)
 
-      alert(`Invoice ${invoiceNumber} created successfully!\nSubtotal: $${subtotal.toFixed(2)}\nTotal: $${totalAmount.toFixed(2)}`)
+      alert(
+        `Invoice ${invoiceNumber} created successfully!\nSubtotal: $${subtotal.toFixed(2)}\nTotal: $${totalAmount.toFixed(2)}`
+      )
 
       window.dispatchEvent(new CustomEvent('navigate', { detail: 'invoices' }))
     } catch (error: any) {
@@ -428,7 +513,9 @@ export default function WorkOrders() {
     setLoading(true)
 
     try {
-      const { data: { user } } = await supabase.auth.getUser()
+      const {
+        data: { user },
+      } = await supabase.auth.getUser()
       if (!user) throw new Error('User not authenticated')
 
       const { data: profile } = await supabase.from('profiles').select('company_id').eq('id', user.id).single()
@@ -498,9 +585,9 @@ export default function WorkOrders() {
       title: workOrder.title,
       description: workOrder.description || '',
       customer_id: workOrder.customer_id,
-      customer_site_id: workOrder.customer_site_id || '',
-      project_id: workOrder.project_id || '',
-      department_id: workOrder.department_id || '',
+      customer_site_id: (workOrder as any).customer_site_id || '',
+      project_id: (workOrder as any).project_id || '',
+      department_id: (workOrder as any).department_id || '',
       priority: workOrder.priority,
       status: workOrder.status,
       scheduled_date: (workOrder as any).scheduled_date || '',
@@ -539,8 +626,8 @@ export default function WorkOrders() {
 
   const openAssignModal = (workOrder: WorkOrder) => {
     setAssigningWorkOrder(workOrder)
-    setSelectedTechnicians(workOrder.assignments?.map((a: any) => a.tech_id) || [])
-    setPrimaryTechnician(workOrder.assignments?.find((a: any) => a.is_primary)?.tech_id || '')
+    setSelectedTechnicians((workOrder as any).assignments?.map((a: any) => a.tech_id) || [])
+    setPrimaryTechnician((workOrder as any).assignments?.find((a: any) => a.is_primary)?.tech_id || '')
     setShowAssignModal(true)
   }
 
@@ -548,7 +635,9 @@ export default function WorkOrders() {
     if (!assigningWorkOrder || selectedTechnicians.length === 0) return
 
     try {
-      const { data: { user } } = await supabase.auth.getUser()
+      const {
+        data: { user },
+      } = await supabase.auth.getUser()
       if (!user) throw new Error('User not authenticated')
 
       const { data: profile } = await supabase.from('profiles').select('company_id').eq('id', user.id).single()
@@ -598,7 +687,9 @@ export default function WorkOrders() {
 
     setUploadingPhoto(true)
     try {
-      const { data: { user } } = await supabase.auth.getUser()
+      const {
+        data: { user },
+      } = await supabase.auth.getUser()
       if (!user) throw new Error('User not authenticated')
 
       const { data: profile } = await supabase.from('profiles').select('company_id').eq('id', user.id).single()
@@ -641,7 +732,9 @@ export default function WorkOrders() {
     if (!selectedWorkOrder || !currentUser) return
     try {
       const now = new Date().toISOString()
-      const { data: { user } } = await supabase.auth.getUser()
+      const {
+        data: { user },
+      } = await supabase.auth.getUser()
       if (!user) throw new Error('User not authenticated')
 
       const { data: profile } = await supabase.from('profiles').select('company_id').eq('id', user.id).single()
@@ -699,7 +792,9 @@ export default function WorkOrders() {
   const addTimeEntry = async () => {
     if (!selectedWorkOrder || !currentUser) return
     try {
-      const { data: { user } } = await supabase.auth.getUser()
+      const {
+        data: { user },
+      } = await supabase.auth.getUser()
       if (!user) throw new Error('User not authenticated')
 
       const { data: profile } = await supabase.from('profiles').select('company_id').eq('id', user.id).single()
@@ -895,7 +990,7 @@ export default function WorkOrders() {
                     </td>
                     <td className="hidden md:table-cell px-6 py-4 whitespace-nowrap">
                       <div className="text-sm text-gray-900">
-                        {workOrder.assignments && (workOrder as any).assignments.length > 0 ? (
+                        {(workOrder as any).assignments && (workOrder as any).assignments.length > 0 ? (
                           <div>
                             {(workOrder as any).assignments.map((assignment: any) => (
                               <div key={assignment.id} className="flex items-center">
@@ -1473,7 +1568,7 @@ export default function WorkOrders() {
                       <h4 className="text-lg font-medium text-gray-900">Purchase Orders ({purchaseOrders.length})</h4>
                       <button
                         type="button"
-                        onClick={() => createPOFromWorkOrder(selectedWorkOrder!)}
+                        onClick={handleCreatePOClick}
                         className="inline-flex items-center px-3 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 transition-colors text-sm"
                       >
                         <Plus className="w-4 h-4 mr-2" />
