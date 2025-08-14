@@ -13,7 +13,7 @@ export interface StripeProduct {
 export const stripeProducts: StripeProduct[] = [
   {
     id: 'prod_SrW9XwUp5X6QGF',
-    priceId: 'price_1Rvn7PH2k7OW1G0R8kUIQs5K',
+    priceId: 'price_1Rw5WIHjUCCcUwLCEKQCijXg',
     name: 'Starter Base',
     description: 'Essential features for small field service teams',
     mode: 'subscription',
