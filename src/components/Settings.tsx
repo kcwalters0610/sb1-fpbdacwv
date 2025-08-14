@@ -127,6 +127,7 @@ export default function Settings() {
   useEffect(() => {
     getCurrentUser()
     loadCompanyData()
+    handleQuickBooksCallback()
   }, [])
 
   const getCurrentUser = async () => {
@@ -227,6 +228,84 @@ export default function Settings() {
       console.error('Error loading company data:', error)
     } finally {
       setLoading(false)
+    }
+  }
+
+  // Handle QuickBooks OAuth callback
+  const handleQuickBooksCallback = async () => {
+    const urlParams = new URLSearchParams(window.location.search)
+    const code = urlParams.get('code')
+    const state = urlParams.get('state')
+    const realmId = urlParams.get('realmId')
+    const storedState = sessionStorage.getItem('qb_oauth_state')
+    
+    if (code && state && realmId && state === storedState) {
+      try {
+        setQuickbooksLoading(true)
+        
+        // Exchange authorization code for tokens
+        const tokenResponse = await fetch('https://oauth.platform.intuit.com/oauth2/v1/tokens/bearer', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/x-www-form-urlencoded',
+            'Authorization': `Basic ${btoa('ABteVUSbuZTgHOWF3xwj6d4XguHEOMilR59SD1cf99IZpC73fX:Ql32s1YqPG1VlxDIQmayyNSwdHlWCIpw1cg2Gyll')}`
+          },
+          body: new URLSearchParams({
+            grant_type: 'authorization_code',
+            code: code,
+            redirect_uri: `${window.location.origin}/settings`
+          })
+        })
+        
+        if (!tokenResponse.ok) {
+          throw new Error('Failed to exchange authorization code for tokens')
+        }
+        
+        const tokenData = await tokenResponse.json()
+        
+        // Update company settings with QuickBooks connection
+        const updatedSettings = {
+          ...company.settings,
+          quickbooks: {
+            connected: true,
+            company_id: realmId,
+            access_token: tokenData.access_token,
+            refresh_token: tokenData.refresh_token,
+            token_expires_at: new Date(Date.now() + (tokenData.expires_in * 1000)).toISOString(),
+            connected_at: new Date().toISOString(),
+            last_sync: null,
+            sync_settings: {
+              sync_customers: true,
+              sync_invoices: true,
+              sync_inventory: true,
+              auto_sync: false
+            }
+          }
+        }
+        
+        const { error } = await supabase
+          .from('companies')
+          .update({ settings: updatedSettings })
+          .eq('id', currentUser?.profile?.company_id)
+        
+        if (error) throw error
+        
+        setCompany({ ...company, settings: updatedSettings })
+        setQuickbooksSuccess('QuickBooks connected successfully!')
+        
+        // Clean up URL and session storage
+        sessionStorage.removeItem('qb_oauth_state')
+        window.history.replaceState({}, '', '/settings')
+        
+      } catch (error) {
+        console.error('Error completing QuickBooks connection:', error)
+        setQuickbooksError('Failed to complete QuickBooks connection. Please try again.')
+        
+        // Clean up URL
+        window.history.replaceState({}, '', '/settings')
+      } finally {
+        setQuickbooksLoading(false)
+      }
     }
   }
 
@@ -467,23 +546,28 @@ export default function Settings() {
     setQuickbooksError('')
     
     try {
-      // In a real implementation, this would redirect to QuickBooks OAuth
-      // For now, we'll simulate the connection
-      const mockConnection = {
-        company_id: 'qb_' + Math.random().toString(36).substr(2, 9),
-        access_token: 'mock_access_token_' + Date.now(),
-        refresh_token: 'mock_refresh_token_' + Date.now()
-      }
+      // Generate state parameter for security
+      const state = Math.random().toString(36).substring(2, 15) + Math.random().toString(36).substring(2, 15)
       
-      setQuickbooksForm({
-        ...quickbooksForm,
-        enabled: true,
-        company_id: mockConnection.company_id,
-        access_token: mockConnection.access_token,
-        refresh_token: mockConnection.refresh_token
-      })
+      // Store state in sessionStorage for verification
+      sessionStorage.setItem('qb_oauth_state', state)
       
-      setQuickbooksSuccess('QuickBooks connected successfully!')
+      // QuickBooks OAuth URL
+      const clientId = 'ABteVUSbuZTgHOWF3xwj6d4XguHEOMilR59SD1cf99IZpC73fX'
+      const redirectUri = encodeURIComponent(`${window.location.origin}/settings`)
+      const scope = encodeURIComponent('com.intuit.quickbooks.accounting')
+      
+      const authUrl = `https://appcenter.intuit.com/connect/oauth2?` +
+        `client_id=${clientId}&` +
+        `scope=${scope}&` +
+        `redirect_uri=${redirectUri}&` +
+        `response_type=code&` +
+        `access_type=offline&` +
+        `state=${state}`
+      
+      // Open QuickBooks OAuth in the same window
+      window.location.href = authUrl
+      
     } catch (error) {
       console.error('Error connecting to QuickBooks:', error)
       setQuickbooksError('Failed to connect to QuickBooks. Please try again.')
