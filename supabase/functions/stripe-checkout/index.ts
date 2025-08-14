@@ -219,8 +219,6 @@ Deno.serve(async (req) => {
       }
     }
 
-    // For tiered pricing, we need to calculate the quantity based on user count
-    const actualQuantity = Math.max(user_count, 1); // Ensure at least 1 for the base tier
     // create Checkout Session
     const session = await stripe.checkout.sessions.create({
       customer: customerId,
@@ -228,7 +226,7 @@ Deno.serve(async (req) => {
       line_items: [
         {
           price: price_id,
-          quantity: actualQuantity,
+          quantity: 1,
         },
       ],
       mode,
