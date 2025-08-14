@@ -16,6 +16,7 @@ export default function Layout({ children, currentPage, onPageChange }: LayoutPr
   const [currentUser, setCurrentUser] = useState<any>(null)
   const [subscriptionFeatures, setSubscriptionFeatures] = useState<any>({})
   const [currentPlan, setCurrentPlan] = useState<string>('')
+  const [planColor, setPlanColor] = useState<string>('')
 
   // Define which navigation items are visible to which roles
   const getVisibleNavItems = (role: string, features: any) => {
@@ -138,7 +139,23 @@ export default function Layout({ children, currentPage, onPageChange }: LayoutPr
 
       if (stripeData?.price_id) {
         const product = getProductByPriceId(stripeData.price_id)
-        setCurrentPlan(product?.name || '')
+        if (product) {
+          setCurrentPlan(product.name)
+          // Set color based on plan
+          switch (product.name.toLowerCase()) {
+            case 'starter base':
+              setPlanColor('text-blue-600')
+              break
+            case 'pro base':
+              setPlanColor('text-purple-600')
+              break
+            case 'business base':
+              setPlanColor('text-yellow-600')
+              break
+            default:
+              setPlanColor('text-blue-600')
+          }
+        }
       }
     } catch (error) {
       console.error('Error loading current plan:', error)
@@ -292,7 +309,7 @@ export default function Layout({ children, currentPage, onPageChange }: LayoutPr
                     </p>
                     {currentPlan && (
                       <p className="text-xs text-blue-600 font-medium">
-                        {currentPlan} Plan
+                        <span className={planColor}>{currentPlan}</span>
                       </p>
                     )}
                   </div>
@@ -345,7 +362,7 @@ export default function Layout({ children, currentPage, onPageChange }: LayoutPr
               </div>
               {currentPlan && (
                 <div className="text-sm text-blue-600 font-medium mr-4">
-                  {currentPlan} Plan
+                  <span className={planColor}>{currentPlan}</span>
                 </div>
               )}
             </div>

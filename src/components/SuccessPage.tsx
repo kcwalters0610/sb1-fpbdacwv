@@ -51,23 +51,31 @@ export default function SuccessPage({ onContinue }: SuccessPageProps) {
           ) : currentProduct ? (
             <div className="bg-gray-50 rounded-lg p-6 mb-6">
               <div className="flex items-center justify-center mb-4">
-                <Package className="w-8 h-8 text-blue-600 mr-3" />
+                <div className={`w-12 h-12 rounded-lg flex items-center justify-center mr-4 ${
+                  currentProduct.name === 'Business Base' ? 'bg-yellow-100' :
+                  currentProduct.name === 'Pro Base' ? 'bg-purple-100' : 'bg-blue-100'
+                }`}>
+                  <Package className={`w-6 h-6 ${
+                    currentProduct.name === 'Business Base' ? 'text-yellow-600' :
+                    currentProduct.name === 'Pro Base' ? 'text-purple-600' : 'text-blue-600'
+                  }`} />
+                </div>
                 <div>
                   <h3 className="text-lg font-semibold text-gray-900">{currentProduct.name}</h3>
-                  <p className="text-sm text-gray-600">${currentProduct.price}/month</p>
+                  <p className="text-sm text-gray-600">${currentProduct.price.toFixed(2)}/month</p>
                 </div>
               </div>
               
               <div className="space-y-2">
-                {currentProduct.features.slice(0, 3).map((feature, index) => (
+                {currentProduct.features.slice(0, 4).map((feature, index) => (
                   <div key={index} className="flex items-center text-sm text-gray-700">
                     <CheckCircle className="w-4 h-4 text-green-500 mr-2 flex-shrink-0" />
                     <span>{feature}</span>
                   </div>
                 ))}
-                {currentProduct.features.length > 3 && (
+                {currentProduct.features.length > 4 && (
                   <p className="text-sm text-gray-500 mt-2">
-                    +{currentProduct.features.length - 3} more features
+                    +{currentProduct.features.length - 4} more features
                   </p>
                 )}
               </div>
@@ -88,9 +96,10 @@ export default function SuccessPage({ onContinue }: SuccessPageProps) {
             <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
               <h4 className="text-sm font-medium text-blue-900 mb-2">What's Next?</h4>
               <ul className="text-sm text-blue-700 space-y-1">
-                <li>• Access all premium features</li>
+                <li>• Access all {currentProduct?.name || 'plan'} features</li>
                 <li>• Manage your team and projects</li>
                 <li>• View billing details in settings</li>
+                <li>• Invite team members to your workspace</li>
               </ul>
             </div>
 

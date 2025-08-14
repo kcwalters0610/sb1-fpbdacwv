@@ -26,6 +26,7 @@ export default function SubscriptionSettings() {
   const [busyPlanId, setBusyPlanId] = useState<string | null>(null)
   const [stripeSubscription, setStripeSubscription] = useState<any>(null)
   const [checkoutLoading, setCheckoutLoading] = useState(false)
+  const [checkoutError, setCheckoutError] = useState('')
 
   const [currentUser, setCurrentUser] = useState<any>(null)
   const [activeUsers, setActiveUsers] = useState(0)
@@ -85,6 +86,7 @@ export default function SubscriptionSettings() {
   const handleCheckout = async (priceId: string) => {
     setCheckoutLoading(true)
     setBusyPlanId(priceId)
+    setCheckoutError('')
     
     try {
       const { data: { session } } = await supabase.auth.getSession()
@@ -120,7 +122,7 @@ export default function SubscriptionSettings() {
       }
     } catch (error) {
       console.error('Checkout error:', error)
-      alert('Failed to start checkout. Please try again.')
+      setCheckoutError('Failed to start checkout. Please try again.')
     } finally {
       setCheckoutLoading(false)
       setBusyPlanId(null)
@@ -346,6 +348,15 @@ export default function SubscriptionSettings() {
       <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-6">
         <h3 className="text-lg font-semibold text-gray-900 mb-6">Available Plans</h3>
 
+        {checkoutError && (
+          <div className="mb-6 bg-red-50 border border-red-200 rounded-lg p-4">
+            <div className="flex items-center">
+              <AlertTriangle className="w-5 h-5 text-red-600 mr-2" />
+              <p className="text-red-800 text-sm">{checkoutError}</p>
+            </div>
+          </div>
+        )}
+
         <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
           {stripeProducts.map((product) => {
             const isCurrentPlan = stripeSubscription?.price_id === product.priceId
@@ -412,6 +423,7 @@ export default function SubscriptionSettings() {
                   </button>
                 ) : isCurrentPlan ? (
                   <div className="w-full py-3 px-4 bg-blue-100 text-blue-800 rounded-lg text-center font-medium">
+                    <CheckCircle className="w-4 h-4 mr-2 inline" />
                     Current Plan
                   </div>
                 ) : (
@@ -568,6 +580,27 @@ export default function SubscriptionSettings() {
       {/* Usage Statistics */}
       <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-6">
         <h3 className="text-lg font-semibold text-gray-900 mb-6">Usage Statistics</h3>
+        
+        <div className="mb-6">
+          <div className="flex items-center justify-between mb-2">
+            <span className="text-sm font-medium text-gray-700">User Limit Progress</span>
+            <span className="text-sm text-gray-600">{activeUsers} / {planLimit} users</span>
+          </div>
+          <div className="w-full bg-gray-200 rounded-full h-2">
+            <div 
+              className={`h-2 rounded-full transition-all duration-300 ${
+                activeUsers > planLimit ? 'bg-red-500' : 
+                activeUsers / planLimit > 0.8 ? 'bg-yellow-500' : 'bg-green-500'
+              }`}
+              style={{ width: `${Math.min((activeUsers / planLimit) * 100, 100)}%` }}
+            ></div>
+          </div>
+          {activeUsers > planLimit && (
+            <p className="text-xs text-red-600 mt-1">
+              You are {activeUsers - planLimit} user{activeUsers - planLimit !== 1 ? 's' : ''} over your plan limit
+            </p>
+          )}
+        </div>
 
         <div className="grid grid-cols-1 md:grid-cols-4 gap-6">
           <div className="bg-blue-50 rounded-lg p-4">
@@ -620,7 +653,7 @@ export default function SubscriptionSettings() {
               <div>
                 <h4 className="text-sm font-medium text-yellow-800">Overage Charges Apply</h4>
                 <p className="text-sm text-yellow-700 mt-1">
-                  You have {overageUsers} user{overageUsers !== 1 ? 's' : ''} over your plan limit. Additional charges of {usd.format(overageCost)}/month will apply at ${perUserCost}/user.
+                  You have {overageUsers} user{overageUsers !== 1 ? 's' : ''} over your plan limit. Additional charges of {usd.format(overageCost)}/month will apply at {usd.format(perUserCost)}/user.
                 </p>
                 <p className="text-sm text-yellow-700 mt-2">
                   Consider upgrading to a higher plan to reduce per-user costs.
@@ -665,11 +698,11 @@ export default function SubscriptionSettings() {
             <div className="space-y-2">
               <div className="flex justify-between">
                 <span className="text-sm text-gray-600">Base Plan:</span>
-                <span className="text-sm text-gray-900">{usd.format(basePrice)}</span>
+                <span className="text-sm text-gray-900">{usd.format(currentStripeProduct?.price || 0)}</span>
               </div>
               {overageUsers > 0 && (
                 <div className="flex justify-between">
-                  <span className="text-sm text-gray-600">Overage ({overageUsers} users × ${perUserCost}):</span>
+                  <span className="text-sm text-gray-600">Overage ({overageUsers} users × {usd.format(perUserCost)}):</span>
                   <span className="text-sm text-gray-900">{usd.format(overageCost)}</span>
                 </div>
               )}
