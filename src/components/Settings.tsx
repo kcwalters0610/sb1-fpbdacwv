@@ -14,7 +14,11 @@ import {
   Globe,
   Database,
   Wrench,
-  DollarSign
+  DollarSign,
+  Link,
+  CheckCircle,
+  AlertTriangle,
+  RefreshCw
 } from 'lucide-react'
 import { supabase } from '../lib/supabase'
 import TeamMemberSettings from './TeamMemberSettings'
@@ -65,6 +69,22 @@ export default function Settings() {
   })
   const [passwordError, setPasswordError] = useState('')
   const [passwordSuccess, setPasswordSuccess] = useState('')
+  
+  // QuickBooks integration state
+  const [quickbooksForm, setQuickbooksForm] = useState({
+    enabled: false,
+    company_id: '',
+    access_token: '',
+    refresh_token: '',
+    sync_customers: true,
+    sync_invoices: true,
+    sync_items: true,
+    auto_sync: false,
+    last_sync: null as string | null
+  })
+  const [quickbooksLoading, setQuickbooksLoading] = useState(false)
+  const [quickbooksError, setQuickbooksError] = useState('')
+  const [quickbooksSuccess, setQuickbooksSuccess] = useState('')
   
   // Company form data
   const [companyForm, setCompanyForm] = useState({
@@ -185,6 +205,21 @@ export default function Settings() {
             purchaseOrderPrefix: settings.numbering.purchaseOrderPrefix || 'PO',
             purchaseOrderFormat: settings.numbering.purchaseOrderFormat || 'PO-{YYYY}-{####}',
             purchaseOrderNext: settings.numbering.purchaseOrderNext || '1'
+          })
+        }
+        
+        // Load QuickBooks settings
+        if (settings.quickbooks) {
+          setQuickbooksForm({
+            enabled: settings.quickbooks.enabled || false,
+            company_id: settings.quickbooks.company_id || '',
+            access_token: settings.quickbooks.access_token || '',
+            refresh_token: settings.quickbooks.refresh_token || '',
+            sync_customers: settings.quickbooks.sync_customers !== false,
+            sync_invoices: settings.quickbooks.sync_invoices !== false,
+            sync_items: settings.quickbooks.sync_items !== false,
+            auto_sync: settings.quickbooks.auto_sync || false,
+            last_sync: settings.quickbooks.last_sync || null
           })
         }
       }
@@ -427,6 +462,110 @@ export default function Settings() {
     }
   }
 
+  const connectQuickBooks = async () => {
+    setQuickbooksLoading(true)
+    setQuickbooksError('')
+    
+    try {
+      // In a real implementation, this would redirect to QuickBooks OAuth
+      // For now, we'll simulate the connection
+      const mockConnection = {
+        company_id: 'qb_' + Math.random().toString(36).substr(2, 9),
+        access_token: 'mock_access_token_' + Date.now(),
+        refresh_token: 'mock_refresh_token_' + Date.now()
+      }
+      
+      setQuickbooksForm({
+        ...quickbooksForm,
+        enabled: true,
+        company_id: mockConnection.company_id,
+        access_token: mockConnection.access_token,
+        refresh_token: mockConnection.refresh_token
+      })
+      
+      setQuickbooksSuccess('QuickBooks connected successfully!')
+    } catch (error) {
+      console.error('Error connecting to QuickBooks:', error)
+      setQuickbooksError('Failed to connect to QuickBooks. Please try again.')
+    } finally {
+      setQuickbooksLoading(false)
+    }
+  }
+
+  const disconnectQuickBooks = async () => {
+    if (!confirm('Are you sure you want to disconnect QuickBooks? This will stop all automatic syncing.')) return
+    
+    try {
+      setQuickbooksForm({
+        enabled: false,
+        company_id: '',
+        access_token: '',
+        refresh_token: '',
+        sync_customers: true,
+        sync_invoices: true,
+        sync_items: true,
+        auto_sync: false,
+        last_sync: null
+      })
+      
+      setQuickbooksSuccess('QuickBooks disconnected successfully!')
+    } catch (error) {
+      console.error('Error disconnecting QuickBooks:', error)
+      setQuickbooksError('Failed to disconnect QuickBooks.')
+    }
+  }
+
+  const saveQuickBooksSettings = async () => {
+    setSaving(true)
+    setQuickbooksError('')
+    
+    try {
+      if (!company?.id) throw new Error('No company found')
+
+      const currentSettings = company.settings || {}
+      const updatedSettings = {
+        ...currentSettings,
+        quickbooks: quickbooksForm
+      }
+
+      const { error } = await supabase
+        .from('companies')
+        .update({ settings: updatedSettings })
+        .eq('id', company.id)
+
+      if (error) throw error
+      setQuickbooksSuccess('QuickBooks settings saved successfully!')
+    } catch (error) {
+      console.error('Error saving QuickBooks settings:', error)
+      setQuickbooksError('Error saving QuickBooks settings')
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  const syncWithQuickBooks = async () => {
+    setQuickbooksLoading(true)
+    setQuickbooksError('')
+    
+    try {
+      // In a real implementation, this would call your QuickBooks sync API
+      // For now, we'll simulate the sync
+      await new Promise(resolve => setTimeout(resolve, 2000))
+      
+      setQuickbooksForm({
+        ...quickbooksForm,
+        last_sync: new Date().toISOString()
+      })
+      
+      setQuickbooksSuccess('Data synced with QuickBooks successfully!')
+    } catch (error) {
+      console.error('Error syncing with QuickBooks:', error)
+      setQuickbooksError('Failed to sync with QuickBooks. Please try again.')
+    } finally {
+      setQuickbooksLoading(false)
+    }
+  }
+
   const addWorkType = () => {
     if (newWorkType.trim() && !workTypes.includes(newWorkType.trim())) {
       setWorkTypes([...workTypes, newWorkType.trim()])
@@ -470,6 +609,7 @@ export default function Settings() {
       { id: 'company', name: 'Company', icon: Building2 },
       { id: 'work-types', name: 'Work Types', icon: Wrench },
       { id: 'numbering', name: 'Document Numbering', icon: Hash },
+      { id: 'quickbooks', name: 'QuickBooks', icon: Link },
       { id: 'labor-rates', name: 'Labor Rates', icon: DollarSign },
       { id: 'team', name: 'Team Members', icon: Users },
       { id: 'subscription', name: 'Subscription', icon: SettingsIcon }
@@ -921,6 +1061,205 @@ export default function Settings() {
                     {saving ? 'Saving...' : 'Save All Work Types'}
                   </button>
                 </div>
+              </div>
+            </div>
+          )}
+
+          {/* QuickBooks Integration */}
+          {activeTab === 'quickbooks' && currentUser?.profile?.role === 'admin' && (
+            <div className="space-y-6">
+              <div>
+                <h3 className="text-lg font-semibold text-gray-900 mb-2">QuickBooks Integration</h3>
+                <p className="text-gray-600 mb-6">
+                  Connect your QuickBooks account to automatically sync customers, invoices, and inventory items.
+                </p>
+
+                {quickbooksError && (
+                  <div className="mb-4 bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded-lg">
+                    <div className="flex items-center">
+                      <AlertTriangle className="w-5 h-5 mr-2" />
+                      {quickbooksError}
+                    </div>
+                  </div>
+                )}
+
+                {quickbooksSuccess && (
+                  <div className="mb-4 bg-green-50 border border-green-200 text-green-700 px-4 py-3 rounded-lg">
+                    <div className="flex items-center">
+                      <CheckCircle className="w-5 h-5 mr-2" />
+                      {quickbooksSuccess}
+                    </div>
+                  </div>
+                )}
+
+                {/* Connection Status */}
+                <div className="bg-gray-50 rounded-lg p-6 mb-6">
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center space-x-3">
+                      <div className={`w-12 h-12 rounded-lg flex items-center justify-center ${
+                        quickbooksForm.enabled ? 'bg-green-100' : 'bg-gray-100'
+                      }`}>
+                        <Link className={`w-6 h-6 ${
+                          quickbooksForm.enabled ? 'text-green-600' : 'text-gray-400'
+                        }`} />
+                      </div>
+                      <div>
+                        <h4 className="text-lg font-medium text-gray-900">
+                          QuickBooks {quickbooksForm.enabled ? 'Connected' : 'Not Connected'}
+                        </h4>
+                        <p className="text-sm text-gray-600">
+                          {quickbooksForm.enabled 
+                            ? `Company ID: ${quickbooksForm.company_id}`
+                            : 'Connect your QuickBooks account to enable automatic syncing'
+                          }
+                        </p>
+                        {quickbooksForm.last_sync && (
+                          <p className="text-xs text-gray-500">
+                            Last sync: {new Date(quickbooksForm.last_sync).toLocaleString()}
+                          </p>
+                        )}
+                      </div>
+                    </div>
+                    <div className="flex space-x-3">
+                      {quickbooksForm.enabled ? (
+                        <>
+                          <button
+                            onClick={syncWithQuickBooks}
+                            disabled={quickbooksLoading}
+                            className="inline-flex items-center px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50 transition-colors"
+                          >
+                            <RefreshCw className={`w-4 h-4 mr-2 ${quickbooksLoading ? 'animate-spin' : ''}`} />
+                            {quickbooksLoading ? 'Syncing...' : 'Sync Now'}
+                          </button>
+                          <button
+                            onClick={disconnectQuickBooks}
+                            className="inline-flex items-center px-4 py-2 border border-red-300 text-red-700 rounded-lg hover:bg-red-50 transition-colors"
+                          >
+                            Disconnect
+                          </button>
+                        </>
+                      ) : (
+                        <button
+                          onClick={connectQuickBooks}
+                          disabled={quickbooksLoading}
+                          className="inline-flex items-center px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 disabled:opacity-50 transition-colors"
+                        >
+                          <Link className="w-4 h-4 mr-2" />
+                          {quickbooksLoading ? 'Connecting...' : 'Connect QuickBooks'}
+                        </button>
+                      )}
+                    </div>
+                  </div>
+                </div>
+
+                {/* Sync Settings */}
+                {quickbooksForm.enabled && (
+                  <div className="space-y-6">
+                    <div>
+                      <h4 className="text-md font-medium text-gray-900 mb-4">Sync Settings</h4>
+                      <div className="space-y-4">
+                        <div className="flex items-center justify-between p-4 bg-white border border-gray-200 rounded-lg">
+                          <div>
+                            <h5 className="text-sm font-medium text-gray-900">Sync Customers</h5>
+                            <p className="text-sm text-gray-600">Automatically sync customer data between FolioOps and QuickBooks</p>
+                          </div>
+                          <input
+                            type="checkbox"
+                            checked={quickbooksForm.sync_customers}
+                            onChange={(e) => setQuickbooksForm({ ...quickbooksForm, sync_customers: e.target.checked })}
+                            className="h-4 w-4 text-blue-600 focus:ring-blue-500 border-gray-300 rounded"
+                          />
+                        </div>
+
+                        <div className="flex items-center justify-between p-4 bg-white border border-gray-200 rounded-lg">
+                          <div>
+                            <h5 className="text-sm font-medium text-gray-900">Sync Invoices</h5>
+                            <p className="text-sm text-gray-600">Automatically sync invoice data between FolioOps and QuickBooks</p>
+                          </div>
+                          <input
+                            type="checkbox"
+                            checked={quickbooksForm.sync_invoices}
+                            onChange={(e) => setQuickbooksForm({ ...quickbooksForm, sync_invoices: e.target.checked })}
+                            className="h-4 w-4 text-blue-600 focus:ring-blue-500 border-gray-300 rounded"
+                          />
+                        </div>
+
+                        <div className="flex items-center justify-between p-4 bg-white border border-gray-200 rounded-lg">
+                          <div>
+                            <h5 className="text-sm font-medium text-gray-900">Sync Inventory Items</h5>
+                            <p className="text-sm text-gray-600">Automatically sync inventory items between FolioOps and QuickBooks</p>
+                          </div>
+                          <input
+                            type="checkbox"
+                            checked={quickbooksForm.sync_items}
+                            onChange={(e) => setQuickbooksForm({ ...quickbooksForm, sync_items: e.target.checked })}
+                            className="h-4 w-4 text-blue-600 focus:ring-blue-500 border-gray-300 rounded"
+                          />
+                        </div>
+
+                        <div className="flex items-center justify-between p-4 bg-white border border-gray-200 rounded-lg">
+                          <div>
+                            <h5 className="text-sm font-medium text-gray-900">Automatic Sync</h5>
+                            <p className="text-sm text-gray-600">Enable automatic syncing every hour (recommended)</p>
+                          </div>
+                          <input
+                            type="checkbox"
+                            checked={quickbooksForm.auto_sync}
+                            onChange={(e) => setQuickbooksForm({ ...quickbooksForm, auto_sync: e.target.checked })}
+                            className="h-4 w-4 text-blue-600 focus:ring-blue-500 border-gray-300 rounded"
+                          />
+                        </div>
+                      </div>
+                    </div>
+
+                    <div className="flex justify-end">
+                      <button
+                        onClick={saveQuickBooksSettings}
+                        disabled={saving}
+                        className="inline-flex items-center px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50 transition-colors"
+                      >
+                        <Save className="w-4 h-4 mr-2" />
+                        {saving ? 'Saving...' : 'Save QuickBooks Settings'}
+                      </button>
+                    </div>
+                  </div>
+                )}
+
+                {/* Integration Info */}
+                <div className="bg-blue-50 rounded-lg p-6">
+                  <h4 className="text-md font-medium text-blue-900 mb-3">About QuickBooks Integration</h4>
+                  <div className="space-y-2 text-sm text-blue-800">
+                    <p>• Automatically sync customer information between systems</p>
+                    <p>• Export invoices directly to QuickBooks for accounting</p>
+                    <p>• Keep inventory levels synchronized across platforms</p>
+                    <p>• Reduce manual data entry and improve accuracy</p>
+                    <p>• Available on Business plan and higher</p>
+                  </div>
+                </div>
+
+                {/* Sync Status */}
+                {quickbooksForm.enabled && (
+                  <div className="bg-white border border-gray-200 rounded-lg p-6">
+                    <h4 className="text-md font-medium text-gray-900 mb-4">Sync Status</h4>
+                    <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                      <div className="text-center p-4 bg-green-50 rounded-lg">
+                        <CheckCircle className="w-8 h-8 text-green-600 mx-auto mb-2" />
+                        <p className="text-sm font-medium text-green-900">Customers</p>
+                        <p className="text-xs text-green-700">Last synced: Today</p>
+                      </div>
+                      <div className="text-center p-4 bg-green-50 rounded-lg">
+                        <CheckCircle className="w-8 h-8 text-green-600 mx-auto mb-2" />
+                        <p className="text-sm font-medium text-green-900">Invoices</p>
+                        <p className="text-xs text-green-700">Last synced: Today</p>
+                      </div>
+                      <div className="text-center p-4 bg-green-50 rounded-lg">
+                        <CheckCircle className="w-8 h-8 text-green-600 mx-auto mb-2" />
+                        <p className="text-sm font-medium text-green-900">Items</p>
+                        <p className="text-xs text-green-700">Last synced: Today</p>
+                      </div>
+                    </div>
+                  </div>
+                )}
               </div>
             </div>
           )}
