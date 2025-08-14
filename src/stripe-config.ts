@@ -35,7 +35,7 @@ export const stripeProducts: StripeProduct[] = [
   },
   {
     id: 'prod_SrWATx0OLn95RO',
-    priceId: 'price_1Rvn8cH2k7OW1G0RQMbHxoUv',
+    priceId: 'price_1Rw5wyH2k7OW1G0R0vrprDjW',
     name: 'Pro Base',
     description: 'Advanced features for growing businesses',
     mode: 'subscription',
@@ -58,7 +58,7 @@ export const stripeProducts: StripeProduct[] = [
   },
   {
     id: 'prod_SrWBY6TZNUnu4w',
-    priceId: 'price_1Rvn9AH2k7OW1G0RLrZawYUP',
+    priceId: 'price_1Rw5vAH2k7OW1G0RcH4lOq6w',
     name: 'Business Base',
     description: 'Complete solution for enterprise field service operations',
     mode: 'subscription',
