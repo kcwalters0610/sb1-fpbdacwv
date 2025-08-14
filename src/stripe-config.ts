@@ -16,7 +16,7 @@ export const stripeProducts: StripeProduct[] = [
   {
     id: 'prod_Srp9QiY67NzIxX',
     priceId: 'price_1Rw6P3HjUCCcUwLCVnJ7TZwc',
-    overagePriceId: 'price_1Rw6PoHjUCCcUwLC4LsouchQ',
+    overagePriceId: 'price_1Rw9JAHjUCCcUwLCvfeQH3Z2',
     name: 'Starter Base',
     description: 'Essential features for small field service teams',
     mode: 'subscription',
