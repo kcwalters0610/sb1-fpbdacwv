@@ -185,7 +185,7 @@ Deno.serve(async (req) => {
       line_items: [
         {
           price: price_id,
-          quantity: quantity || 1,
+          quantity: 1,
         },
       ],
       mode,
