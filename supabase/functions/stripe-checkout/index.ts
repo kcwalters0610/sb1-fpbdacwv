@@ -44,9 +44,12 @@ async function createNewStripeCustomer(user: any): Promise<string> {
 
   console.log(`Created new Stripe customer ${newCustomer.id} for user ${user.id}`);
 
-  const { error: createCustomerError } = await supabase.from('stripe_customers').insert({
+  const { error: createCustomerError } = await supabase.from('stripe_customers').upsert({
     user_id: user.id,
     customer_id: newCustomer.id,
+    deleted_at: null,
+  }, {
+    onConflict: 'user_id'
   });
 
   if (createCustomerError) {
