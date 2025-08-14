@@ -50,12 +50,14 @@ function App() {
         const isRecoveryFromSearch = urlParams.get('type') === 'recovery'
         const isRecoveryFromHash = hashParams.get('type') === 'recovery'
         const isSuccess = urlParams.get('status') === 'success'
+        const isCancel = urlParams.get('status') === 'cancel'
         
         console.log('URL search params:', window.location.search)
         console.log('URL hash params:', window.location.hash)
         console.log('Is recovery from search:', isRecoveryFromSearch)
         console.log('Is recovery from hash:', isRecoveryFromHash)
         console.log('Is success:', isSuccess)
+        console.log('Is cancel:', isCancel)
         
         if (isRecoveryFromSearch || isRecoveryFromHash) {
           console.log('Password reset detected, showing reset page')
@@ -72,6 +74,13 @@ function App() {
           // Clean up URL
           window.history.replaceState({}, '', window.location.pathname)
           return
+        }
+        
+        if (isCancel) {
+          console.log('Checkout cancelled, cleaning up URL')
+          setCheckoutLoading(false)
+          // Clean up URL
+          window.history.replaceState({}, '', window.location.pathname)
         }
         
         // Normal auth flow
