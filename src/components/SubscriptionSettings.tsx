@@ -104,6 +104,7 @@ export default function SubscriptionSettings() {
           price_id: priceId,
           mode: 'subscription',
           quantity: 1,
+          user_count: activeUsers, // Pass current user count for tiered pricing
           success_url: `${window.location.origin}?status=success`,
           cancel_url: `${window.location.origin}?status=cancel`,
         }),
@@ -362,6 +363,12 @@ export default function SubscriptionSettings() {
             const isCurrentPlan = stripeSubscription?.price_id === product.priceId
             const canUpgrade = !isCurrentPlan && currentUser?.profile?.role === 'admin'
             const isBusy = busyPlanId === product.priceId
+            
+            // Calculate pricing for tiered products
+            const basePrice = product.price
+            const overageUsers = Math.max(0, activeUsers - product.userLimit)
+            const overageCost = overageUsers * product.overagePrice
+            const totalPrice = basePrice + overageCost
 
             return (
               <div
@@ -387,8 +394,25 @@ export default function SubscriptionSettings() {
                 </div>
 
                 <div className="text-center mb-6">
-                  <div className="text-3xl font-bold text-gray-900">{usd.format(product.price)}</div>
-                  <div className="text-sm text-gray-600">per month</div>
+                  {product.isTiered && activeUsers > product.userLimit ? (
+                    <div>
+                      <div className="text-2xl font-bold text-gray-900">{usd.format(totalPrice)}</div>
+                      <div className="text-sm text-gray-600">per month</div>
+                      <div className="text-xs text-gray-500 mt-1">
+                        {usd.format(basePrice)} base + {usd.format(overageCost)} for {overageUsers} extra user{overageUsers !== 1 ? 's' : ''}
+                      </div>
+                    </div>
+                  ) : (
+                    <div>
+                      <div className="text-3xl font-bold text-gray-900">{usd.format(product.price)}</div>
+                      <div className="text-sm text-gray-600">per month</div>
+                      {product.isTiered && (
+                        <div className="text-xs text-gray-500 mt-1">
+                          Up to {product.userLimit} users included
+                        </div>
+                      )}
+                    </div>
+                  )}
                 </div>
 
                 <div className="space-y-3 mb-6">
@@ -418,7 +442,7 @@ export default function SubscriptionSettings() {
                         Processing...
                       </>
                     ) : (
-                      `Upgrade to ${product.name}`
+                      `Subscribe for ${usd.format(totalPrice)}/mo`
                     )}
                   </button>
                 ) : isCurrentPlan ? (

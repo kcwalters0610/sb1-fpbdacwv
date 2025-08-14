@@ -43,16 +43,17 @@ Deno.serve(async (req) => {
       return corsResponse({ error: 'Method not allowed' }, 405);
     }
 
-    const { price_id, success_url, cancel_url, mode, quantity } = await req.json();
+    const { price_id, success_url, cancel_url, mode, quantity, user_count } = await req.json();
 
     const error = validateParameters(
-      { price_id, success_url, cancel_url, mode, quantity },
+      { price_id, success_url, cancel_url, mode, quantity, user_count },
       {
         cancel_url: 'string',
         price_id: 'string',
         success_url: 'string',
         mode: { values: ['payment', 'subscription'] },
         quantity: 'number',
+        user_count: 'number',
       },
     );
 
@@ -178,6 +179,8 @@ Deno.serve(async (req) => {
       }
     }
 
+    // For tiered pricing, we need to calculate the quantity based on user count
+    const actualQuantity = Math.max(user_count, 1); // Ensure at least 1 for the base tier
     // create Checkout Session
     const session = await stripe.checkout.sessions.create({
       customer: customerId,
@@ -185,12 +188,14 @@ Deno.serve(async (req) => {
       line_items: [
         {
           price: price_id,
-          quantity: 1,
+          quantity: actualQuantity,
         },
       ],
       mode,
       success_url,
       cancel_url,
+      allow_promotion_codes: true,
+      billing_address_collection: 'required',
     });
 
     console.log(`Created checkout session ${session.id} for customer ${customerId}`);

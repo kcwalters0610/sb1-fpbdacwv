@@ -8,6 +8,7 @@ export interface StripeProduct {
   userLimit: number
   overagePrice: number
   features: string[]
+  isTiered: boolean
 }
 
 export const stripeProducts: StripeProduct[] = [
@@ -20,6 +21,7 @@ export const stripeProducts: StripeProduct[] = [
     price: 99.00,
     userLimit: 3,
     overagePrice: 20.00,
+    isTiered: true,
     features: [
       'Up to 3 team members included',
       '$20/month per additional user',
@@ -40,6 +42,7 @@ export const stripeProducts: StripeProduct[] = [
     price: 199.00,
     userLimit: 3,
     overagePrice: 20.00,
+    isTiered: true,
     features: [
       'Up to 3 team members included',
       '$20/month per additional user',
@@ -62,6 +65,7 @@ export const stripeProducts: StripeProduct[] = [
     price: 399.00,
     userLimit: 3,
     overagePrice: 20.00,
+    isTiered: true,
     features: [
       'Up to 3 team members included',
       '$20/month per additional user',
