@@ -105,6 +105,8 @@ export default function SubscriptionSettings() {
           mode: 'subscription',
           quantity: 1,
           user_count: activeUsers, // Pass current user count for tiered pricing
+          plan_user_limit: product.userLimit,
+          overage_price_id: product.overagePriceId,
           success_url: `${window.location.origin}?status=success`,
           cancel_url: `${window.location.origin}?status=cancel`,
         }),

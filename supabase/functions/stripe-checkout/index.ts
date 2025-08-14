@@ -110,10 +110,10 @@ Deno.serve(async (req) => {
       return corsResponse({ error: 'Method not allowed' }, 405);
     }
 
-    const { price_id, success_url, cancel_url, mode, quantity, user_count } = await req.json();
+    const { price_id, success_url, cancel_url, mode, quantity, user_count, plan_user_limit, overage_price_id } = await req.json();
 
     const error = validateParameters(
-      { price_id, success_url, cancel_url, mode, quantity, user_count },
+      { price_id, success_url, cancel_url, mode, quantity, user_count, plan_user_limit },
       {
         cancel_url: 'string',
         price_id: 'string',
@@ -121,6 +121,7 @@ Deno.serve(async (req) => {
         mode: { values: ['payment', 'subscription'] },
         quantity: 'number',
         user_count: 'number',
+        plan_user_limit: 'number',
       },
     );
 
@@ -219,16 +220,28 @@ Deno.serve(async (req) => {
       }
     }
 
+    // Calculate overage users and line items
+    const overageUsers = Math.max(0, user_count - plan_user_limit);
+    const lineItems = [
+      {
+        price: price_id,
+        quantity: 1,
+      },
+    ];
+
+    // Add overage pricing if there are extra users
+    if (overageUsers > 0 && overage_price_id) {
+      lineItems.push({
+        price: overage_price_id,
+        quantity: overageUsers,
+      });
+    }
+
     // create Checkout Session
     const session = await stripe.checkout.sessions.create({
       customer: customerId,
       payment_method_types: ['card'],
-      line_items: [
-        {
-          price: price_id,
-          quantity: 1,
-        },
-      ],
+      line_items: lineItems,
       mode,
       success_url,
       cancel_url,

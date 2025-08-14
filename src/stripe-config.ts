@@ -1,6 +1,7 @@
 export interface StripeProduct {
   id: string
   priceId: string
+  overagePriceId: string
   name: string
   description: string
   mode: 'payment' | 'subscription'
@@ -15,6 +16,7 @@ export const stripeProducts: StripeProduct[] = [
   {
     id: 'prod_Srp9QiY67NzIxX',
     priceId: 'price_1Rw6P3HjUCCcUwLCVnJ7TZwc',
+    overagePriceId: 'price_1Rw6PoHjUCCcUwLC4LsouchQ',
     name: 'Starter Base',
     description: 'Essential features for small field service teams',
     mode: 'subscription',
@@ -36,6 +38,7 @@ export const stripeProducts: StripeProduct[] = [
   {
     id: 'prod_SrpcNxogDZjCs7',
     priceId: 'price_1Rw6Q3HjUCCcUwLCzbcpyDgy',
+    overagePriceId: 'price_1Rw6QRHjUCCcUwLC0tT59VC2',
     name: 'Pro Base',
     description: 'Advanced features for growing businesses',
     mode: 'subscription',
@@ -59,6 +62,7 @@ export const stripeProducts: StripeProduct[] = [
   {
     id: 'prod_SrpaNrqySWB2xo',
     priceId: 'price_1Rw6QhHjUCCcUwLCqp6bnj67',
+    overagePriceId: 'price_1Rw6RBHjUCCcUwLC3bSJzXQD',
     name: 'Business Base',
     description: 'Complete solution for enterprise field service operations',
     mode: 'subscription',
