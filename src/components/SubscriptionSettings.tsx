@@ -238,6 +238,15 @@ export default function SubscriptionSettings() {
 
   const currentStripeProduct = getCurrentStripeProduct()
 
+  // Calculate derived values for usage statistics
+  const currentPlan = currentSubscription?.plan
+  const planLimit = currentPlan?.user_limit || 0
+  const overageUsers = Math.max(0, activeUsers - planLimit)
+  const basePrice = currentPlan?.monthly_price || 0
+  const perUserCost = currentPlan?.per_user_cost || 0
+  const overageCost = overageUsers * perUserCost
+  const totalMonthlyCost = basePrice + overageCost
+
   if (loading) {
     return (
       <div className="flex items-center justify-center h-64">
@@ -554,10 +563,6 @@ export default function SubscriptionSettings() {
           </div>
         </div>
       </div>
-    </div>
-  )
-}
-
 
       {/* Usage Statistics */}
       <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-6">
