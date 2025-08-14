@@ -21,6 +21,7 @@ import {
   RefreshCw
 } from 'lucide-react'
 import { supabase } from '../lib/supabase'
+import { useSubscriptionFeatures } from '../lib/subscriptionAccess'
 import TeamMemberSettings from './TeamMemberSettings'
 import LaborRatesSettings from './LaborRatesSettings'
 import SubscriptionSettings from './SubscriptionSettings'
@@ -49,6 +50,7 @@ interface CompanySettings {
 }
 
 export default function Settings() {
+  const { features, loading: featuresLoading } = useSubscriptionFeatures()
   const [activeTab, setActiveTab] = useState('company')
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
@@ -1411,216 +1413,241 @@ export default function Settings() {
                         Next Number
                       </label>
                       <input
-                        type="number"
-                        value={numberingForm.workOrderNext}
-                        onChange={(e) => setNumberingForm({ ...numberingForm, workOrderNext: e.target.value })}
-                        className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                        min="1"
-                      />
-                    </div>
-                  </div>
+        {/* QuickBooks Integration - Only for Business plan */}
+        {!featuresLoading && features.advanced_integrations && (
+          <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-6">
+            <h3 className="text-lg font-semibold text-gray-900 mb-4">QuickBooks Integration</h3>
+            <p className="text-gray-600 mb-6">
+              Connect your QuickBooks account to automatically sync customers, invoices, and inventory items.
+            </p>
 
-                  {/* Estimates */}
-                  <div className="space-y-4">
-                    <h4 className="text-md font-medium text-gray-900">Estimates</h4>
-                    <div>
-                      <label className="block text-sm font-medium text-gray-700 mb-2">
-                        Prefix
-                      </label>
-                      <input
-                        type="text"
-                        value={numberingForm.estimatePrefix}
-                        onChange={(e) => setNumberingForm({ ...numberingForm, estimatePrefix: e.target.value })}
-                        className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                      />
-                    </div>
-                    <div>
-                      <label className="block text-sm font-medium text-gray-700 mb-2">
-                        Format
-                      </label>
-                      <input
-                        type="text"
-                        value={numberingForm.estimateFormat}
-                        onChange={(e) => setNumberingForm({ ...numberingForm, estimateFormat: e.target.value })}
-                        className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                        placeholder="EST-{YYYY}-{####}"
-                      />
-                    </div>
-                    <div>
-                      <label className="block text-sm font-medium text-gray-700 mb-2">
-                        Next Number
-                      </label>
-                      <input
-                        type="number"
-                        value={numberingForm.estimateNext}
-                        onChange={(e) => setNumberingForm({ ...numberingForm, estimateNext: e.target.value })}
-                        className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                        min="1"
-                      />
-                    </div>
-                  </div>
+            {qbSuccess && (
+              <div className="mb-4 bg-green-50 border border-green-200 rounded-lg p-4">
+                <div className="flex items-center">
+                  <CheckCircle className="w-5 h-5 text-green-600 mr-2" />
+                  <p className="text-green-800 text-sm">{qbSuccess}</p>
+                </div>
+              </div>
+            )}
 
-                  {/* Invoices */}
-                  <div className="space-y-4">
-                    <h4 className="text-md font-medium text-gray-900">Invoices</h4>
-                    <div>
-                      <label className="block text-sm font-medium text-gray-700 mb-2">
-                        Prefix
-                      </label>
-                      <input
-                        type="text"
-                        value={numberingForm.invoicePrefix}
-                        onChange={(e) => setNumberingForm({ ...numberingForm, invoicePrefix: e.target.value })}
-                        className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                      />
-                    </div>
-                    <div>
-                      <label className="block text-sm font-medium text-gray-700 mb-2">
-                        Format
-                      </label>
-                      <input
-                        type="text"
-                        value={numberingForm.invoiceFormat}
-                        onChange={(e) => setNumberingForm({ ...numberingForm, invoiceFormat: e.target.value })}
-                        className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                        placeholder="INV-{YYYY}-{####}"
-                      />
-                    </div>
-                    <div>
-                      <label className="block text-sm font-medium text-gray-700 mb-2">
-                        Next Number
-                      </label>
-                      <input
-                        type="number"
-                        value={numberingForm.invoiceNext}
-                        onChange={(e) => setNumberingForm({ ...numberingForm, invoiceNext: e.target.value })}
-                        className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                        min="1"
-                      />
-                    </div>
-                  </div>
+            {qbError && (
+              <div className="mb-4 bg-red-50 border border-red-200 rounded-lg p-4">
+                <div className="flex items-center">
+                  <AlertTriangle className="w-5 h-5 text-red-600 mr-2" />
+                  <p className="text-red-800 text-sm">{qbError}</p>
+                </div>
+              </div>
+            )}
 
-                  {/* Projects */}
-                  <div className="space-y-4">
-                    <h4 className="text-md font-medium text-gray-900">Projects</h4>
-                    <div>
-                      <label className="block text-sm font-medium text-gray-700 mb-2">
-                        Prefix
-                      </label>
-                      <input
-                        type="text"
-                        value={numberingForm.projectPrefix}
-                        onChange={(e) => setNumberingForm({ ...numberingForm, projectPrefix: e.target.value })}
-                        className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                      />
+            {companySettings.quickbooks?.connected ? (
+              <div className="space-y-6">
+                {/* Connection Status */}
+                <div className="bg-green-50 border border-green-200 rounded-lg p-4">
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center">
+                      <ExternalLink className="w-5 h-5 text-green-600 mr-3" />
+                      <div>
+                        <h4 className="text-md font-medium text-green-900">QuickBooks Connected</h4>
+                        <p className="text-sm text-green-700">Company ID: {companySettings.quickbooks.company_id}</p>
+                      </div>
                     </div>
-                    <div>
-                      <label className="block text-sm font-medium text-gray-700 mb-2">
-                        Format
-                      </label>
-                      <input
-                        type="text"
-                        value={numberingForm.projectFormat}
-                        onChange={(e) => setNumberingForm({ ...numberingForm, projectFormat: e.target.value })}
-                        className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                        placeholder="PROJ-{YYYY}-{####}"
-                      />
-                    </div>
-                    <div>
-                      <label className="block text-sm font-medium text-gray-700 mb-2">
-                        Next Number
-                      </label>
-                      <input
-                        type="number"
-                        value={numberingForm.projectNext}
-                        onChange={(e) => setNumberingForm({ ...numberingForm, projectNext: e.target.value })}
-                        className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                        min="1"
-                      />
-                    </div>
-                  </div>
-
-                  {/* Purchase Orders */}
-                  <div className="space-y-4">
-                    <h4 className="text-md font-medium text-gray-900">Purchase Orders</h4>
-                    <div>
-                      <label className="block text-sm font-medium text-gray-700 mb-2">
-                        Prefix
-                      </label>
-                      <input
-                        type="text"
-                        value={numberingForm.purchaseOrderPrefix}
-                        onChange={(e) => setNumberingForm({ ...numberingForm, purchaseOrderPrefix: e.target.value })}
-                        className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                      />
-                    </div>
-                    <div>
-                      <label className="block text-sm font-medium text-gray-700 mb-2">
-                        Format
-                      </label>
-                      <input
-                        type="text"
-                        value={numberingForm.purchaseOrderFormat}
-                        onChange={(e) => setNumberingForm({ ...numberingForm, purchaseOrderFormat: e.target.value })}
-                        className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                        placeholder="PO-{YYYY}-{####}"
-                      />
-                    </div>
-                    <div>
-                      <label className="block text-sm font-medium text-gray-700 mb-2">
-                        Next Number
-                      </label>
-                      <input
-                        type="number"
-                        value={numberingForm.purchaseOrderNext}
-                        onChange={(e) => setNumberingForm({ ...numberingForm, purchaseOrderNext: e.target.value })}
-                        className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                        min="1"
-                      />
+                    <div className="flex space-x-3">
+                      <button
+                        onClick={syncQuickBooks}
+                        disabled={qbLoading}
+                        className="inline-flex items-center px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50 transition-colors"
+                      >
+                        {qbLoading ? (
+                          <>
+                            <RefreshCw className="w-4 h-4 mr-2 animate-spin" />
+                            Syncing...
+                          </>
+                        ) : (
+                          <>
+                            <RefreshCw className="w-4 h-4 mr-2" />
+                            Sync Now
+                          </>
+                        )}
+                      </button>
+                      <button
+                        onClick={disconnectQuickBooks}
+                        className="inline-flex items-center px-4 py-2 border border-red-300 text-red-700 rounded-lg hover:bg-red-50 transition-colors"
+                      >
+                        <Unlink className="w-4 h-4 mr-2" />
+                        Disconnect
+                      </button>
                     </div>
                   </div>
                 </div>
 
-                <div className="flex justify-end mt-8">
-                  <button
-                    onClick={saveNumberingSettings}
-                    disabled={saving}
-                    className="inline-flex items-center px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50 transition-colors"
-                  >
-                    <Save className="w-4 h-4 mr-2" />
-                    {saving ? 'Saving...' : 'Save Numbering Settings'}
-                  </button>
+                {/* Sync Settings */}
+                <div>
+                  <h4 className="text-md font-medium text-gray-900 mb-4">Sync Settings</h4>
+                  <div className="space-y-4">
+                    <div className="flex items-center justify-between">
+                      <div>
+                        <h5 className="text-sm font-medium text-gray-900">Sync Customers</h5>
+                        <p className="text-sm text-gray-600">Automatically sync customer data between FolioOps and QuickBooks</p>
+                      </div>
+                      <label className="relative inline-flex items-center cursor-pointer">
+                        <input
+                          type="checkbox"
+                          checked={companySettings.quickbooks?.sync_settings?.sync_customers || false}
+                          onChange={(e) => updateQbSyncSetting('sync_customers', e.target.checked)}
+                          className="sr-only peer"
+                        />
+                        <div className="w-11 h-6 bg-gray-200 peer-focus:outline-none peer-focus:ring-4 peer-focus:ring-blue-300 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-blue-600"></div>
+                      </label>
+                    </div>
+
+                    <div className="flex items-center justify-between">
+                      <div>
+                        <h5 className="text-sm font-medium text-gray-900">Sync Invoices</h5>
+                        <p className="text-sm text-gray-600">Automatically sync paid invoices to QuickBooks</p>
+                      </div>
+                      <label className="relative inline-flex items-center cursor-pointer">
+                        <input
+                          type="checkbox"
+                          checked={companySettings.quickbooks?.sync_settings?.sync_invoices || false}
+                          onChange={(e) => updateQbSyncSetting('sync_invoices', e.target.checked)}
+                          className="sr-only peer"
+                        />
+                        <div className="w-11 h-6 bg-gray-200 peer-focus:outline-none peer-focus:ring-4 peer-focus:ring-blue-300 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-blue-600"></div>
+                      </label>
+                    </div>
+
+                    <div className="flex items-center justify-between">
+                      <div>
+                        <h5 className="text-sm font-medium text-gray-900">Sync Inventory</h5>
+                        <p className="text-sm text-gray-600">Automatically sync inventory items and quantities</p>
+                      </div>
+                      <label className="relative inline-flex items-center cursor-pointer">
+                        <input
+                          type="checkbox"
+                          checked={companySettings.quickbooks?.sync_settings?.sync_inventory || false}
+                          onChange={(e) => updateQbSyncSetting('sync_inventory', e.target.checked)}
+                          className="sr-only peer"
+                        />
+                        <div className="w-11 h-6 bg-gray-200 peer-focus:outline-none peer-focus:ring-4 peer-focus:ring-blue-300 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-blue-600"></div>
+                      </label>
+                    </div>
+
+                    <div className="flex items-center justify-between">
+                      <div>
+                        <h5 className="text-sm font-medium text-gray-900">Automatic Sync</h5>
+                        <p className="text-sm text-gray-600">Sync data automatically every hour</p>
+                      </div>
+                      <label className="relative inline-flex items-center cursor-pointer">
+                        <input
+                          type="checkbox"
+                          checked={companySettings.quickbooks?.sync_settings?.auto_sync || false}
+                          onChange={(e) => updateQbSyncSetting('auto_sync', e.target.checked)}
+                          className="sr-only peer"
+                        />
+                        <div className="w-11 h-6 bg-gray-200 peer-focus:outline-none peer-focus:ring-4 peer-focus:ring-blue-300 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-blue-600"></div>
+                      </label>
+                    </div>
+                  </div>
                 </div>
 
-                {/* Format Examples */}
-                <div className="mt-8 p-4 bg-blue-50 rounded-lg">
-                  <h5 className="text-sm font-medium text-blue-900 mb-2">Format Examples</h5>
-                  <div className="text-sm text-blue-700 space-y-1">
-                    <p><code>{'{YYYY}'}</code> - Current year (e.g., 2024)</p>
-                    <p><code>{'{####}'}</code> - Sequential number with leading zeros (e.g., 0001, 0002)</p>
-                    <p><code>WO-{'{YYYY}'}-{'{####}'}</code> - Results in: WO-2024-0001</p>
-                    <p><code>INV{'{####}'}</code> - Results in: INV0001</p>
+                {/* Sync Status */}
+                <div>
+                  <h4 className="text-md font-medium text-gray-900 mb-4">Sync Status</h4>
+                  <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                    <div className="bg-gray-50 rounded-lg p-4">
+                      <div className="flex items-center justify-between">
+                        <div>
+                          <p className="text-sm font-medium text-gray-600">Customers</p>
+                          <p className="text-xs text-gray-500">Last synced: Never</p>
+                        </div>
+                        <div className="w-3 h-3 bg-gray-400 rounded-full"></div>
+                      </div>
+                    </div>
+                    <div className="bg-gray-50 rounded-lg p-4">
+                      <div className="flex items-center justify-between">
+                        <div>
+                          <p className="text-sm font-medium text-gray-600">Invoices</p>
+                          <p className="text-xs text-gray-500">Last synced: Never</p>
+                        </div>
+                        <div className="w-3 h-3 bg-gray-400 rounded-full"></div>
+                      </div>
+                    </div>
+                    <div className="bg-gray-50 rounded-lg p-4">
+                      <div className="flex items-center justify-between">
+                        <div>
+                          <p className="text-sm font-medium text-gray-600">Inventory</p>
+                          <p className="text-xs text-gray-500">Last synced: Never</p>
+                        </div>
+                        <div className="w-3 h-3 bg-gray-400 rounded-full"></div>
+                      </div>
+                    </div>
                   </div>
                 </div>
               </div>
+            ) : (
+              <div className="text-center">
+                <div className="w-16 h-16 bg-gray-100 rounded-full flex items-center justify-center mx-auto mb-4">
+                  <ExternalLink className="w-8 h-8 text-gray-400" />
+                </div>
+                <h4 className="text-lg font-medium text-gray-900 mb-2">Connect to QuickBooks</h4>
+                <p className="text-gray-600 mb-6">
+                  Streamline your accounting by connecting FolioOps with QuickBooks Online.
+                </p>
+                <button
+                  onClick={connectQuickBooks}
+                  disabled={qbLoading}
+                  className="inline-flex items-center px-6 py-3 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50 transition-colors"
+                >
+                  {qbLoading ? (
+                    <>
+                      <RefreshCw className="w-5 h-5 mr-2 animate-spin" />
+                      Connecting...
+                    </>
+                  ) : (
+                    <>
+                      <ExternalLink className="w-5 h-5 mr-2" />
+                      Connect to QuickBooks
+                    </>
+                  )}
+                </button>
+                
+                <div className="mt-6 bg-blue-50 border border-blue-200 rounded-lg p-4">
+                  <h5 className="text-sm font-medium text-blue-900 mb-2">Benefits of QuickBooks Integration:</h5>
+                  <ul className="text-sm text-blue-700 space-y-1">
+                    <li>• Automatic customer sync</li>
+                    <li>• Invoice data synchronization</li>
+                    <li>• Inventory level updates</li>
+                    <li>• Streamlined accounting workflow</li>
+                    <li>• Reduced data entry errors</li>
+                  </ul>
+                </div>
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* Upgrade prompt for non-Business plan users */}
+        {!featuresLoading && !features.advanced_integrations && (
+          <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-6">
+            <h3 className="text-lg font-semibold text-gray-900 mb-4">QuickBooks Integration</h3>
+            <div className="text-center py-8">
+              <div className="w-16 h-16 bg-yellow-100 rounded-full flex items-center justify-center mx-auto mb-4">
+                <Crown className="w-8 h-8 text-yellow-600" />
+              </div>
+              <h4 className="text-lg font-medium text-gray-900 mb-2">Business Plan Required</h4>
+              <p className="text-gray-600 mb-6">
+                QuickBooks integration is available with the Business plan. Upgrade to automatically sync your accounting data.
+              </p>
+              <button
+                onClick={() => setActiveTab('subscription')}
+                className="inline-flex items-center px-6 py-3 bg-yellow-600 text-white rounded-lg hover:bg-yellow-700 transition-colors"
+              >
+                <Crown className="w-5 h-5 mr-2" />
+                Upgrade to Business Plan
+              </button>
             </div>
-          )}
-
-          {/* Team Members */}
-          {activeTab === 'team' && (
-            <TeamMemberSettings />
-          )}
-
-          {/* Labor Rates */}
-          {activeTab === 'labor-rates' && (
-            <LaborRatesSettings />
-          )}
-
-          {/* Subscription */}
-          {activeTab === 'subscription' && (
-            <SubscriptionSettings />
-          )}
-        </div>
+          </div>
+        )}
       </div>
     </div>
   )
