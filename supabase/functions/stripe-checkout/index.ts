@@ -2,15 +2,6 @@ import 'jsr:@supabase/functions-js/edge-runtime.d.ts';
 import Stripe from 'npm:stripe@17.7.0';
 import { createClient } from 'npm:@supabase/supabase-js@2.49.1';
 
-const supabase = createClient(Deno.env.get('SUPABASE_URL') ?? '', Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') ?? '');
-const stripeSecret = Deno.env.get('STRIPE_SECRET_KEY')!;
-const stripe = new Stripe(stripeSecret, {
-  appInfo: {
-    name: 'Bolt Integration',
-    version: '1.0.0',
-  },
-});
-
 // Helper function to create responses with CORS headers
 function corsResponse(body: string | object | null, status = 200) {
   const headers = {
@@ -34,7 +25,7 @@ function corsResponse(body: string | object | null, status = 200) {
 }
 
 // Helper function to create a new Stripe customer
-async function createNewStripeCustomer(user: any): Promise<string> {
+async function createNewStripeCustomer(user: any, supabase: any, stripe: any): Promise<string> {
   const newCustomer = await stripe.customers.create({
     email: user.email,
     metadata: {
@@ -110,6 +101,32 @@ Deno.serve(async (req) => {
       return corsResponse({ error: 'Method not allowed' }, 405);
     }
 
+    // Validate environment variables first
+    const supabaseUrl = Deno.env.get('SUPABASE_URL');
+    const supabaseServiceKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY');
+    const stripeSecret = Deno.env.get('STRIPE_SECRET_KEY');
+
+    if (!supabaseUrl) {
+      return corsResponse({ error: 'Missing SUPABASE_URL environment variable' }, 500);
+    }
+
+    if (!supabaseServiceKey) {
+      return corsResponse({ error: 'Missing SUPABASE_SERVICE_ROLE_KEY environment variable' }, 500);
+    }
+
+    if (!stripeSecret) {
+      return corsResponse({ error: 'Missing STRIPE_SECRET_KEY environment variable' }, 500);
+    }
+
+    // Initialize clients after validation
+    const supabase = createClient(supabaseUrl, supabaseServiceKey);
+    const stripe = new Stripe(stripeSecret, {
+      appInfo: {
+        name: 'Bolt Integration',
+        version: '1.0.0',
+      },
+    });
+
     const { price_id, success_url, cancel_url, mode, quantity, user_count, plan_user_limit, overage_price_id } = await req.json();
 
     const error = validateParameters(
@@ -163,7 +180,7 @@ Deno.serve(async (req) => {
      * In case we don't have a mapping yet, the customer does not exist and we need to create one.
      */
     if (!customer || !customer.customer_id) {
-      customerId = await createNewStripeCustomer(user);
+      customerId = await createNewStripeCustomer(user, supabase, stripe);
     } else {
       // Validate existing customer ID against Stripe
       try {
@@ -184,7 +201,7 @@ Deno.serve(async (req) => {
           }
           
           // Create a new customer
-          customerId = await createNewStripeCustomer(user);
+          customerId = await createNewStripeCustomer(user, supabase, stripe);
         } else {
           throw error; // Re-throw if it's not a missing customer error
         }
