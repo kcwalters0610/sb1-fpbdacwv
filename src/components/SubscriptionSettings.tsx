@@ -9,8 +9,11 @@ import {
   Package,
   Crown,
   Zap,
+  Loader2,
+  ExternalLink
 } from 'lucide-react'
 import { supabase, SubscriptionPlan, CompanySubscription, SubscriptionUsage } from '../lib/supabase'
+import { stripeProducts, getProductByPriceId } from '../stripe-config'
 
 const usd = new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD' })
 
@@ -21,6 +24,8 @@ export default function SubscriptionSettings() {
   const [loading, setLoading] = useState(true)
   const [upgrading, setUpgrading] = useState(false)
   const [busyPlanId, setBusyPlanId] = useState<string | null>(null)
+  const [stripeSubscription, setStripeSubscription] = useState<any>(null)
+  const [checkoutLoading, setCheckoutLoading] = useState(false)
 
   const [currentUser, setCurrentUser] = useState<any>(null)
   const [activeUsers, setActiveUsers] = useState(0)
@@ -28,7 +33,8 @@ export default function SubscriptionSettings() {
   // Load user + data on mount
   useEffect(() => {
     getCurrentUser()
-    loadSubscriptionData()
+    loadSubscriptionData() 
+    loadStripeSubscription()
   }, [])
 
   // Refresh after Stripe redirect and clean the URL (works for success or cancel)
@@ -57,6 +63,66 @@ export default function SubscriptionSettings() {
       setCurrentUser({ ...user, profile })
     } catch (error) {
       console.error('Error getting current user:', error)
+    }
+  }
+
+  const loadStripeSubscription = async () => {
+    try {
+      const { data: { user } } = await supabase.auth.getUser()
+      if (!user) return
+
+      const { data: stripeData } = await supabase
+        .from('stripe_user_subscriptions')
+        .select('*')
+        .maybeSingle()
+
+      setStripeSubscription(stripeData)
+    } catch (error) {
+      console.error('Error loading Stripe subscription:', error)
+    }
+  }
+
+  const handleCheckout = async (priceId: string) => {
+    setCheckoutLoading(true)
+    setBusyPlanId(priceId)
+    
+    try {
+      const { data: { session } } = await supabase.auth.getSession()
+      if (!session) {
+        throw new Error('No active session')
+      }
+
+      const response = await fetch(`${import.meta.env.VITE_SUPABASE_URL}/functions/v1/stripe-checkout`, {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${session.access_token}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          price_id: priceId,
+          mode: 'subscription',
+          success_url: `${window.location.origin}?status=success`,
+          cancel_url: `${window.location.origin}?status=cancel`,
+        }),
+      })
+
+      const result = await response.json()
+
+      if (!response.ok) {
+        throw new Error(result.error || 'Failed to create checkout session')
+      }
+
+      if (result.url) {
+        window.location.href = result.url
+      } else {
+        throw new Error('No checkout URL returned')
+      }
+    } catch (error) {
+      console.error('Checkout error:', error)
+      alert('Failed to start checkout. Please try again.')
+    } finally {
+      setCheckoutLoading(false)
+      setBusyPlanId(null)
     }
   }
 
@@ -124,57 +190,7 @@ export default function SubscriptionSettings() {
   // ─────────────────────────────────────────────
   // Stripe helpers
   // ─────────────────────────────────────────────
-  const startStripeCheckout = async (planId: string) => {
-    if (!currentUser?.profile?.company_id) return
-    try {
-      setUpgrading(true)
-      setBusyPlanId(planId)
-      const { data, error } = await supabase.functions.invoke('create-checkout-session', {
-        body: {
-          company_id: currentUser.profile.company_id,
-          plan_id: planId,
-          success_url: `${window.location.origin}/settings/subscription?status=success`,
-          cancel_url: `${window.location.origin}/settings/subscription?status=cancel`,
-        }
-      })
-      if (error) throw error
-      if (data?.url) {
-        window.location.href = data.url
-      } else {
-        throw new Error('No checkout URL returned')
-      }
-    } catch (err: any) {
-      console.error('Stripe checkout error:', err)
-      alert(err?.message || 'Unable to start checkout right now.')
-    } finally {
-      setUpgrading(false)
-      setBusyPlanId(null)
-    }
-  }
 
-  const openBillingPortal = async () => {
-    if (!currentUser?.profile?.company_id) return
-    try {
-      setUpgrading(true)
-      const { data, error } = await supabase.functions.invoke('create-billing-portal', {
-        body: {
-          company_id: currentUser.profile.company_id,
-          return_url: `${window.location.origin}/settings/subscription`,
-        }
-      })
-      if (error) throw error
-      if (data?.url) {
-        window.location.href = data.url
-      } else {
-        throw new Error('No portal URL returned')
-      }
-    } catch (err: any) {
-      console.error('Billing portal error:', err)
-      alert(err?.message || 'Unable to open billing portal.')
-    } finally {
-      setUpgrading(false)
-    }
-  }
 
   // Optional internal updater (kept for fallback/manual testing)
   const upgradePlanInternally = async (planId: string) => {
@@ -196,30 +212,10 @@ export default function SubscriptionSettings() {
     }
   }
 
-  // NEW: handy button to push “current seats” to Stripe metered item (admin only)
-  const syncSeatsNow = async () => {
-    const companyId = currentUser?.profile?.company_id
-    if (!companyId) return
-    try {
-      await supabase.functions.invoke('report-seat-usage', {
-        body: { company_id: companyId }
-      })
-      alert('Seat usage sent to Stripe. Check the upcoming invoice to see overage.')
-    } catch (e) {
-      console.error(e)
-      alert('Could not sync seats right now.')
-    }
-  }
-
   // Derivations
-  const calculateOverage = () => {
-    const plan = currentSubscription?.plan
-    if (!plan) return { overageUsers: 0, overageCost: 0, perUserCost: 0, planLimit: 0 }
-    const limit = Number(plan.user_limit ?? 0)
-    const perUserCost = Number(plan.overage_price ?? 0)
-    const overageUsers = Math.max(0, activeUsers - limit)
-    const overageCost = overageUsers * perUserCost
-    return { overageUsers, overageCost, perUserCost, planLimit: limit }
+  const getCurrentStripeProduct = () => {
+    if (!stripeSubscription?.price_id) return null
+    return getProductByPriceId(stripeSubscription.price_id)
   }
 
   const getPlanIcon = (planName?: string) => {
@@ -240,9 +236,7 @@ export default function SubscriptionSettings() {
     }
   }
 
-  const { overageUsers, overageCost, perUserCost, planLimit } = calculateOverage()
-  const basePrice = Number(currentSubscription?.plan?.monthly_price ?? 0)
-  const totalMonthlyCost = basePrice + overageCost
+  const currentStripeProduct = getCurrentStripeProduct()
 
   if (loading) {
     return (
@@ -254,119 +248,87 @@ export default function SubscriptionSettings() {
 
   return (
     <div className="space-y-6">
-      {/* Utility row (admin) */}
-      <div className="flex items-center justify-end gap-2">
-        {currentUser?.profile?.role === 'admin' && (
-          <button
-            onClick={syncSeatsNow}
-            className="px-3 py-2 rounded-md border text-sm hover:bg-gray-50"
-            title="Send current active user count to Stripe metered item"
-          >
-            Sync seats now
-          </button>
-        )}
-      </div>
-
       {/* Current Subscription */}
-      {currentSubscription && (
+      {stripeSubscription && currentStripeProduct && (
         <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-6">
           <div className="flex items-center justify-between mb-4">
             <h3 className="text-lg font-semibold text-gray-900">Current Subscription</h3>
-            <button
-              onClick={openBillingPortal}
-              className="inline-flex items-center gap-2 px-3 py-2 rounded-md bg-blue-600 text-white hover:bg-blue-700"
-            >
-              <CreditCard className="w-4 h-4" />
-              Manage Billing
-            </button>
+            <div className="flex items-center space-x-2">
+              <span className={`inline-flex px-3 py-1 text-sm font-medium rounded-full ${
+                stripeSubscription.subscription_status === 'active'
+                  ? 'bg-green-100 text-green-800'
+                  : stripeSubscription.subscription_status === 'past_due'
+                  ? 'bg-red-100 text-red-800'
+                  : 'bg-yellow-100 text-yellow-800'
+              }`}>
+                {stripeSubscription.subscription_status?.replace('_', ' ').toUpperCase() || 'UNKNOWN'}
+              </span>
+            </div>
           </div>
 
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
             <div className="flex items-center space-x-3">
-              <div className={`w-12 h-12 bg-gradient-to-r ${getPlanColor(currentSubscription.plan?.name)} rounded-lg flex items-center justify-center text-white`}>
-                {getPlanIcon(currentSubscription.plan?.name)}
+              <div className={`w-12 h-12 bg-gradient-to-r ${getPlanColor(currentStripeProduct.name)} rounded-lg flex items-center justify-center text-white`}>
+                {getPlanIcon(currentStripeProduct.name)}
               </div>
               <div>
-                <h4 className="text-lg font-semibold text-gray-900">{currentSubscription.plan?.name}</h4>
-                <p className="text-sm text-gray-600">{currentSubscription.plan?.description}</p>
+                <h4 className="text-lg font-semibold text-gray-900">{currentStripeProduct.name}</h4>
+                <p className="text-sm text-gray-600">{currentStripeProduct.description}</p>
               </div>
             </div>
 
             <div className="space-y-2">
               <div className="flex items-center justify-between">
-                <span className="text-sm text-gray-600">Base Plan:</span>
-                <span className="text-sm font-medium">{usd.format(basePrice)}/mo</span>
+                <span className="text-sm text-gray-600">Monthly Price:</span>
+                <span className="text-sm font-medium">{usd.format(currentStripeProduct.price)}/mo</span>
               </div>
 
-              <div className="flex items-center justify-between">
-                <span className="text-sm text-gray-600">Users:</span>
-                <span className={`text-sm font-medium ${overageUsers > 0 ? 'text-red-600' : ''}`}>
-                  {activeUsers} / {planLimit}
-                  {overageUsers > 0 && <span className="text-red-600 ml-1">(+{overageUsers} over)</span>}
-                </span>
-              </div>
+              {stripeSubscription.current_period_start && stripeSubscription.current_period_end && (
+                <>
+                  <div className="flex items-center justify-between">
+                    <span className="text-sm text-gray-600">Current Period:</span>
+                    <span className="text-sm text-gray-900">
+                      {new Date(stripeSubscription.current_period_start * 1000).toLocaleDateString()} - 
+                      {new Date(stripeSubscription.current_period_end * 1000).toLocaleDateString()}
+                    </span>
+                  </div>
+                  <div className="flex items-center justify-between">
+                    <span className="text-sm text-gray-600">Next Billing:</span>
+                    <span className="text-sm text-gray-900">
+                      {new Date(stripeSubscription.current_period_end * 1000).toLocaleDateString()}
+                    </span>
+                  </div>
+                </>
+              )}
 
-              {overageUsers > 0 && (
+              {stripeSubscription.payment_method_brand && stripeSubscription.payment_method_last4 && (
                 <div className="flex items-center justify-between">
-                  <span className="text-sm text-red-600">Overage ({overageUsers} × ${perUserCost}):</span>
-                  <span className="text-sm font-medium text-red-600">+{usd.format(overageCost)}/mo</span>
+                  <span className="text-sm text-gray-600">Payment Method:</span>
+                  <span className="text-sm text-gray-900">
+                    {stripeSubscription.payment_method_brand.toUpperCase()} •••• {stripeSubscription.payment_method_last4}
+                  </span>
                 </div>
               )}
 
-              <div className="flex items-center justify-between pt-2 border-t">
-                <span className="text-sm font-semibold text-gray-900">Total Monthly:</span>
-                <span className="text-lg font-bold text-gray-900">{usd.format(totalMonthlyCost)}/mo</span>
-              </div>
-            </div>
-
-            <div className="space-y-2">
-              <div className="flex items-center justify-between">
-                <span className="text-sm text-gray-600">Status:</span>
-                <span
-                  className={`inline-flex px-2 py-1 text-xs font-medium rounded-full ${
-                    currentSubscription.status === 'active'
-                      ? 'bg-green-100 text-green-800'
-                      : currentSubscription.status === 'past_due'
-                      ? 'bg-red-100 text-red-800'
-                      : 'bg-yellow-100 text-yellow-800'
-                  }`}
-                >
-                  {currentSubscription.status.toUpperCase()}
-                </span>
-              </div>
-              <div className="flex items-center justify-between">
-                <span className="text-sm text-gray-600">Period:</span>
-                <span className="text-sm">
-                  {new Date(currentSubscription.current_period_start).toLocaleDateString()}
-                </span>
-              </div>
-              <div className="flex items-center justify-between">
-                <span className="text-sm text-gray-600">Renews:</span>
-                <span className="text-sm">
-                  {new Date(currentSubscription.current_period_end).toLocaleDateString()}
-                </span>
-              </div>
+              {stripeSubscription.cancel_at_period_end && (
+                <div className="flex items-center justify-between">
+                  <span className="text-sm text-red-600">Cancels at period end:</span>
+                  <span className="text-sm text-red-600">Yes</span>
+                </div>
+              )}
             </div>
           </div>
+        </div>
+      )}
 
-          {overageUsers > 0 && (
-            <div className="mt-4 p-4 bg-yellow-50 border border-yellow-200 rounded-lg">
-              <div className="flex items-center">
-                <AlertTriangle className="w-5 h-5 text-yellow-600 mr-2" />
-                <div>
-                  <p className="text-sm font-medium text-yellow-800">
-                    Overage Charges: {overageUsers} user{overageUsers !== 1 ? 's' : ''} over your {planLimit}-user limit
-                  </p>
-                  <p className="text-sm text-yellow-700">
-                    Additional charges: {overageUsers} × ${perUserCost}/user = {usd.format(overageCost)}/month
-                  </p>
-                  <p className="text-sm text-yellow-700 mt-1">
-                    <strong>Total monthly cost:</strong> {usd.format(basePrice)} (base) + {usd.format(overageCost)} (overage) = {usd.format(totalMonthlyCost)}
-                  </p>
-                </div>
-              </div>
-            </div>
-          )}
+      {/* No Subscription State */}
+      {!stripeSubscription && (
+        <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-6">
+          <div className="text-center py-8">
+            <Package className="w-16 h-16 text-gray-400 mx-auto mb-4" />
+            <h3 className="text-lg font-semibold text-gray-900 mb-2">No Active Subscription</h3>
+            <p className="text-gray-600 mb-6">Choose a plan below to get started with premium features</p>
+          </div>
         </div>
       )}
 
@@ -375,14 +337,14 @@ export default function SubscriptionSettings() {
         <h3 className="text-lg font-semibold text-gray-900 mb-6">Available Plans</h3>
 
         <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-          {plans.map((plan) => {
-            const isCurrentPlan = currentSubscription?.plan_id === plan.id
+          {stripeProducts.map((product) => {
+            const isCurrentPlan = stripeSubscription?.price_id === product.priceId
             const canUpgrade = !isCurrentPlan && currentUser?.profile?.role === 'admin'
-            const showOverage = typeof plan.overage_price === 'number' && plan.overage_price > 0
+            const isBusy = busyPlanId === product.priceId
 
             return (
               <div
-                key={plan.id}
+                key={product.id}
                 className={`relative border-2 rounded-xl p-6 transition-all hover:shadow-lg ${
                   isCurrentPlan ? 'border-blue-500 bg-blue-50' : 'border-gray-200 hover:border-blue-300'
                 }`}
@@ -396,92 +358,52 @@ export default function SubscriptionSettings() {
                 )}
 
                 <div className="text-center mb-6">
-                  <div className={`w-16 h-16 bg-gradient-to-r ${getPlanColor(plan.name)} rounded-xl flex items-center justify-center text-white mx-auto mb-4`}>
-                    {getPlanIcon(plan.name)}
+                  <div className={`w-16 h-16 bg-gradient-to-r ${getPlanColor(product.name)} rounded-xl flex items-center justify-center text-white mx-auto mb-4`}>
+                    {getPlanIcon(product.name)}
                   </div>
-                  <h4 className="text-xl font-bold text-gray-900">{plan.name}</h4>
-                  <p className="text-gray-600 text-sm mt-1">{plan.description}</p>
+                  <h4 className="text-xl font-bold text-gray-900">{product.name}</h4>
+                  <p className="text-gray-600 text-sm mt-1">{product.description}</p>
                 </div>
 
                 <div className="text-center mb-6">
-                  <div className="text-3xl font-bold text-gray-900">{usd.format(Number(plan.monthly_price || 0))}</div>
+                  <div className="text-3xl font-bold text-gray-900">{usd.format(product.price)}</div>
                   <div className="text-sm text-gray-600">per month</div>
-                  <div className="text-sm text-gray-600 mt-1">{plan.user_limit} users included</div>
-                  {showOverage && (
-                    <div className="text-xs text-gray-500">
-                      +${Number(plan.overage_price).toFixed(0)}/user thereafter
-                    </div>
-                  )}
                 </div>
 
                 <div className="space-y-3 mb-6">
-                  <div className="flex items-center text-sm">
-                    <CheckCircle className="w-4 h-4 text-green-500 mr-2" />
-                    <span>Up to {plan.user_limit} team members</span>
-                  </div>
-                  <div className="flex items-center text-sm">
-                    <CheckCircle className="w-4 h-4 text-green-500 mr-2" />
-                    <span>Work order management</span>
-                  </div>
-                  <div className="flex items-center text-sm">
-                    <CheckCircle className="w-4 h-4 text-green-500 mr-2" />
-                    <span>Customer management</span>
-                  </div>
-                  {plan.name !== 'Starter' && (
-                    <>
-                      <div className="flex items-center text-sm">
-                        <CheckCircle className="w-4 h-4 text-green-500 mr-2" />
-                        <span>Project management</span>
-                      </div>
-                      <div className="flex items-center text-sm">
-                        <CheckCircle className="w-4 h-4 text-green-500 mr-2" />
-                        <span>Inventory tracking</span>
-                      </div>
-                      <div className="flex items-center text-sm">
-                        <CheckCircle className="w-4 h-4 text-green-500 mr-2" />
-                        <span>CRM features</span>
-                      </div>
-                    </>
-                  )}
-                  {plan.name === 'Business' && (
-                    <>
-                      <div className="flex items-center text-sm">
-                        <CheckCircle className="w-4 h-4 text-green-500 mr-2" />
-                        <span>Multi-location support</span>
-                      </div>
-                      <div className="flex items-center text-sm">
-                        <CheckCircle className="w-4 h-4 text-green-500 mr-2" />
-                        <span>API access</span>
-                      </div>
-                      <div className="flex items-center text-sm">
-                        <CheckCircle className="w-4 h-4 text-green-500 mr-2" />
-                        <span>QuickBooks integration</span>
-                      </div>
-                    </>
-                  )}
+                  {product.features.map((feature, index) => (
+                    <div key={index} className="flex items-center text-sm">
+                      <CheckCircle className="w-4 h-4 text-green-500 mr-2 flex-shrink-0" />
+                      <span>{feature}</span>
+                    </div>
+                  ))}
                 </div>
 
                 {canUpgrade ? (
                   <button
-                    onClick={() => startStripeCheckout(plan.id)}
-                    disabled={upgrading || busyPlanId === plan.id}
-                    className={`w-full py-3 px-4 rounded-lg font-medium transition-colors ${
-                      plan.name === 'Business'
+                    onClick={() => handleCheckout(product.priceId)}
+                    disabled={checkoutLoading || isBusy}
+                    className={`w-full py-3 px-4 rounded-lg font-medium transition-colors flex items-center justify-center ${
+                      product.name === 'Business Base'
                         ? 'bg-gradient-to-r from-yellow-500 to-yellow-600 text-white hover:from-yellow-600 hover:to-yellow-700'
-                        : plan.name === 'Pro'
+                        : product.name === 'Pro Base'
                         ? 'bg-gradient-to-r from-purple-500 to-purple-600 text-white hover:from-purple-600 hover:to-purple-700'
                         : 'bg-gradient-to-r from-blue-500 to-blue-600 text-white hover:from-blue-600 hover:to-blue-700'
                     } disabled:opacity-50`}
                   >
-                    {upgrading && busyPlanId === plan.id ? 'Processing…' : `Upgrade to ${plan.name}`}
+                    {isBusy ? (
+                      <>
+                        <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                        Processing...
+                      </>
+                    ) : (
+                      `Upgrade to ${product.name}`
+                    )}
                   </button>
                 ) : isCurrentPlan ? (
-                  <button
-                    onClick={openBillingPortal}
-                    className="w-full py-3 px-4 bg-blue-100 text-blue-800 rounded-lg text-center font-medium hover:bg-blue-200"
-                  >
-                    Current Plan • Manage Billing
-                  </button>
+                  <div className="w-full py-3 px-4 bg-blue-100 text-blue-800 rounded-lg text-center font-medium">
+                    Current Plan
+                  </div>
                 ) : (
                   <div className="w-full py-3 px-4 bg-gray-100 text-gray-600 rounded-lg text-center font-medium">
                     Contact Admin to Change Plans
@@ -492,6 +414,150 @@ export default function SubscriptionSettings() {
           })}
         </div>
       </div>
+
+      {/* Subscription Features */}
+      {currentStripeProduct && (
+        <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-6">
+          <h3 className="text-lg font-semibold text-gray-900 mb-4">Your Plan Features</h3>
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            {currentStripeProduct.features.map((feature, index) => (
+              <div key={index} className="flex items-center text-sm">
+                <CheckCircle className="w-4 h-4 text-green-500 mr-3 flex-shrink-0" />
+                <span>{feature}</span>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* Usage Statistics */}
+      <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-6">
+        <h3 className="text-lg font-semibold text-gray-900 mb-6">Usage Statistics</h3>
+
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+          <div className="bg-blue-50 rounded-lg p-4">
+            <div className="flex items-center justify-between">
+              <div>
+                <p className="text-sm font-medium text-blue-600">Active Users</p>
+                <p className="text-2xl font-bold text-blue-900">{activeUsers}</p>
+              </div>
+              <Users className="w-8 h-8 text-blue-600" />
+            </div>
+          </div>
+
+          <div className="bg-green-50 rounded-lg p-4">
+            <div className="flex items-center justify-between">
+              <div>
+                <p className="text-sm font-medium text-green-600">Current Plan</p>
+                <p className="text-lg font-bold text-green-900">{currentStripeProduct?.name || 'No Plan'}</p>
+              </div>
+              <Package className="w-8 h-8 text-green-600" />
+            </div>
+          </div>
+        </div>
+      </div>
+
+      {/* Billing Information */}
+      <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-6">
+        <h3 className="text-lg font-semibold text-gray-900 mb-4">Billing Information</h3>
+
+        {stripeSubscription ? (
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+            <div>
+              <h4 className="text-md font-medium text-gray-900 mb-3">Subscription Details</h4>
+              <div className="space-y-2">
+                <div className="flex justify-between">
+                  <span className="text-sm text-gray-600">Subscription ID:</span>
+                  <span className="text-sm text-gray-900 font-mono">
+                    {stripeSubscription.subscription_id || 'N/A'}
+                  </span>
+                </div>
+                <div className="flex justify-between">
+                  <span className="text-sm text-gray-600">Customer ID:</span>
+                  <span className="text-sm text-gray-900 font-mono">
+                    {stripeSubscription.customer_id || 'N/A'}
+                  </span>
+                </div>
+                <div className="flex justify-between">
+                  <span className="text-sm text-gray-600">Price ID:</span>
+                  <span className="text-sm text-gray-900 font-mono">
+                    {stripeSubscription.price_id || 'N/A'}
+                  </span>
+                </div>
+              </div>
+            </div>
+
+            <div>
+              <h4 className="text-md font-medium text-gray-900 mb-3">Billing Cycle</h4>
+              <div className="space-y-2">
+                {stripeSubscription.current_period_start && (
+                  <div className="flex justify-between">
+                    <span className="text-sm text-gray-600">Period Start:</span>
+                    <span className="text-sm text-gray-900">
+                      {new Date(stripeSubscription.current_period_start * 1000).toLocaleDateString()}
+                    </span>
+                  </div>
+                )}
+                {stripeSubscription.current_period_end && (
+                  <div className="flex justify-between">
+                    <span className="text-sm text-gray-600">Period End:</span>
+                    <span className="text-sm text-gray-900">
+                      {new Date(stripeSubscription.current_period_end * 1000).toLocaleDateString()}
+                    </span>
+                  </div>
+                )}
+                <div className="flex justify-between">
+                  <span className="text-sm text-gray-600">Auto-renew:</span>
+                  <span className="text-sm text-gray-900">
+                    {stripeSubscription.cancel_at_period_end ? 'No' : 'Yes'}
+                  </span>
+                </div>
+              </div>
+            </div>
+          </div>
+        ) : (
+          <div className="text-center py-8 text-gray-500">
+            <CreditCard className="w-12 h-12 mx-auto mb-4 text-gray-400" />
+            <p>No billing information available</p>
+            <p className="text-sm">Subscribe to a plan to see billing details</p>
+          </div>
+        )}
+      </div>
+
+      {/* Help Section */}
+      <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-6">
+        <h3 className="text-lg font-semibold text-gray-900 mb-4">Need Help?</h3>
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+          <div>
+            <h4 className="text-md font-medium text-gray-900 mb-2">Billing Questions</h4>
+            <p className="text-sm text-gray-600 mb-3">
+              Have questions about your subscription or billing? We're here to help.
+            </p>
+            <a
+              href="mailto:billing@folioops.com"
+              className="inline-flex items-center text-sm text-blue-600 hover:text-blue-800"
+            >
+              <ExternalLink className="w-4 h-4 mr-1" />
+              Contact Billing Support
+            </a>
+          </div>
+          <div>
+            <h4 className="text-md font-medium text-gray-900 mb-2">Plan Changes</h4>
+            <p className="text-sm text-gray-600 mb-3">
+              Want to upgrade or downgrade your plan? Only admins can make plan changes.
+            </p>
+            {currentUser?.profile?.role !== 'admin' && (
+              <p className="text-sm text-orange-600">
+                Contact your admin to change subscription plans.
+              </p>
+            )}
+          </div>
+        </div>
+      </div>
+    </div>
+  )
+}
+
 
       {/* Usage Statistics */}
       <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-6">
