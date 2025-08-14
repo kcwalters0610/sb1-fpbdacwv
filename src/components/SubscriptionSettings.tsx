@@ -238,12 +238,12 @@ export default function SubscriptionSettings() {
 
   const currentStripeProduct = getCurrentStripeProduct()
 
-  // Calculate derived values for usage statistics
+  // Calculate billing metrics
   const currentPlan = currentSubscription?.plan
-  const planLimit = currentPlan?.user_limit || 0
-  const overageUsers = Math.max(0, activeUsers - planLimit)
   const basePrice = currentPlan?.monthly_price || 0
+  const planLimit = currentPlan?.user_limit || 0
   const perUserCost = currentPlan?.per_user_cost || 0
+  const overageUsers = Math.max(0, activeUsers - planLimit)
   const overageCost = overageUsers * perUserCost
   const totalMonthlyCost = basePrice + overageCost
 
