@@ -101,6 +101,7 @@ export default function SubscriptionSettings() {
         body: JSON.stringify({
           price_id: priceId,
           mode: 'subscription',
+          quantity: 1,
           success_url: `${window.location.origin}?status=success`,
           cancel_url: `${window.location.origin}?status=cancel`,
         }),
