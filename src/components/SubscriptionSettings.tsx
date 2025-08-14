@@ -242,7 +242,7 @@ export default function SubscriptionSettings() {
   const currentPlan = currentSubscription?.plan
   const basePrice = currentPlan?.monthly_price || 0
   const planLimit = currentPlan?.user_limit || 0
-  const perUserCost = currentPlan?.per_user_cost || 0
+  const perUserCost = currentPlan?.overage_price || 0
   const overageUsers = Math.max(0, activeUsers - planLimit)
   const overageCost = overageUsers * perUserCost
   const totalMonthlyCost = basePrice + overageCost
