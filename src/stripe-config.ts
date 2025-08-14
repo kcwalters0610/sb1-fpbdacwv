@@ -6,20 +6,20 @@ export interface StripeProduct {
   mode: 'payment' | 'subscription'
   price: number
   userLimit: number
-  overagePrice: number
+  overagePriceId: string
   features: string[]
 }
 
 export const stripeProducts: StripeProduct[] = [
   {
     id: 'prod_SrW9XwUp5X6QGF',
-    priceId: 'price_YOUR_ACTUAL_STARTER_PRICE_ID',
+    priceId: 'price_1Rvn7PH2k7OW1G0R8kUIQs5K',
     name: 'Starter Base',
     description: 'Essential features for small field service teams',
     mode: 'subscription',
     price: 99.00,
     userLimit: 3,
-    overagePrice: 20.00,
+    overagePriceId: 'price_1RvoD1H2k7OW1G0R5F0FMbpr',
     features: [
       'Up to 3 team members included',
       '$20/month per additional user',
