@@ -29,11 +29,11 @@ export const supabase = createClient(supabaseUrl, supabaseAnonKey, {
     fetch: async (url, options = {}) => {
       const response = await fetch(url, options)
       
-      // Handle session_not_found errors
-      if (response.status === 403) {
+      // Handle session_not_found errors and refresh token errors
+      if (response.status === 403 || response.status === 400) {
         try {
           const body = await response.clone().text()
-          if (body.includes('session_not_found')) {
+          if (body.includes('session_not_found') || body.includes('refresh_token_not_found')) {
             // Clear the invalid session
             await supabase.auth.signOut()
           }
