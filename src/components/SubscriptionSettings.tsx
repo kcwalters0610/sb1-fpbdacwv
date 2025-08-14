@@ -101,6 +101,7 @@ export default function SubscriptionSettings() {
         body: JSON.stringify({
           price_id: priceId,
           mode: 'subscription',
+          quantity: activeUsers, // Send current user count to Stripe
           success_url: `${window.location.origin}?status=success`,
           cancel_url: `${window.location.origin}?status=cancel`,
         }),

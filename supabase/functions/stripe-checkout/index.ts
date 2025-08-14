@@ -43,15 +43,16 @@ Deno.serve(async (req) => {
       return corsResponse({ error: 'Method not allowed' }, 405);
     }
 
-    const { price_id, success_url, cancel_url, mode } = await req.json();
+    const { price_id, success_url, cancel_url, mode, quantity } = await req.json();
 
     const error = validateParameters(
-      { price_id, success_url, cancel_url, mode },
+      { price_id, success_url, cancel_url, mode, quantity },
       {
         cancel_url: 'string',
         price_id: 'string',
         success_url: 'string',
         mode: { values: ['payment', 'subscription'] },
+        quantity: 'number',
       },
     );
 
@@ -184,7 +185,7 @@ Deno.serve(async (req) => {
       line_items: [
         {
           price: price_id,
-          quantity: 1,
+          quantity: quantity || 1,
         },
       ],
       mode,
@@ -201,7 +202,7 @@ Deno.serve(async (req) => {
   }
 });
 
-type ExpectedType = 'string' | { values: string[] };
+type ExpectedType = 'string' | 'number' | { values: string[] };
 type Expectations<T> = { [K in keyof T]: ExpectedType };
 
 function validateParameters<T extends Record<string, any>>(values: T, expected: Expectations<T>): string | undefined {
@@ -215,6 +216,13 @@ function validateParameters<T extends Record<string, any>>(values: T, expected: 
       }
       if (typeof value !== 'string') {
         return `Expected parameter ${parameter} to be a string got ${JSON.stringify(value)}`;
+      }
+    } else if (expectation === 'number') {
+      if (value == null) {
+        return `Missing required parameter ${parameter}`;
+      }
+      if (typeof value !== 'number') {
+        return `Expected parameter ${parameter} to be a number got ${JSON.stringify(value)}`;
       }
     } else {
       if (!expectation.values.includes(value)) {
