@@ -241,11 +241,11 @@ export default function SubscriptionSettings() {
   // Calculate billing metrics
   const currentPlan = currentSubscription?.plan
   const basePrice = currentPlan?.monthly_price || 0
-  const planLimit = currentPlan?.user_limit || 0
-  const perUserCost = currentPlan?.overage_price || 0
+  const planLimit = currentStripeProduct?.userLimit || 0
+  const perUserCost = currentStripeProduct?.overagePrice || 0
   const overageUsers = Math.max(0, activeUsers - planLimit)
   const overageCost = overageUsers * perUserCost
-  const totalMonthlyCost = basePrice + overageCost
+  const totalMonthlyCost = (currentStripeProduct?.price || 0) + overageCost
 
   if (loading) {
     return (

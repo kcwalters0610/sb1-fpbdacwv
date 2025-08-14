@@ -5,6 +5,8 @@ export interface StripeProduct {
   description: string
   mode: 'payment' | 'subscription'
   price: number
+  userLimit: number
+  overagePrice: number
   features: string[]
 }
 
@@ -16,8 +18,11 @@ export const stripeProducts: StripeProduct[] = [
     description: 'Essential features for small field service teams',
     mode: 'subscription',
     price: 99.00,
+    userLimit: 3,
+    overagePrice: 20.00,
     features: [
-      'Up to 5 team members',
+      'Up to 3 team members included',
+      '$20/month per additional user',
       'Work order management',
       'Customer database',
       'Basic invoicing',
@@ -33,8 +38,11 @@ export const stripeProducts: StripeProduct[] = [
     description: 'Advanced features for growing businesses',
     mode: 'subscription',
     price: 199.00,
+    userLimit: 3,
+    overagePrice: 20.00,
     features: [
-      'Up to 15 team members',
+      'Up to 3 team members included',
+      '$20/month per additional user',
       'Everything in Starter',
       'Project management',
       'Inventory tracking',
@@ -52,8 +60,11 @@ export const stripeProducts: StripeProduct[] = [
     description: 'Complete solution for enterprise field service operations',
     mode: 'subscription',
     price: 399.00,
+    userLimit: 3,
+    overagePrice: 20.00,
     features: [
-      'Unlimited team members',
+      'Up to 3 team members included',
+      '$20/month per additional user',
       'Everything in Pro',
       'Multi-location support',
       'Maintenance scheduling',
