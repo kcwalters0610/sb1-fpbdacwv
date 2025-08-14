@@ -493,35 +493,57 @@ export default function Settings() {
   }
 
   const disconnectQuickBooks = async () => {
-    if (!confirm('Are you sure you want to disconnect QuickBooks? This will stop all automatic syncing.')) return
+    if (!confirm('Are you sure you want to disconnect QuickBooks? This will stop all automatic syncing and remove stored credentials.')) return
     
-    try {
-      setQuickbooksForm({
-        enabled: false,
-        company_id: '',
-        access_token: '',
-        refresh_token: '',
-        sync_customers: true,
-        sync_invoices: true,
-        sync_items: true,
-        auto_sync: false,
-        last_sync: null
-      })
-      
-      setQuickbooksSuccess('QuickBooks disconnected successfully!')
-    } catch (error) {
-      console.error('Error disconnecting QuickBooks:', error)
-      setQuickbooksError('Failed to disconnect QuickBooks.')
-    }
-  }
-
-  const saveQuickBooksSettings = async () => {
-    setSaving(true)
+    setQuickbooksLoading(true)
     setQuickbooksError('')
     
     try {
-      if (!company?.id) throw new Error('No company found')
-
+      // Revoke the refresh token if available
+      if (quickbooksSettings.refreshToken) {
+        try {
+          await fetch('https://developer.api.intuit.com/v2/oauth2/tokens/revoke', {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/x-www-form-urlencoded',
+              'Authorization': `Basic ${btoa(`${QUICKBOOKS_CONFIG.clientId}:${QUICKBOOKS_CONFIG.clientSecret}`)}`
+            },
+            body: new URLSearchParams({
+              token: quickbooksSettings.refreshToken
+            })
+          })
+        } catch (revokeError) {
+          console.warn('Failed to revoke QuickBooks token:', revokeError)
+        }
+      }
+      
+      const updatedSettings = {
+        ...companySettings,
+        quickbooks: {
+          connected: false,
+          companyId: '',
+          realmId: '',
+          accessToken: '',
+          refreshToken: '',
+          lastSync: null,
+          autoSync: false,
+          syncCustomers: true,
+          syncInvoices: true,
+          syncInventory: true,
+          customerSyncStatus: 'idle',
+          invoiceSyncStatus: 'idle',
+          inventorySyncStatus: 'idle'
+        }
+      }
+      
+      await saveCompanySettings(updatedSettings)
+      setQuickbooksSettings(updatedSettings.quickbooks)
+      setQuickbooksMessage('QuickBooks disconnected successfully')
+    } catch (error) {
+      setQuickbooksError('Failed to disconnect QuickBooks')
+    } finally {
+      setQuickbooksLoading(false)
+    }
       const currentSettings = company.settings || {}
       const updatedSettings = {
         ...currentSettings,
