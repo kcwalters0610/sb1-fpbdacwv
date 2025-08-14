@@ -14,7 +14,7 @@ export interface StripeProduct {
 export const stripeProducts: StripeProduct[] = [
   {
     id: 'prod_Srp9QiY67NzIxX',
-    priceId: 'price_1Rw5VdH2k7OW1G0R9C9L3kHk',
+    priceId: 'price_1Rw6P3HjUCCcUwLCVnJ7TZwc',
     name: 'Starter Base',
     description: 'Essential features for small field service teams',
     mode: 'subscription',
@@ -35,7 +35,7 @@ export const stripeProducts: StripeProduct[] = [
   },
   {
     id: 'prod_SrpcNxogDZjCs7',
-    priceId: 'price_1Rw5wyH2k7OW1G0R0vrprDjW',
+    priceId: 'price_1Rw6Q3HjUCCcUwLCzbcpyDgy',
     name: 'Pro Base',
     description: 'Advanced features for growing businesses',
     mode: 'subscription',
@@ -58,7 +58,7 @@ export const stripeProducts: StripeProduct[] = [
   },
   {
     id: 'prod_SrpaNrqySWB2xo',
-    priceId: 'price_1Rw5vAH2k7OW1G0RcH4lOq6w',
+    priceId: 'price_1Rw6QhHjUCCcUwLCqp6bnj67',
     name: 'Business Base',
     description: 'Complete solution for enterprise field service operations',
     mode: 'subscription',
