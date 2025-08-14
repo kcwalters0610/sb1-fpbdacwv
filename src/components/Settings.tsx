@@ -493,9 +493,30 @@ export default function Settings() {
   }
 
   const disconnectQuickBooks = async () => {
-    if (!confirm('Are you sure you want to disconnect QuickBooks? This will stop all automatic syncing.')) return
+    if (!confirm('Are you sure you want to disconnect QuickBooks? This will stop all automatic syncing and remove stored credentials.')) return
+    
+    setQuickbooksLoading(true)
+    setQuickbooksError('')
     
     try {
+      // Revoke the refresh token if available
+      if (quickbooksForm.refresh_token) {
+        try {
+          await fetch('https://developer.api.intuit.com/v2/oauth2/tokens/revoke', {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/x-www-form-urlencoded',
+              'Authorization': `Basic ${btoa(`${QUICKBOOKS_CONFIG.clientId}:${QUICKBOOKS_CONFIG.clientSecret}`)}`
+            },
+            body: new URLSearchParams({
+              token: quickbooksForm.refresh_token
+            })
+          })
+        } catch (revokeError) {
+          console.warn('Failed to revoke QuickBooks token:', revokeError)
+        }
+      }
+      
       setQuickbooksForm({
         enabled: false,
         company_id: '',
@@ -508,10 +529,11 @@ export default function Settings() {
         last_sync: null
       })
       
-      setQuickbooksSuccess('QuickBooks disconnected successfully!')
+      setQuickbooksSuccess('QuickBooks disconnected successfully')
     } catch (error) {
-      console.error('Error disconnecting QuickBooks:', error)
-      setQuickbooksError('Failed to disconnect QuickBooks.')
+      setQuickbooksError('Failed to disconnect QuickBooks')
+    } finally {
+      setQuickbooksLoading(false)
     }
   }
 
