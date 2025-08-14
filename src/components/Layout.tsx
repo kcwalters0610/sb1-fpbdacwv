@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react'
 import { ChevronLeft, ChevronRight, Cloud, CloudRain, CloudSun, MapPin, RefreshCw, Sun, Thermometer, Menu, X, Home, Users, FileText, Package, Settings, LogOut, MessageSquare, Calendar, Clock, User, Truck, Target, Building2, BarChart4, ClipboardList, Wrench, DollarSign, FolderOpen, ShoppingCart, Store, PenTool as Tool } from 'lucide-react'
 import { supabase } from '../lib/supabase'
 import { getSubscriptionFeatures } from '../lib/subscriptionAccess'
+import { getProductByPriceId } from '../stripe-config'
 
 interface LayoutProps {
   children: React.ReactNode
@@ -14,6 +15,7 @@ export default function Layout({ children, currentPage, onPageChange }: LayoutPr
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false)
   const [currentUser, setCurrentUser] = useState<any>(null)
   const [subscriptionFeatures, setSubscriptionFeatures] = useState<any>({})
+  const [currentPlan, setCurrentPlan] = useState<string>('')
 
   // Define which navigation items are visible to which roles
   const getVisibleNavItems = (role: string, features: any) => {
@@ -115,6 +117,7 @@ export default function Layout({ children, currentPage, onPageChange }: LayoutPr
   useEffect(() => {
     getCurrentUser()
     loadSubscriptionFeatures()
+    loadCurrentPlan()
   }, [])
 
   const loadSubscriptionFeatures = async () => {
@@ -123,6 +126,22 @@ export default function Layout({ children, currentPage, onPageChange }: LayoutPr
       setSubscriptionFeatures(features)
     } catch (error) {
       console.error('Error loading subscription features:', error)
+    }
+  }
+
+  const loadCurrentPlan = async () => {
+    try {
+      const { data: stripeData } = await supabase
+        .from('stripe_user_subscriptions')
+        .select('price_id')
+        .maybeSingle()
+
+      if (stripeData?.price_id) {
+        const product = getProductByPriceId(stripeData.price_id)
+        setCurrentPlan(product?.name || '')
+      }
+    } catch (error) {
+      console.error('Error loading current plan:', error)
     }
   }
 
@@ -266,9 +285,18 @@ export default function Layout({ children, currentPage, onPageChange }: LayoutPr
                 <p className="text-sm font-medium text-gray-900">
                   {sidebarCollapsed ? currentUser?.profile?.first_name?.charAt(0) + currentUser?.profile?.last_name?.charAt(0) : `${currentUser?.profile?.first_name} ${currentUser?.profile?.last_name}`}
                 </p>
-                <p className={`text-xs text-gray-500 capitalize ${sidebarCollapsed ? 'hidden' : 'block'}`}>
-                  {currentUser?.profile?.role}
-                </p>
+                {!sidebarCollapsed && (
+                  <div className="space-y-1">
+                    <p className="text-xs text-gray-500 capitalize">
+                      {currentUser?.profile?.role}
+                    </p>
+                    {currentPlan && (
+                      <p className="text-xs text-blue-600 font-medium">
+                        {currentPlan} Plan
+                      </p>
+                    )}
+                  </div>
+                )}
               </div>
             </div>
             <div className={`mt-3 space-y-1 ${sidebarCollapsed ? 'flex flex-col items-center' : ''}`}>
@@ -315,6 +343,11 @@ export default function Layout({ children, currentPage, onPageChange }: LayoutPr
                   day: 'numeric' 
                 })}
               </div>
+              {currentPlan && (
+                <div className="text-sm text-blue-600 font-medium mr-4">
+                  {currentPlan} Plan
+                </div>
+              )}
             </div>
           </div>
         </div>

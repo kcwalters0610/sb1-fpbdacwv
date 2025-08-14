@@ -3,6 +3,7 @@ import { supabase } from './lib/supabase'
 import { hasFeature } from './lib/subscriptionAccess'
 import Auth from './components/Auth'
 import ResetPassword from './components/ResetPassword'
+import SuccessPage from './components/SuccessPage'
 import Layout from './components/Layout'
 import Dashboard from './components/Dashboard'
 import Estimates from './components/Estimates'
@@ -36,6 +37,7 @@ function App() {
   const [currentPage, setCurrentPage] = useState('dashboard')
   const [hasAccessToPage, setHasAccessToPage] = useState(true)
   const [isPasswordReset, setIsPasswordReset] = useState(false)
+  const [showSuccessPage, setShowSuccessPage] = useState(false)
 
   useEffect(() => {
     const initializeApp = async () => {
@@ -46,16 +48,27 @@ function App() {
         
         const isRecoveryFromSearch = urlParams.get('type') === 'recovery'
         const isRecoveryFromHash = hashParams.get('type') === 'recovery'
+        const isSuccess = urlParams.get('status') === 'success'
         
         console.log('URL search params:', window.location.search)
         console.log('URL hash params:', window.location.hash)
         console.log('Is recovery from search:', isRecoveryFromSearch)
         console.log('Is recovery from hash:', isRecoveryFromHash)
+        console.log('Is success:', isSuccess)
         
         if (isRecoveryFromSearch || isRecoveryFromHash) {
           console.log('Password reset detected, showing reset page')
           setIsPasswordReset(true)
           setLoading(false)
+          return
+        }
+        
+        if (isSuccess) {
+          console.log('Success page detected')
+          setShowSuccessPage(true)
+          setLoading(false)
+          // Clean up URL
+          window.history.replaceState({}, '', window.location.pathname)
           return
         }
         
@@ -196,6 +209,11 @@ function App() {
   // Show password reset page if this is a password reset flow
   if (isPasswordReset) {
     return <ResetPassword />
+  }
+
+  // Show success page after successful payment
+  if (showSuccessPage) {
+    return <SuccessPage onContinue={() => setShowSuccessPage(false)} />
   }
 
   if (!session) {
