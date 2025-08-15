@@ -315,64 +315,6 @@ export default function Estimates() {
     }
   }
 
-  const convertToProject = async (estimate: Estimate) => {
-    if (!confirm(`Convert estimate "${estimate.estimate_number}" to a project?`)) return
-
-    try {
-      // Get current user's company_id
-      const { data: { user } } = await supabase.auth.getUser()
-      if (!user) throw new Error('User not authenticated')
-      
-      const { data: profile } = await supabase
-        .from('profiles')
-        .select('company_id')
-        .eq('id', user.id)
-        .single()
-      
-      if (!profile) throw new Error('User profile not found')
-
-      // Generate project number
-      const { formattedNumber: projectNumber, nextSequence } = await getNextNumber('project')
-      
-      // Create project from estimate
-      const projectData = {
-        company_id: profile.company_id,
-        project_number: projectNumber,
-        project_name: estimate.title,
-        description: estimate.description,
-        customer_id: estimate.customer_id,
-        customer_site_id: estimate.customer_site_id,
-        total_budget: estimate.total_amount,
-        status: 'planning',
-        priority: 'medium',
-        estimate_id: estimate.id,
-        notes: `Converted from estimate: ${estimate.estimate_number}`
-      }
-
-      const { error: projectError } = await supabase
-        .from('projects')
-        .insert([projectData])
-      
-      if (projectError) throw projectError
-      
-      // Update the sequence number
-      await updateNextNumber('project', nextSequence)
-
-      // Update estimate status to converted
-      const { error: estimateError } = await supabase
-        .from('estimates')
-        .update({ status: 'converted' })
-        .eq('id', estimate.id)
-      
-      if (estimateError) throw estimateError
-
-      alert(`Project ${projectNumber} created successfully from estimate ${estimate.estimate_number}!`)
-      loadData()
-    } catch (error) {
-      console.error('Error converting to project:', error)
-      alert('Error converting estimate to project: ' + (error as Error).message)
-    }
-  }
   const addLineItem = () => {
     const newItem = {
       id: Date.now().toString(),
@@ -780,6 +722,36 @@ export default function Estimates() {
       // Date line
       doc.line(120, yPosition, 180, yPosition)
       doc.text('Date', 120, yPosition + 5)
+
+      // Save the PDF
+      doc.save(`estimate-${estimate.estimate_number}.pdf`)
+    } catch (error) {
+      console.error('Error generating PDF:', error)
+      alert('Error generating PDF: ' + (error as Error).message)
+    } finally {
+      setGeneratingPDF(false)
+    }
+  }
+
+  const getStatusColor = (status: string) => {
+    switch (status) {
+      case 'draft':
+        return 'bg-gray-100 text-gray-800'
+      case 'sent':
+        return 'bg-blue-100 text-blue-800'
+      case 'approved':
+        return 'bg-green-100 text-green-800'
+      case 'rejected':
+        return 'bg-red-100 text-red-800'
+      case 'expired':
+        return 'bg-yellow-100 text-yellow-800'
+      case 'converted':
+        return 'bg-purple-100 text-purple-800'
+      default:
+        return 'bg-gray-100 text-gray-800'
+    }
+  }
+
   const filteredEstimates = estimates.filter(estimate => {
     const matchesSearch = estimate.estimate_number.toLowerCase().includes(searchTerm.toLowerCase()) ||
                          estimate.title.toLowerCase().includes(searchTerm.toLowerCase()) ||
@@ -1013,7 +985,7 @@ export default function Estimates() {
                   
                   <div className="space-y-2 mb-4">
                     <div className="flex items-center text-sm text-gray-600">
-                      <Building2 className="w-4 h-4 mr-3" />
+                      <User className="w-4 h-4 mr-3" />
                       <span>
                         {estimate.customer?.customer_type === 'residential' 
                           ? `${estimate.customer?.first_name} ${estimate.customer?.last_name}`
@@ -1024,7 +996,7 @@ export default function Estimates() {
                     
                     {estimate.customer_site && (
                       <div className="flex items-center text-sm text-gray-600">
-                        <Building2 className="w-4 h-4 mr-3" />
+                        <User className="w-4 h-4 mr-3" />
                         <span>{estimate.customer_site.site_name}</span>
                       </div>
                     )}
