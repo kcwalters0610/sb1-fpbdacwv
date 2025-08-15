@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react'
-import { Plus, Search, Calendar, User, DollarSign, Edit, Trash2, Eye, X, Building2, FileText, Download } from 'lucide-react'
+import { Plus, Search, FileText, Calendar, User, DollarSign, Edit, Trash2, Eye, X, Download, ArrowRight } from 'lucide-react'
 import { supabase, Estimate, Customer, CustomerSite } from '../lib/supabase'
 import { useViewPreference } from '../hooks/useViewPreference'
 import ViewToggle from './ViewToggle'
@@ -315,6 +315,64 @@ export default function Estimates() {
     }
   }
 
+  const convertToProject = async (estimate: Estimate) => {
+    if (!confirm(`Convert estimate "${estimate.estimate_number}" to a project?`)) return
+
+    try {
+      // Get current user's company_id
+      const { data: { user } } = await supabase.auth.getUser()
+      if (!user) throw new Error('User not authenticated')
+      
+      const { data: profile } = await supabase
+        .from('profiles')
+        .select('company_id')
+        .eq('id', user.id)
+        .single()
+      
+      if (!profile) throw new Error('User profile not found')
+
+      // Generate project number
+      const { formattedNumber: projectNumber, nextSequence } = await getNextNumber('project')
+      
+      // Create project from estimate
+      const projectData = {
+        company_id: profile.company_id,
+        project_number: projectNumber,
+        project_name: estimate.title,
+        description: estimate.description,
+        customer_id: estimate.customer_id,
+        customer_site_id: estimate.customer_site_id,
+        total_budget: estimate.total_amount,
+        status: 'planning',
+        priority: 'medium',
+        estimate_id: estimate.id,
+        notes: `Converted from estimate: ${estimate.estimate_number}`
+      }
+
+      const { error: projectError } = await supabase
+        .from('projects')
+        .insert([projectData])
+      
+      if (projectError) throw projectError
+      
+      // Update the sequence number
+      await updateNextNumber('project', nextSequence)
+
+      // Update estimate status to converted
+      const { error: estimateError } = await supabase
+        .from('estimates')
+        .update({ status: 'converted' })
+        .eq('id', estimate.id)
+      
+      if (estimateError) throw estimateError
+
+      alert(`Project ${projectNumber} created successfully from estimate ${estimate.estimate_number}!`)
+      loadData()
+    } catch (error) {
+      console.error('Error converting to project:', error)
+      alert('Error converting estimate to project: ' + (error as Error).message)
+    }
+  }
   const addLineItem = () => {
     const newItem = {
       id: Date.now().toString(),
@@ -954,6 +1012,15 @@ export default function Estimates() {
                     </td>
                     <td className="px-6 py-4 whitespace-nowrap text-sm font-medium">
                       <div className="flex space-x-2">
+                        {estimate.status === 'approved' && (
+                          <button
+                            onClick={() => convertToProject(estimate)}
+                            className="text-purple-600 hover:text-purple-800 p-1.5 transition-all duration-200 hover:bg-purple-100 rounded-full hover:shadow-sm transform hover:scale-110"
+                            title="Convert to Project"
+                          >
+                            <ArrowRight className="w-4 h-4" />
+                          </button>
+                        )}
                         <button
                           onClick={() => generateEstimatePDF(estimate)}
                           disabled={generatingPDF}
@@ -1035,6 +1102,17 @@ export default function Estimates() {
                   </div>
                   
                   <div className="flex justify-between items-center pt-4 border-t border-gray-200">
+                    <div className="flex space-x-2">
+                      {estimate.status === 'approved' && (
+                        <button
+                          onClick={() => convertToProject(estimate)}
+                          className="inline-flex items-center px-3 py-1 bg-purple-100 text-purple-700 rounded-md hover:bg-purple-200 transition-colors text-sm"
+                        >
+                          <ArrowRight className="w-4 h-4 mr-1" />
+                          Convert to Project
+                        </button>
+                      )}
+                    </div>
                     <div className="text-sm text-gray-500">
                       {estimate.description && estimate.description.substring(0, 30)}
                       {estimate.description && estimate.description.length > 30 && '...'}
