@@ -10,7 +10,8 @@ import {
   UserMinus,
   Building2,
   Crown,
-  Wrench
+  Wrench,
+  X
 } from 'lucide-react'
 import { supabase, Profile } from '../lib/supabase'
 
