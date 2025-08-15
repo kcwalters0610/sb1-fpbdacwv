@@ -1038,6 +1038,58 @@ export default function WorkOrders() {
     }
   }
 
+  const handleAssignTechnicians = async () => {
+    if (!assigningWorkOrder || selectedTechnicians.length === 0) return
+
+    try {
+      const {
+        data: { user },
+      } = await supabase.auth.getUser()
+      if (!user) throw new Error('User not authenticated')
+
+      // Remove existing assignments
+      await supabase
+        .from('work_order_assignments')
+        .delete()
+        .eq('work_order_id', assigningWorkOrder.id)
+
+      // Add new assignments
+      const assignments = selectedTechnicians.map(techId => ({
+        work_order_id: assigningWorkOrder.id,
+        tech_id: techId,
+        is_primary: techId === primaryTechnician,
+        company_id: assigningWorkOrder.company_id
+      }))
+
+      const { error: assignError } = await supabase
+        .from('work_order_assignments')
+        .insert(assignments)
+
+      if (assignError) throw assignError
+
+      // Update the work order's assigned_to field with primary technician
+      const { error: updateError } = await supabase
+        .from('work_orders')
+        .update({ 
+          assigned_to: primaryTechnician || selectedTechnicians[0],
+          department_id: null,
+          status: 'scheduled'
+        })
+        .eq('id', assigningWorkOrder.id)
+
+      if (updateError) throw updateError
+
+      setShowAssignModal(false)
+      setAssigningWorkOrder(null)
+      setSelectedTechnicians([])
+      setPrimaryTechnician('')
+      loadData()
+    } catch (error) {
+      console.error('Error assigning work order:', error)
+      alert('Error assigning work order')
+    }
+  }
+
   const filteredWorkOrders = workOrders.filter((wo) => {
     const customerName =
       wo.customer?.customer_type === 'residential'
@@ -1455,18 +1507,22 @@ export default function WorkOrders() {
                               setPrimaryTechnician('')
                             }
                           } else {
-                            {/* Quick assign team button */}
-                            <button
-                              onClick={() => {
-                                setSelectedWorkOrder(order)
-                                setAssignmentType('team')
-                                setShowAssignmentModal(true)
-                              }}
-                              className="text-purple-600 hover:text-purple-800 p-1.5 transition-all duration-200 hover:bg-purple-100 rounded-full hover:shadow-sm transform hover:scale-110"
-                              title="Assign Team"
-                            >
-                              <Users className="w-4 h-4" />
-                            </button>
+                            setSelectedTechnicians([...selectedTechnicians, tech.id])
+                          }
+                        }}
+                      >
+                        <div className="flex items-center space-x-3">
+                          <div className="w-8 h-8 bg-blue-100 rounded-full flex items-center justify-center">
+                            <User className="w-4 h-4 text-blue-600" />
+                          </div>
+                          <div>
+                            <p className="text-sm font-medium text-gray-900">
+                              {tech.first_name} {tech.last_name}
+                            </p>
+                            <p className="text-xs text-gray-500">{tech.role}</p>
+                          </div>
+                        </div>
+                        <div className="flex items-center space-x-2">
                           {selectedTechnicians.includes(tech.id) && (
                             <button
                               onClick={(e) => {
@@ -2263,56 +2319,4 @@ export default function WorkOrders() {
       )}
     </div>
   )
-}
-
-const handleAssignTechnicians = async () => {
-  if (!assigningWorkOrder || selectedTechnicians.length === 0) return
-
-  try {
-    const {
-      data: { user },
-    } = await supabase.auth.getUser()
-    if (!user) throw new Error('User not authenticated')
-
-    // Remove existing assignments
-    await supabase
-      .from('work_order_assignments')
-      .delete()
-      .eq('work_order_id', assigningWorkOrder.id)
-
-    // Add new assignments
-    const assignments = selectedTechnicians.map(techId => ({
-      work_order_id: assigningWorkOrder.id,
-      tech_id: techId,
-      is_primary: techId === primaryTechnician,
-      company_id: assigningWorkOrder.company_id
-    }))
-
-    const { error: assignError } = await supabase
-      .from('work_order_assignments')
-      .insert(assignments)
-
-    if (assignError) throw assignError
-
-    // Update the work order's assigned_to field with primary technician
-    const { error: updateError } = await supabase
-      .from('work_orders')
-      .update({ 
-        assigned_to: primaryTechnician || selectedTechnicians[0],
-        department_id: null,
-        status: 'scheduled'
-      })
-      .eq('id', assigningWorkOrder.id)
-
-    if (updateError) throw updateError
-
-    setShowAssignModal(false)
-    setAssigningWorkOrder(null)
-    setSelectedTechnicians([])
-    setPrimaryTechnician('')
-    loadData()
-  } catch (error) {
-    console.error('Error assigning work order:', error)
-    alert('Error assigning work order')
-  }
 }
