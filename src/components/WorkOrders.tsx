@@ -1257,21 +1257,7 @@ export default function WorkOrders() {
                       {(workOrder as any).scheduled_date ? new Date((workOrder as any).scheduled_date).toLocaleDateString() : 'Not scheduled'}
                     </td>
                     <td className="px-6 py-4 whitespace-nowrap text-sm font-medium">
-                      <div className="flex space-x-2">
-                        <select
-                          onChange={(e) => e.target.value && quickAssignTechnician(workOrder.id, e.target.value)}
-                          className="text-xs px-2 py-1 border border-gray-300 rounded focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                          defaultValue=""
-                        >
-                          <option value="">Assign Tech</option>
-                          {technicians.map((tech) => (
-                            <option key={tech.id} value={tech.id}>
-                              {tech.first_name} {tech.last_name}
-                            </option>
-                          ))}
-                        </select>
-                        <select
-                          onChange={(e) => e.target.value && quickAssignTeam(workOrder.id, e.target.value)}
+                        {/* Team Assignment */}
                           className="text-xs px-2 py-1 border border-gray-300 rounded focus:ring-2 focus:ring-blue-500 focus:border-transparent"
                           defaultValue=""
                         >
