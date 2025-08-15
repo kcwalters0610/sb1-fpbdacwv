@@ -470,7 +470,7 @@ export default function Estimates() {
         ['Total', `$${estimate.total_amount.toFixed(2)}`]
       ]
 
-      doc.autoTable({
+      autoTable(doc, {
         startY: yPosition,
         head: [tableData[0]],
         body: tableData.slice(1),
