@@ -6,15 +6,7 @@ import ViewToggle from './ViewToggle'
 import { getNextNumber, updateNextNumber } from '../lib/numbering'
 import jsPDF from 'jspdf'
 import autoTable from 'jspdf-autotable'
-import 'jspdf-autotable'
 
-// Extend jsPDF type to include autoTable
-declare module 'jspdf' {
-  interface jsPDF {
-    autoTable: (options: any) => jsPDF
-    lastAutoTable: { finalY: number }
-  }
-}
 
 export default function Estimates() {
   const { viewType, setViewType } = useViewPreference('estimates')
