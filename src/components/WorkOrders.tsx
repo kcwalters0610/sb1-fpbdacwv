@@ -153,7 +153,6 @@ export default function WorkOrders() {
       } catch {}
     }
 
-    // if a global hook exists, call it
     try {
       window.openPOCreate?.(payload)
     } catch {}
