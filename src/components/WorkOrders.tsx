@@ -1455,24 +1455,18 @@ export default function WorkOrders() {
                               setPrimaryTechnician('')
                             }
                           } else {
-                            setSelectedTechnicians([...selectedTechnicians, tech.id])
-                          }
-                        }}
-                      >
-                        <div className="flex items-center space-x-3">
-                          <div className="w-8 h-8 bg-blue-100 rounded-full flex items-center justify-center">
-                            <span className="text-blue-600 font-medium text-sm">
-                              {tech.first_name[0]}{tech.last_name[0]}
-                            </span>
-                          </div>
-                          <div>
-                            <p className="text-sm font-medium text-gray-900">
-                              {tech.first_name} {tech.last_name}
-                            </p>
-                            <p className="text-xs text-gray-500 capitalize">{tech.role}</p>
-                          </div>
-                        </div>
-                        <div className="flex items-center space-x-2">
+                            {/* Quick assign team button */}
+                            <button
+                              onClick={() => {
+                                setSelectedWorkOrder(order)
+                                setAssignmentType('team')
+                                setShowAssignmentModal(true)
+                              }}
+                              className="text-purple-600 hover:text-purple-800 p-1.5 transition-all duration-200 hover:bg-purple-100 rounded-full hover:shadow-sm transform hover:scale-110"
+                              title="Assign Team"
+                            >
+                              <Users className="w-4 h-4" />
+                            </button>
                           {selectedTechnicians.includes(tech.id) && (
                             <button
                               onClick={(e) => {
