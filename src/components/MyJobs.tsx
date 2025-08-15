@@ -17,9 +17,11 @@ import {
   Minus,
   Save,
   Edit,
-  Trash2
+  Trash2,
+  ShoppingCart
 } from 'lucide-react'
 import { supabase, WorkOrder, Profile } from '../lib/supabase'
+import { getNextNumber, updateNextNumber } from '../lib/numbering'
 
 interface MyJobsWorkOrder extends WorkOrder {
   assigned_technician?: Profile
@@ -45,6 +47,14 @@ interface WorkOrderPhoto {
   created_at: string
 }
 
+interface Vendor {
+  id: string
+  name: string
+  contact_person?: string
+  email?: string
+  phone?: string
+}
+
 export default function MyJobs() {
   const [workOrders, setWorkOrders] = useState<MyJobsWorkOrder[]>([])
   const [loading, setLoading] = useState(true)
@@ -53,8 +63,10 @@ export default function MyJobs() {
   const [currentUser, setCurrentUser] = useState<any>(null)
   const [showTimeModal, setShowTimeModal] = useState(false)
   const [showPhotoModal, setShowPhotoModal] = useState(false)
+  const [showPOModal, setShowPOModal] = useState(false)
   const [timeEntries, setTimeEntries] = useState<TimeEntry[]>([])
   const [photos, setPhotos] = useState<WorkOrderPhoto[]>([])
+  const [vendors, setVendors] = useState<Vendor[]>([])
   const [uploadingPhoto, setUploadingPhoto] = useState(false)
 
   const [timeForm, setTimeForm] = useState({
@@ -68,8 +80,16 @@ export default function MyJobs() {
     caption: ''
   })
 
+  const [poForm, setPOForm] = useState({
+    vendor_id: '',
+    expected_delivery: '',
+    notes: '',
+    items: [{ description: '', quantity: 1, unit_price: 0 }]
+  })
+
   useEffect(() => {
     getCurrentUser()
+    loadVendors()
   }, [])
 
   useEffect(() => {
@@ -77,6 +97,21 @@ export default function MyJobs() {
       loadMyJobs()
     }
   }, [currentUser, statusFilter])
+
+  const loadVendors = async () => {
+    try {
+      const { data, error } = await supabase
+        .from('vendors')
+        .select('id, name, contact_person, email, phone')
+        .eq('is_active', true)
+        .order('name')
+
+      if (error) throw error
+      setVendors(data || [])
+    } catch (error) {
+      console.error('Error loading vendors:', error)
+    }
+  }
 
   const getCurrentUser = async () => {
     try {
@@ -286,6 +321,81 @@ export default function MyJobs() {
     }
   }
 
+  const handlePOSubmit = async (e: React.FormEvent) => {
+    e.preventDefault()
+    if (!selectedOrder) return
+
+    try {
+      const { data: { user } } = await supabase.auth.getUser()
+      if (!user) throw new Error('No authenticated user')
+
+      const { data: profile } = await supabase
+        .from('profiles')
+        .select('company_id')
+        .eq('id', user.id)
+        .single()
+
+      if (!profile) throw new Error('Profile not found')
+
+      // Generate PO number
+      const { formattedNumber: poNumber, nextSequence } = await getNextNumber('purchase_order')
+
+      // Calculate totals
+      const subtotal = poForm.items.reduce((sum, item) => sum + (item.quantity * item.unit_price), 0)
+      const taxAmount = 0 // No tax calculation for now
+      const totalAmount = subtotal + taxAmount
+
+      // Create purchase order
+      const poData = {
+        company_id: profile.company_id,
+        vendor_id: poForm.vendor_id,
+        work_order_id: selectedOrder.id,
+        po_number: poNumber,
+        status: 'draft',
+        order_date: new Date().toISOString().split('T')[0],
+        expected_delivery: poForm.expected_delivery || null,
+        subtotal,
+        tax_amount: taxAmount,
+        total_amount: totalAmount,
+        notes: poForm.notes || null
+      }
+
+      const { data: newPO, error: poError } = await supabase
+        .from('purchase_orders')
+        .insert([poData])
+        .select()
+        .single()
+
+      if (poError) throw poError
+
+      // Create purchase order items
+      const itemsData = poForm.items.map(item => ({
+        purchase_order_id: newPO.id,
+        company_id: profile.company_id,
+        description: item.description,
+        quantity: item.quantity,
+        unit_price: item.unit_price,
+        amount: item.quantity * item.unit_price
+      }))
+
+      const { error: itemsError } = await supabase
+        .from('purchase_order_items')
+        .insert(itemsData)
+
+      if (itemsError) throw itemsError
+
+      // Update the sequence number
+      await updateNextNumber('purchase_order', nextSequence)
+
+      setShowPOModal(false)
+      resetPOForm()
+      alert(`Purchase order ${poNumber} created successfully!`)
+    } catch (error) {
+      console.error('Error creating purchase order:', error)
+      alert('Error creating purchase order. Please try again.')
+    }
+  }
+
   const resetTimeForm = () => {
     setTimeForm({
       start_time: '',
@@ -293,6 +403,37 @@ export default function MyJobs() {
       duration_minutes: 0,
       description: ''
     })
+  }
+
+  const resetPOForm = () => {
+    setPOForm({
+      vendor_id: '',
+      expected_delivery: '',
+      notes: '',
+      items: [{ description: '', quantity: 1, unit_price: 0 }]
+    })
+  }
+
+  const addPOItem = () => {
+    setPOForm({
+      ...poForm,
+      items: [...poForm.items, { description: '', quantity: 1, unit_price: 0 }]
+    })
+  }
+
+  const removePOItem = (index: number) => {
+    if (poForm.items.length > 1) {
+      setPOForm({
+        ...poForm,
+        items: poForm.items.filter((_, i) => i !== index)
+      })
+    }
+  }
+
+  const updatePOItem = (index: number, field: string, value: any) => {
+    const updatedItems = [...poForm.items]
+    updatedItems[index] = { ...updatedItems[index], [field]: value }
+    setPOForm({ ...poForm, items: updatedItems })
   }
 
   const calculateDuration = () => {
@@ -736,6 +877,13 @@ export default function MyJobs() {
                       <Camera className="w-5 h-5 mr-2" />
                       Add Photos
                     </button>
+                    <button
+                      onClick={() => setShowPOModal(true)}
+                      className="w-full inline-flex items-center justify-center px-4 py-2 bg-purple-600 text-white rounded-lg hover:bg-purple-700 transition-colors"
+                    >
+                      <ShoppingCart className="w-5 h-5 mr-2" />
+                      Create Purchase Order
+                    </button>
                   </div>
                 </div>
               </div>
@@ -939,6 +1087,182 @@ export default function MyJobs() {
                 </button>
               </div>
             </div>
+          </div>
+        </div>
+      )}
+
+      {/* Purchase Order Modal */}
+      {showPOModal && (
+        <div className="fixed inset-0 bg-gray-600 bg-opacity-50 flex items-center justify-center p-4 z-50">
+          <div className="bg-white rounded-xl shadow-xl max-w-2xl w-full max-h-screen overflow-y-auto">
+            <div className="p-6 border-b border-gray-200">
+              <h3 className="text-lg font-semibold text-gray-900">Create Purchase Order</h3>
+              <p className="text-sm text-gray-600 mt-1">For work order: {selectedOrder?.wo_number}</p>
+            </div>
+            
+            <form onSubmit={handlePOSubmit} className="p-6 space-y-6">
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-2">
+                    Vendor *
+                  </label>
+                  <select
+                    value={poForm.vendor_id}
+                    onChange={(e) => setPOForm({ ...poForm, vendor_id: e.target.value })}
+                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                    required
+                  >
+                    <option value="">Select Vendor</option>
+                    {vendors.map((vendor) => (
+                      <option key={vendor.id} value={vendor.id}>
+                        {vendor.name}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-2">
+                    Expected Delivery
+                  </label>
+                  <input
+                    type="date"
+                    value={poForm.expected_delivery}
+                    onChange={(e) => setPOForm({ ...poForm, expected_delivery: e.target.value })}
+                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                  />
+                </div>
+              </div>
+
+              {/* Line Items */}
+              <div>
+                <div className="flex items-center justify-between mb-4">
+                  <h4 className="text-md font-medium text-gray-900">Items</h4>
+                  <button
+                    type="button"
+                    onClick={addPOItem}
+                    className="inline-flex items-center px-3 py-1 bg-blue-100 text-blue-700 rounded-md hover:bg-blue-200 transition-colors text-sm"
+                  >
+                    <Plus className="w-4 h-4 mr-1" />
+                    Add Item
+                  </button>
+                </div>
+
+                <div className="space-y-4">
+                  {poForm.items.map((item, index) => (
+                    <div key={index} className="border border-gray-200 rounded-lg p-4">
+                      <div className="flex items-center justify-between mb-3">
+                        <h5 className="text-sm font-medium text-gray-700">Item {index + 1}</h5>
+                        {poForm.items.length > 1 && (
+                          <button
+                            type="button"
+                            onClick={() => removePOItem(index)}
+                            className="text-red-600 hover:text-red-800"
+                          >
+                            <Minus className="w-4 h-4" />
+                          </button>
+                        )}
+                      </div>
+                      
+                      <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                        <div className="md:col-span-2">
+                          <label className="block text-xs font-medium text-gray-600 mb-1">
+                            Description *
+                          </label>
+                          <input
+                            type="text"
+                            value={item.description}
+                            onChange={(e) => updatePOItem(index, 'description', e.target.value)}
+                            className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent text-sm"
+                            placeholder="Item description"
+                            required
+                          />
+                        </div>
+                        
+                        <div>
+                          <label className="block text-xs font-medium text-gray-600 mb-1">
+                            Quantity *
+                          </label>
+                          <input
+                            type="number"
+                            min="1"
+                            step="1"
+                            value={item.quantity}
+                            onChange={(e) => updatePOItem(index, 'quantity', parseInt(e.target.value) || 1)}
+                            className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent text-sm"
+                            required
+                          />
+                        </div>
+                        
+                        <div>
+                          <label className="block text-xs font-medium text-gray-600 mb-1">
+                            Unit Price *
+                          </label>
+                          <input
+                            type="number"
+                            min="0"
+                            step="0.01"
+                            value={item.unit_price}
+                            onChange={(e) => updatePOItem(index, 'unit_price', parseFloat(e.target.value) || 0)}
+                            className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent text-sm"
+                            placeholder="0.00"
+                            required
+                          />
+                        </div>
+                        
+                        <div>
+                          <label className="block text-xs font-medium text-gray-600 mb-1">
+                            Total
+                          </label>
+                          <div className="px-3 py-2 bg-gray-50 border border-gray-300 rounded-lg text-sm text-gray-900">
+                            ${(item.quantity * item.unit_price).toFixed(2)}
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+
+                {/* PO Total */}
+                <div className="mt-4 p-4 bg-gray-50 rounded-lg">
+                  <div className="flex justify-between items-center">
+                    <span className="text-md font-medium text-gray-900">Total Amount:</span>
+                    <span className="text-lg font-bold text-gray-900">
+                      ${poForm.items.reduce((sum, item) => sum + (item.quantity * item.unit_price), 0).toFixed(2)}
+                    </span>
+                  </div>
+                </div>
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-2">
+                  Notes
+                </label>
+                <textarea
+                  value={poForm.notes}
+                  onChange={(e) => setPOForm({ ...poForm, notes: e.target.value })}
+                  rows={3}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                  placeholder="Additional notes for this purchase order..."
+                />
+              </div>
+
+              <div className="flex justify-end space-x-3 pt-6 border-t border-gray-200">
+                <button
+                  type="button"
+                  onClick={() => setShowPOModal(false)}
+                  className="px-4 py-2 text-gray-700 bg-gray-100 rounded-lg hover:bg-gray-200 transition-colors"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  className="px-4 py-2 bg-purple-600 text-white rounded-lg hover:bg-purple-700 transition-colors"
+                >
+                  Create Purchase Order
+                </button>
+              </div>
+            </form>
           </div>
         </div>
       )}
