@@ -15,7 +15,9 @@ import {
   Package,
   Square,
   Play,
-  UserPlus
+  UserPlus,
+  Building2,
+  MapPin
 } from 'lucide-react'
 import { supabase, WorkOrder, Customer, Profile, CustomerSite } from '../lib/supabase'
 import { useViewPreference } from '../hooks/useViewPreference'
@@ -45,10 +47,12 @@ export default function WorkOrders() {
   const [loading, setLoading] = useState(true)
   const [showForm, setShowForm] = useState(false)
   const [showAssignModal, setShowAssignModal] = useState(false)
+  const [showAssignmentModal, setShowAssignmentModal] = useState(false)
 
   const [editingWorkOrder, setEditingWorkOrder] = useState<WorkOrder | null>(null)
   const [selectedWorkOrder, setSelectedWorkOrder] = useState<WorkOrder | null>(null)
   const [assigningWorkOrder, setAssigningWorkOrder] = useState<WorkOrder | null>(null)
+  const [selectedWorkOrderForAssignment, setSelectedWorkOrderForAssignment] = useState<WorkOrder | null>(null)
 
   const [searchTerm, setSearchTerm] = useState('')
   const [statusFilter, setStatusFilter] = useState('')
@@ -132,7 +136,7 @@ export default function WorkOrders() {
     }
   }
 
-  /** Broadcast multiple event shapes to maximize compatibility with your app’s bus */
+  /** Broadcast multiple event shapes to maximize compatibility with your app's bus */
   const broadcastPOCreate = (payload: any) => {
     const events = [
       new CustomEvent('po:create', { detail: payload }),
@@ -146,14 +150,6 @@ export default function WorkOrders() {
     for (const evt of events) {
       try {
         window.dispatchEvent(evt)
-      } catch {}
-    if (assignmentType === 'individual' && selectedTechnicians.length === 0) {
-      alert('Please select at least one technician')
-      return
-    }
-
-    if (assignmentType === 'team' && !selectedDepartment) {
-      alert('Please select a department')
       } catch {}
     }
 
@@ -208,7 +204,7 @@ export default function WorkOrders() {
         location.hash = url
       } catch {}
 
-      // Force navigation if shell didn’t react
+      // Force navigation if shell didn't react
       setTimeout(() => {
         try {
           window.location.assign(url)
@@ -274,7 +270,7 @@ export default function WorkOrders() {
 
   const loadData = async () => {
     try {
-      const [ordersResult, customersResult, techniciansResult, departmentsResult] = await Promise.all([
+      const [workOrdersResult, customersResult, techniciansResult, departmentsResult, projectsResult] = await Promise.all([
         supabase
           .from('work_orders')
           .select(`
@@ -282,11 +278,6 @@ export default function WorkOrders() {
             customer:customers(*),
             assigned_technician:profiles!work_orders_assigned_to_fkey(*),
             assigned_dept:departments!department_id(*),
-            assigned_dept:departments!department_id(*),
-            assignments:work_order_assignments(
-              *,
-              tech:profiles(*)
-            )
             project:projects(*),
             assignments:work_order_assignments(
               id,
@@ -307,15 +298,13 @@ export default function WorkOrders() {
             )
           `)
           .eq('is_active', true)
-          .order('name')
-        supabase.from('departments').select('*').eq('is_active', true).order('name'),
+          .order('name'),
         supabase.from('projects').select('*').in('status', ['planning', 'in_progress']).order('project_name'),
       ])
 
       setWorkOrders(workOrdersResult.data || [])
       setCustomers(customersResult.data || [])
       setTechnicians(techniciansResult.data || [])
-      setDepartments(departmentsResult.data || [])
       setDepartments(departmentsResult.data || [])
       setProjects(projectsResult.data || [])
     } catch (error) {
@@ -657,26 +646,112 @@ export default function WorkOrders() {
     setShowAssignModal(true)
   }
 
-  const handleAssignTechnicians = async () => {
-    if (!assigningWorkOrder || selectedTechnicians.length === 0) return
+  const openAssignmentModal = (workOrder: WorkOrder) => {
+    setSelectedWorkOrderForAssignment(workOrder)
+    setSelectedTechnicians((workOrder as any).assignments?.map((a: any) => a.tech_id) || [])
+    setPrimaryTechnician((workOrder as any).assignments?.find((a: any) => a.is_primary)?.tech_id || '')
+    setShowAssignmentModal(true)
+  }
+
+  const quickAssignTechnician = async (workOrderId: string, techId: string) => {
+    try {
+      const workOrder = workOrders.find(wo => wo.id === workOrderId)
+      if (!workOrder) return
+
+      // Remove existing assignments
+      await supabase
+        .from('work_order_assignments')
+        .delete()
+        .eq('work_order_id', workOrderId)
+
+      // Add new assignment
+      const { error: assignError } = await supabase
+        .from('work_order_assignments')
+        .insert([{
+          work_order_id: workOrderId,
+          tech_id: techId,
+          is_primary: true,
+          company_id: workOrder.company_id
+        }])
+
+      if (assignError) throw assignError
+
+      // Update work order
+      const { error: updateError } = await supabase
+        .from('work_orders')
+        .update({ 
+          assigned_to: techId,
+          department_id: null,
+          status: 'scheduled'
+        })
+        .eq('id', workOrderId)
+
+      if (updateError) throw updateError
+
+      loadData()
+    } catch (error) {
+      console.error('Error assigning technician:', error)
+      alert('Error assigning technician')
+    }
+  }
+
+  const quickAssignTeam = async (workOrderId: string, departmentId: string) => {
+    try {
+      // Remove existing individual assignments
+      await supabase
+        .from('work_order_assignments')
+        .delete()
+        .eq('work_order_id', workOrderId)
+
+      // Update work order with department assignment
+      const { error } = await supabase
+        .from('work_orders')
+        .update({ 
+          department_id: departmentId,
+          assigned_to: null,
+          status: 'scheduled'
+        })
+        .eq('id', workOrderId)
+
+      if (error) throw error
+
+      loadData()
+    } catch (error) {
+      console.error('Error assigning team:', error)
+      alert('Error assigning team')
+    }
+  }
+
+  const handleAssignment = async () => {
+    if (assignmentType === 'individual' && selectedTechnicians.length === 0) {
+      alert('Please select at least one technician')
+      return
+    }
+
+    if (assignmentType === 'team' && !selectedDepartment) {
+      alert('Please select a department')
+      return
+    }
 
     try {
       const {
         data: { user },
       } = await supabase.auth.getUser()
+      if (!user) throw new Error('User not authenticated')
+
       if (assignmentType === 'individual') {
         // Remove existing assignments
         await supabase
           .from('work_order_assignments')
           .delete()
-          .eq('work_order_id', selectedWorkOrderForAssignment.id)
+          .eq('work_order_id', selectedWorkOrderForAssignment!.id)
 
         // Add new assignments
         const assignments = selectedTechnicians.map(techId => ({
-          work_order_id: selectedWorkOrderForAssignment.id,
+          work_order_id: selectedWorkOrderForAssignment!.id,
           tech_id: techId,
           is_primary: techId === primaryTechnician,
-          company_id: selectedWorkOrderForAssignment.company_id
+          company_id: selectedWorkOrderForAssignment!.company_id
         }))
 
         const { error: assignError } = await supabase
@@ -693,7 +768,7 @@ export default function WorkOrders() {
             department_id: null,
             status: 'scheduled'
           })
-          .eq('id', selectedWorkOrderForAssignment.id)
+          .eq('id', selectedWorkOrderForAssignment!.id)
 
         if (updateError) throw updateError
       } else {
@@ -702,7 +777,7 @@ export default function WorkOrders() {
         await supabase
           .from('work_order_assignments')
           .delete()
-          .eq('work_order_id', selectedWorkOrderForAssignment.id)
+          .eq('work_order_id', selectedWorkOrderForAssignment!.id)
 
         // Update work order with department assignment
         const { error: updateError } = await supabase
@@ -712,7 +787,7 @@ export default function WorkOrders() {
             assigned_to: null,
             status: 'scheduled'
           })
-          .eq('id', selectedWorkOrderForAssignment.id)
+          .eq('id', selectedWorkOrderForAssignment!.id)
 
         if (updateError) throw updateError
       }
@@ -746,8 +821,19 @@ export default function WorkOrders() {
           department_id: departmentId,
           assigned_to: null,
           status: 'scheduled'
-
+        })
         .eq('id', workOrderId)
+
+      if (error) throw error
+
+      loadData()
+    } catch (error) {
+      console.error('Error assigning team:', error)
+      alert('Error assigning team')
+    }
+  }
+
+  const saveNotes = async () => {
     if (!selectedWorkOrder) return
     setSavingNotes(true)
     try {
@@ -1082,42 +1168,47 @@ export default function WorkOrders() {
                                 {assignment.is_primary && <span className="ml-1 text-xs text-blue-600">(Primary)</span>}
                               </div>
                             ))}
-                        {order.assigned_dept ? (
+                          </div>
+                        ) : (workOrder as any).assigned_dept ? (
                           <div>
                             <span className="inline-flex items-center px-2 py-1 text-xs font-medium rounded-full bg-purple-100 text-purple-800">
                               <Users className="w-3 h-3 mr-1" />
-                              {order.assigned_dept.name}
+                              {(workOrder as any).assigned_dept.name}
                             </span>
                           </div>
-                        ) : order.assigned_technician ? (
+                        ) : (workOrder as any).assigned_technician ? (
                           <div>
                             <span className="inline-flex items-center px-2 py-1 text-xs font-medium rounded-full bg-blue-100 text-blue-800">
                               <User className="w-3 h-3 mr-1" />
-                              {order.assigned_technician.first_name} {order.assigned_technician.last_name}
+                              {(workOrder as any).assigned_technician.first_name} {(workOrder as any).assigned_technician.last_name}
                             </span>
-                          </div>
-                        ) : order.assignments && order.assignments.length > 0 ? (
-                          <div className="space-y-1">
-                            {order.assignments.slice(0, 2).map((assignment: any) => (
-                              <span key={assignment.id} className="inline-flex items-center px-2 py-1 text-xs font-medium rounded-full bg-green-100 text-green-800">
-                                <User className="w-3 h-3 mr-1" />
-                                {assignment.tech.first_name} {assignment.tech.last_name}
-                                {assignment.is_primary && ' (Primary)'}
-                              </span>
-                            ))}
-                            {order.assignments.length > 2 && (
-                              <span className="text-xs text-gray-500">+{order.assignments.length - 2} more</span>
-                            )}
                           </div>
                         ) : (
                           'Unassigned'
                         )}
                       </div>
                     </td>
-                    <td className="hidden md:table-cell px-6 py-4 whitespace-nowrap">
+                    <td className="px-6 py-4 whitespace-nowrap">
+                      <select
+                        value={workOrder.status}
+                        onChange={(e) => updateStatus(workOrder.id, e.target.value)}
+                        className={`text-xs font-semibold rounded-full px-2 py-1 border-0 ${getStatusColor(workOrder.status)}`}
+                        disabled={currentUser?.profile?.role === 'tech'}
+                      >
+                        <option value="open">Open</option>
+                        <option value="scheduled">Scheduled</option>
+                        <option value="in_progress">In Progress</option>
+                        <option value="completed">Completed</option>
+                        <option value="cancelled">Cancelled</option>
+                      </select>
+                    </td>
+                    <td className="hidden md:table-cell px-6 py-4 whitespace-nowrap text-sm text-gray-900">
+                      {(workOrder as any).scheduled_date ? new Date((workOrder as any).scheduled_date).toLocaleDateString() : 'Not scheduled'}
+                    </td>
+                    <td className="px-6 py-4 whitespace-nowrap text-sm font-medium">
                       <div className="flex space-x-2">
                         <select
-                          onChange={(e) => e.target.value && quickAssignTechnician(order.id, e.target.value)}
+                          onChange={(e) => e.target.value && quickAssignTechnician(workOrder.id, e.target.value)}
                           className="text-xs px-2 py-1 border border-gray-300 rounded focus:ring-2 focus:ring-blue-500 focus:border-transparent"
                           defaultValue=""
                         >
@@ -1129,7 +1220,7 @@ export default function WorkOrders() {
                           ))}
                         </select>
                         <select
-                          onChange={(e) => e.target.value && quickAssignTeam(order.id, e.target.value)}
+                          onChange={(e) => e.target.value && quickAssignTeam(workOrder.id, e.target.value)}
                           className="text-xs px-2 py-1 border border-gray-300 rounded focus:ring-2 focus:ring-blue-500 focus:border-transparent"
                           defaultValue=""
                         >
@@ -1145,26 +1236,26 @@ export default function WorkOrders() {
                     <td className="px-6 py-4 whitespace-nowrap text-sm font-medium">
                       <div className="flex space-x-2">
                         <button
-                          onClick={() => openAssignmentModal(order)}
+                          onClick={() => openAssignmentModal(workOrder)}
                           className="text-purple-600 hover:text-purple-800 p-1.5 transition-all duration-200 hover:bg-purple-100 rounded-full hover:shadow-sm transform hover:scale-110"
                           title="Advanced Assignment"
                         >
                           <UserPlus className="w-4 h-4" />
                         </button>
                         <button
-                          onClick={() => setSelectedWorkOrder(order)}
+                          onClick={() => setSelectedWorkOrder(workOrder)}
                           className="text-blue-600 hover:text-blue-800 p-1.5 transition-all duration-200 hover:bg-blue-100 rounded-full hover:shadow-sm transform hover:scale-110"
                         >
                           <Eye className="w-4 h-4" />
                         </button>
                         <button
-                          onClick={() => startEdit(order)}
+                          onClick={() => startEdit(workOrder)}
                           className="text-blue-600 hover:text-blue-800 p-1.5 transition-all duration-200 hover:bg-blue-100 rounded-full hover:shadow-sm transform hover:scale-110"
                         >
                           <Edit className="w-4 h-4" />
                         </button>
                         <button
-                          onClick={() => deleteWorkOrder(order.id)}
+                          onClick={() => deleteWorkOrder(workOrder.id)}
                           className="text-red-600 hover:text-red-800 p-1.5 transition-all duration-200 hover:bg-red-100 rounded-full hover:shadow-sm transform hover:scale-110"
                         >
                           <Trash2 className="w-4 h-4" />
@@ -1203,7 +1294,7 @@ export default function WorkOrders() {
                         {order.customer?.customer_type === 'residential' 
                           ? `${order.customer?.first_name} ${order.customer?.last_name}`
                           : order.customer?.company_name
-                        )}
+                        }
                       </span>
                     </div>
                     
@@ -1212,48 +1303,32 @@ export default function WorkOrders() {
                         <MapPin className="w-4 h-4 mr-3" />
                         <span>{order.customer_site.site_name}</span>
                       </div>
-                        value={workOrder.status}
-                        onChange={(e) => updateStatus(workOrder.id, e.target.value)}
-                        className={`text-xs font-semibold rounded-full px-2 py-1 border-0 ${getStatusColor(workOrder.status)}`}
-                        disabled={currentUser?.profile?.role === 'tech'}
-                      >
-                        <option value="open">Open</option>
-                        <option value="scheduled">Scheduled</option>
-                        <option value="in_progress">In Progress</option>
-                        <option value="completed">Completed</option>
-                        <option value="cancelled">Cancelled</option>
-                      </select>
-                    </td>
-                    <td className="hidden md:table-cell px-6 py-4 whitespace-nowrap text-sm text-gray-900">
-                      {(workOrder as any).scheduled_date ? new Date((workOrder as any).scheduled_date).toLocaleDateString() : 'Not scheduled'}
-                    </td>
-                    <td className="px-6 py-4 whitespace-nowrap text-sm font-medium">
                     )}
                     
                     <div className="flex items-center text-sm text-gray-600">
                       <User className="w-4 h-4 mr-3" />
                       <span>
-                        {order.assigned_dept ? (
+                        {(order as any).assigned_dept ? (
                           <span className="inline-flex items-center px-2 py-1 text-xs font-medium rounded-full bg-purple-100 text-purple-800">
                             <Users className="w-3 h-3 mr-1" />
-                            {order.assigned_dept.name}
+                            {(order as any).assigned_dept.name}
                           </span>
-                        ) : order.assigned_technician ? (
+                        ) : (order as any).assigned_technician ? (
                           <span className="inline-flex items-center px-2 py-1 text-xs font-medium rounded-full bg-blue-100 text-blue-800">
                             <User className="w-3 h-3 mr-1" />
-                            {order.assigned_technician.first_name} {order.assigned_technician.last_name}
+                            {(order as any).assigned_technician.first_name} {(order as any).assigned_technician.last_name}
                           </span>
-                        ) : order.assignments && order.assignments.length > 0 ? (
+                        ) : (order as any).assignments && (order as any).assignments.length > 0 ? (
                           <div className="space-y-1">
-                            {order.assignments.slice(0, 2).map((assignment: any) => (
+                            {(order as any).assignments.slice(0, 2).map((assignment: any) => (
                               <span key={assignment.id} className="inline-flex items-center px-2 py-1 text-xs font-medium rounded-full bg-green-100 text-green-800">
                                 <User className="w-3 h-3 mr-1" />
                                 {assignment.tech.first_name} {assignment.tech.last_name}
                                 {assignment.is_primary && ' (Primary)'}
                               </span>
                             ))}
-                            {order.assignments.length > 2 && (
-                              <span className="text-xs text-gray-500">+{order.assignments.length - 2} more</span>
+                            {(order as any).assignments.length > 2 && (
+                              <span className="text-xs text-gray-500">+{(order as any).assignments.length - 2} more</span>
                             )}
                           </div>
                         ) : (
@@ -1262,10 +1337,10 @@ export default function WorkOrders() {
                       </span>
                     </div>
                     
-                    {order.scheduled_date && (
+                    {(order as any).scheduled_date && (
                       <div className="flex items-center text-sm text-gray-600">
                         <Calendar className="w-4 h-4 mr-3" />
-                        <span>{new Date(order.scheduled_date).toLocaleDateString()}</span>
+                        <span>{new Date((order as any).scheduled_date).toLocaleDateString()}</span>
                       </div>
                     )}
                   </div>
@@ -1498,71 +1573,11 @@ export default function WorkOrders() {
                 >
                   {loading ? 'Assigning...' : 'Assign Work Order'}
                 </button>
-          <div className="p-6">
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-              {filteredWorkOrders.map((workOrder) => (
-                <div key={workOrder.id} className="border border-gray-200 rounded-lg p-6 hover:shadow-md transition-shadow">
-                  <div className="flex items-start justify-between mb-4">
-                    <div className="flex-1">
-                      <h3 className="text-lg font-semibold text-gray-900 mb-1">{workOrder.wo_number}</h3>
-                      <p className="text-sm text-gray-600 mb-2">{workOrder.title}</p>
-                      <div className="flex space-x-2">
-                        <span className={`inline-flex px-2 py-1 text-xs font-medium rounded-full ${getStatusColor(workOrder.status)}`}>
-                          {workOrder.status.replace('_', ' ').toUpperCase()}
-                        </span>
-                        <span className={`inline-flex px-2 py-1 text-xs font-medium rounded-full ${getPriorityColor(workOrder.priority)}`}>
-                          {workOrder.priority.toUpperCase()}
-                        </span>
-                      </div>
-                    </div>
-                  </div>
-
-                  <div className="space-y-2 mb-4">
-                    <div className="flex items-center text-sm text-gray-600">
-                      <User className="w-4 h-4 mr-3" />
-                      <span>
-                        {workOrder.customer?.customer_type === 'residential'
-                          ? `${workOrder.customer?.first_name} ${workOrder.customer?.last_name}`
-                          : workOrder.customer?.company_name}
-                      </span>
-                    </div>
-
-                    {workOrder.customer_site && (
-                      <div className="flex items-center text-sm text-gray-600">
-                        <Building2 className="w-4 h-4 mr-3" />
-                        <span>{workOrder.customer_site.site_name}</span>
-                      </div>
-                    )}
-
-                    {(workOrder as any).scheduled_date && (
-                      <div className="flex items-center text-sm text-gray-600">
-                        <Calendar className="w-4 h-4 mr-3" />
-                        <span>{new Date((workOrder as any).scheduled_date).toLocaleDateString()}</span>
-                      </div>
-                    )}
-
-                    <div className="flex items-center text-sm text-gray-600">
-                      <Users className="w-4 h-4 mr-3" />
-                      <span>
-                        {(workOrder as any).assignments && (workOrder as any).assignments.length > 0
-                          ? `${(workOrder as any).assignments.length} technician${(workOrder as any).assignments.length > 1 ? 's' : ''}`
-                          : 'Unassigned'}
-                      </span>
-                    </div>
-                  </div>
-
-                  <div className="flex justify-between items-center pt-4 border-t border-gray-200">
-                    <div className="text-sm text-gray-500">{(workOrder as any).project && `Project: ${(workOrder as any).project.project_name}`}</div>
-                    <button onClick={() => setSelectedWorkOrder(workOrder)} className="text-blue-600 hover:text-blue-800 text-sm font-medium">
-                      View Details →
-                    </button>
-                  </div>
-                </div>
-              ))}
+              </div>
             </div>
           </div>
-        )}
-      </div>
+        </div>
+      )}
 
       {/* Work Order Form Modal */}
       {showForm && (
@@ -2255,4 +2270,56 @@ export default function WorkOrders() {
       )}
     </div>
   )
+}
+
+const handleAssignTechnicians = async () => {
+  if (!assigningWorkOrder || selectedTechnicians.length === 0) return
+
+  try {
+    const {
+      data: { user },
+    } = await supabase.auth.getUser()
+    if (!user) throw new Error('User not authenticated')
+
+    // Remove existing assignments
+    await supabase
+      .from('work_order_assignments')
+      .delete()
+      .eq('work_order_id', assigningWorkOrder.id)
+
+    // Add new assignments
+    const assignments = selectedTechnicians.map(techId => ({
+      work_order_id: assigningWorkOrder.id,
+      tech_id: techId,
+      is_primary: techId === primaryTechnician,
+      company_id: assigningWorkOrder.company_id
+    }))
+
+    const { error: assignError } = await supabase
+      .from('work_order_assignments')
+      .insert(assignments)
+
+    if (assignError) throw assignError
+
+    // Update the work order's assigned_to field with primary technician
+    const { error: updateError } = await supabase
+      .from('work_orders')
+      .update({ 
+        assigned_to: primaryTechnician || selectedTechnicians[0],
+        department_id: null,
+        status: 'scheduled'
+      })
+      .eq('id', assigningWorkOrder.id)
+
+    if (updateError) throw updateError
+
+    setShowAssignModal(false)
+    setAssigningWorkOrder(null)
+    setSelectedTechnicians([])
+    setPrimaryTechnician('')
+    loadData()
+  } catch (error) {
+    console.error('Error assigning work order:', error)
+    alert('Error assigning work order')
+  }
 }
