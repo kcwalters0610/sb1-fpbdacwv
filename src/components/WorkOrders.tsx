@@ -15,7 +15,6 @@ import {
   Package,
   Square,
   Play,
-  Users,
   UserPlus
 } from 'lucide-react'
 import { supabase, WorkOrder, Customer, Profile, CustomerSite } from '../lib/supabase'
