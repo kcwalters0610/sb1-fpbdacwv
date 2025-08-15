@@ -780,65 +780,6 @@ export default function Estimates() {
       // Date line
       doc.line(120, yPosition, 180, yPosition)
       doc.text('Date', 120, yPosition + 5)
-      
-      yPosition += 20
-      
-      // Print name line
-      doc.line(20, yPosition, 100, yPosition)
-      doc.text('Print Name', 20, yPosition + 5)
-      
-      // Company representative signature
-      yPosition += 25
-      doc.setFontSize(12)
-      doc.setTextColor(0, 68, 108)
-      doc.text('Company Representative:', 20, yPosition)
-      
-      yPosition += 15
-      doc.line(20, yPosition, 100, yPosition)
-      doc.setFontSize(10)
-      doc.setTextColor(0, 0, 0)
-      doc.text('Authorized Signature', 20, yPosition + 5)
-      
-      doc.line(120, yPosition, 180, yPosition)
-      doc.text('Date', 120, yPosition + 5)
-
-      // Footer
-      doc.setFontSize(8)
-      doc.setTextColor(150, 150, 150)
-      doc.text(
-        `Generated on ${new Date().toLocaleDateString()} at ${new Date().toLocaleTimeString()}`,
-        doc.internal.pageSize.width / 2,
-        doc.internal.pageSize.height - 10,
-        { align: 'center' }
-      )
-
-      // Save the PDF
-      const fileName = `Estimate_${estimate.estimate_number}_${estimate.customer?.customer_type === 'residential' 
-        ? `${estimate.customer?.first_name}_${estimate.customer?.last_name}`
-        : estimate.customer?.company_name?.replace(/\s+/g, '_')
-      }.pdf`
-      
-      doc.save(fileName)
-    } catch (error) {
-      console.error('Error generating PDF:', error)
-      alert('Error generating PDF. Please try again.')
-    } finally {
-      setGeneratingPDF(false)
-    }
-  }
-
-  const getStatusColor = (status: string) => {
-    switch (status) {
-      case 'approved': return 'text-green-700 bg-green-100'
-      case 'sent': return 'text-blue-700 bg-blue-100'
-      case 'rejected': return 'text-red-700 bg-red-100'
-      case 'expired': return 'text-gray-700 bg-gray-100'
-      case 'converted': return 'text-purple-700 bg-purple-100'
-      case 'draft': return 'text-yellow-700 bg-yellow-100'
-      default: return 'text-gray-700 bg-gray-100'
-    }
-  }
-
   const filteredEstimates = estimates.filter(estimate => {
     const matchesSearch = estimate.estimate_number.toLowerCase().includes(searchTerm.toLowerCase()) ||
                          estimate.title.toLowerCase().includes(searchTerm.toLowerCase()) ||
