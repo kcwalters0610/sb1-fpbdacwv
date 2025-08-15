@@ -99,8 +99,8 @@ export default function MyJobs() {
     try {
       if (!currentUser?.profile) return
 
-      // Get work orders assigned directly to the user OR assigned to teams the user is part of
-      const { data: workOrdersData, error } = await supabase
+      // First, get work orders directly assigned to the user
+      const { data: directlyAssigned, error: directError } = await supabase
         .from('work_orders')
         .select(`
           *,
@@ -116,16 +116,64 @@ export default function MyJobs() {
           ),
           customer_site:customer_sites(*)
         `)
-        .or(`assigned_to.eq.${currentUser.profile.id},assignments.tech_id.eq.${currentUser.profile.id}`)
+        .eq('assigned_to', currentUser.profile.id)
         .order('scheduled_date', { ascending: true })
 
-      if (error) {
-        console.error('Error loading work orders:', error)
+      if (directError) {
+        console.error('Error loading directly assigned work orders:', directError)
         return
       }
 
+      // Second, get work order IDs where the user is assigned through work_order_assignments
+      const { data: assignments, error: assignmentError } = await supabase
+        .from('work_order_assignments')
+        .select('work_order_id')
+        .eq('tech_id', currentUser.profile.id)
+
+      if (assignmentError) {
+        console.error('Error loading work order assignments:', assignmentError)
+        return
+      }
+
+      let teamAssigned: any[] = []
+      if (assignments && assignments.length > 0) {
+        const workOrderIds = assignments.map(a => a.work_order_id)
+        
+        const { data: teamWorkOrders, error: teamError } = await supabase
+          .from('work_orders')
+          .select(`
+            *,
+            customer:customers(*),
+            assigned_technician:profiles!work_orders_assigned_to_fkey(*),
+            project:projects(*),
+            assigned_dept:departments!department_id(*),
+            assignments:work_order_assignments(
+              id,
+              tech_id,
+              is_primary,
+              tech:profiles(*)
+            ),
+            customer_site:customer_sites(*)
+          `)
+          .in('id', workOrderIds)
+          .order('scheduled_date', { ascending: true })
+
+        if (teamError) {
+          console.error('Error loading team assigned work orders:', teamError)
+          return
+        }
+
+        teamAssigned = teamWorkOrders || []
+      }
+
+      // Combine and deduplicate results
+      const allWorkOrders = [...(directlyAssigned || []), ...teamAssigned]
+      const uniqueWorkOrders = allWorkOrders.filter((order, index, self) => 
+        index === self.findIndex(o => o.id === order.id)
+      )
+
       // Filter based on status
-      let filteredOrders = workOrdersData || []
+      let filteredOrders = uniqueWorkOrders
       
       if (statusFilter === 'active') {
         filteredOrders = filteredOrders.filter(order => 
