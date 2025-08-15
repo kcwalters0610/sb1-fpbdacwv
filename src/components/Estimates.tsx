@@ -371,14 +371,16 @@ export default function Estimates() {
       const projectData = {
         company_id: profile.company_id,
         project_number: projectNumber,
+        project_name: estimate.title,
+        description: estimate.description,
         customer_id: estimate.customer_id,
         customer_site_id: estimate.customer_site_id,
-        title: estimate.title,
-        description: estimate.description,
         status: 'planning',
-        start_date: new Date().toISOString().split('T')[0],
+        priority: 'medium',
+        start_date: null,
+        estimated_end_date: null,
         total_budget: estimate.total_amount,
-        notes: estimate.notes,
+        notes: `Converted from estimate: ${estimate.estimate_number}`,
         estimate_id: estimate.id
       }
 
