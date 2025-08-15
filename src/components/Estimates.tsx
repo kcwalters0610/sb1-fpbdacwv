@@ -377,7 +377,7 @@ export default function Estimates() {
         description: estimate.description,
         status: 'planning',
         start_date: new Date().toISOString().split('T')[0],
-        budget: estimate.total_amount,
+        total_budget: estimate.total_amount,
         notes: estimate.notes,
         estimate_id: estimate.id
       }
