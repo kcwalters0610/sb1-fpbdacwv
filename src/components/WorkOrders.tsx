@@ -15,7 +15,8 @@ import {
   Package,
   Square,
   Play,
-  Building2,
+  Users,
+  UserPlus
 } from 'lucide-react'
 import { supabase, WorkOrder, Customer, Profile, CustomerSite } from '../lib/supabase'
 import { useViewPreference } from '../hooks/useViewPreference'
@@ -39,6 +40,7 @@ export default function WorkOrders() {
   const [customers, setCustomers] = useState<Customer[]>([])
   const [technicians, setTechnicians] = useState<Profile[]>([])
   const [departments, setDepartments] = useState<any[]>([])
+  const [departments, setDepartments] = useState<any[]>([])
   const [customerSites, setCustomerSites] = useState<CustomerSite[]>([])
   const [projects, setProjects] = useState<any[]>([])
 
@@ -56,6 +58,8 @@ export default function WorkOrders() {
   const [currentUser, setCurrentUser] = useState<any>(null)
   const [loadingSites, setLoadingSites] = useState(false)
   const [selectedTechnicians, setSelectedTechnicians] = useState<string[]>([])
+  const [assignmentType, setAssignmentType] = useState<'individual' | 'team'>('individual')
+  const [selectedDepartment, setSelectedDepartment] = useState<string>('')
   const [primaryTechnician, setPrimaryTechnician] = useState<string>('')
 
   const [workOrderPhotos, setWorkOrderPhotos] = useState<any[]>([])
@@ -145,8 +149,13 @@ export default function WorkOrders() {
       try {
         window.dispatchEvent(evt)
       } catch {}
-      try {
-        document.dispatchEvent(evt)
+    if (assignmentType === 'individual' && selectedTechnicians.length === 0) {
+      alert('Please select at least one technician')
+      return
+    }
+
+    if (assignmentType === 'team' && !selectedDepartment) {
+      alert('Please select a department')
       } catch {}
     }
 
@@ -267,7 +276,7 @@ export default function WorkOrders() {
 
   const loadData = async () => {
     try {
-      const [workOrdersResult, customersResult, techniciansResult, departmentsResult, projectsResult] = await Promise.all([
+      const [ordersResult, customersResult, techniciansResult, departmentsResult] = await Promise.all([
         supabase
           .from('work_orders')
           .select(`
@@ -275,7 +284,11 @@ export default function WorkOrders() {
             customer:customers(*),
             assigned_technician:profiles!work_orders_assigned_to_fkey(*),
             assigned_dept:departments!department_id(*),
-            customer_site:customer_sites(*),
+            assigned_dept:departments!department_id(*),
+            assignments:work_order_assignments(
+              *,
+              tech:profiles(*)
+            )
             project:projects(*),
             assignments:work_order_assignments(
               id,
@@ -286,7 +299,17 @@ export default function WorkOrders() {
           `)
           .order('created_at', { ascending: false }),
         supabase.from('customers').select('*').order('first_name'),
-        supabase.from('profiles').select('*').in('role', ['tech', 'admin', 'manager']).order('first_name'),
+        supabase.from('profiles').select('*').in('role', ['tech', 'admin', 'manager']).eq('is_active', true).order('first_name'),
+        supabase
+          .from('departments')
+          .select(`
+            *,
+            members:department_members(
+              user:profiles(*)
+            )
+          `)
+          .eq('is_active', true)
+          .order('name')
         supabase.from('departments').select('*').eq('is_active', true).order('name'),
         supabase.from('projects').select('*').in('status', ['planning', 'in_progress']).order('project_name'),
       ])
@@ -294,6 +317,7 @@ export default function WorkOrders() {
       setWorkOrders(workOrdersResult.data || [])
       setCustomers(customersResult.data || [])
       setTechnicians(techniciansResult.data || [])
+      setDepartments(departmentsResult.data || [])
       setDepartments(departmentsResult.data || [])
       setProjects(projectsResult.data || [])
     } catch (error) {
@@ -642,34 +666,90 @@ export default function WorkOrders() {
       const {
         data: { user },
       } = await supabase.auth.getUser()
-      if (!user) throw new Error('User not authenticated')
+      if (assignmentType === 'individual') {
+        // Remove existing assignments
+        await supabase
+          .from('work_order_assignments')
+          .delete()
+          .eq('work_order_id', selectedWorkOrderForAssignment.id)
 
-      const { data: profile } = await supabase.from('profiles').select('company_id').eq('id', user.id).single()
-      if (!profile) throw new Error('User profile not found')
+        // Add new assignments
+        const assignments = selectedTechnicians.map(techId => ({
+          work_order_id: selectedWorkOrderForAssignment.id,
+          tech_id: techId,
+          is_primary: techId === primaryTechnician,
+          company_id: selectedWorkOrderForAssignment.company_id
+        }))
 
-      await supabase.from('work_order_assignments').delete().eq('work_order_id', assigningWorkOrder.id)
+        const { error: assignError } = await supabase
+          .from('work_order_assignments')
+          .insert(assignments)
 
-      const assignments = selectedTechnicians.map((techId) => ({
-        work_order_id: assigningWorkOrder.id,
-        tech_id: techId,
-        is_primary: techId === primaryTechnician,
-        company_id: profile.company_id,
-      }))
-      const { error } = await supabase.from('work_order_assignments').insert(assignments)
-      if (error) throw error
+        if (assignError) throw assignError
 
-      setShowAssignModal(false)
-      setAssigningWorkOrder(null)
+        // Update the work order's assigned_to field with primary technician
+        const { error: updateError } = await supabase
+          .from('work_orders')
+          .update({ 
+            assigned_to: primaryTechnician || selectedTechnicians[0],
+            department_id: null,
+            status: 'scheduled'
+          })
+          .eq('id', selectedWorkOrderForAssignment.id)
+
+        if (updateError) throw updateError
+      } else {
+        // Team assignment
+        // Remove existing individual assignments
+        await supabase
+          .from('work_order_assignments')
+          .delete()
+          .eq('work_order_id', selectedWorkOrderForAssignment.id)
+
+        // Update work order with department assignment
+        const { error: updateError } = await supabase
+          .from('work_orders')
+          .update({ 
+            department_id: selectedDepartment,
+            assigned_to: null,
+            status: 'scheduled'
+          })
+          .eq('id', selectedWorkOrderForAssignment.id)
+
+        if (updateError) throw updateError
+      }
+
+      setShowAssignmentModal(false)
+      setSelectedWorkOrderForAssignment(null)
       setSelectedTechnicians([])
+      setSelectedDepartment('')
       setPrimaryTechnician('')
       loadData()
     } catch (error) {
-      console.error('Error assigning technicians:', error)
-      alert('Error assigning technicians')
+      console.error('Error assigning work order:', error)
+      alert('Error assigning work order')
+    } finally {
+      setLoading(false)
     }
   }
 
-  const saveNotes = async () => {
+  const handleTeamAssignment = async (workOrderId: string, departmentId: string) => {
+    try {
+      // Remove existing individual assignments
+      await supabase
+        .from('work_order_assignments')
+        .delete()
+        .eq('work_order_id', workOrderId)
+
+      // Update work order with department assignment
+      const { error } = await supabase
+        .from('work_orders')
+        .update({ 
+          department_id: departmentId,
+          assigned_to: null,
+          status: 'scheduled'
+
+        .eq('id', workOrderId)
     if (!selectedWorkOrder) return
     setSavingNotes(true)
     try {
@@ -1004,14 +1084,136 @@ export default function WorkOrders() {
                                 {assignment.is_primary && <span className="ml-1 text-xs text-blue-600">(Primary)</span>}
                               </div>
                             ))}
+                        {order.assigned_dept ? (
+                          <div>
+                            <span className="inline-flex items-center px-2 py-1 text-xs font-medium rounded-full bg-purple-100 text-purple-800">
+                              <Users className="w-3 h-3 mr-1" />
+                              {order.assigned_dept.name}
+                            </span>
+                          </div>
+                        ) : order.assigned_technician ? (
+                          <div>
+                            <span className="inline-flex items-center px-2 py-1 text-xs font-medium rounded-full bg-blue-100 text-blue-800">
+                              <User className="w-3 h-3 mr-1" />
+                              {order.assigned_technician.first_name} {order.assigned_technician.last_name}
+                            </span>
+                          </div>
+                        ) : order.assignments && order.assignments.length > 0 ? (
+                          <div className="space-y-1">
+                            {order.assignments.slice(0, 2).map((assignment: any) => (
+                              <span key={assignment.id} className="inline-flex items-center px-2 py-1 text-xs font-medium rounded-full bg-green-100 text-green-800">
+                                <User className="w-3 h-3 mr-1" />
+                                {assignment.tech.first_name} {assignment.tech.last_name}
+                                {assignment.is_primary && ' (Primary)'}
+                              </span>
+                            ))}
+                            {order.assignments.length > 2 && (
+                              <span className="text-xs text-gray-500">+{order.assignments.length - 2} more</span>
+                            )}
                           </div>
                         ) : (
                           'Unassigned'
                         )}
                       </div>
                     </td>
-                    <td className="px-6 py-4 whitespace-nowrap">
-                      <select
+                    <td className="hidden md:table-cell px-6 py-4 whitespace-nowrap">
+                      <div className="flex space-x-2">
+                        <select
+                          onChange={(e) => e.target.value && quickAssignTechnician(order.id, e.target.value)}
+                          className="text-xs px-2 py-1 border border-gray-300 rounded focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                          defaultValue=""
+                        >
+                          <option value="">Assign Tech</option>
+                          {technicians.map((tech) => (
+                            <option key={tech.id} value={tech.id}>
+                              {tech.first_name} {tech.last_name}
+                            </option>
+                          ))}
+                        </select>
+                        <select
+                          onChange={(e) => e.target.value && quickAssignTeam(order.id, e.target.value)}
+                          className="text-xs px-2 py-1 border border-gray-300 rounded focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                          defaultValue=""
+                        >
+                          <option value="">Assign Team</option>
+                          {departments.map((dept) => (
+                            <option key={dept.id} value={dept.id}>
+                              {dept.name}
+                            </option>
+                          ))}
+                        </select>
+                      </div>
+                    </td>
+                    <td className="px-6 py-4 whitespace-nowrap text-sm font-medium">
+                      <div className="flex space-x-2">
+                        <button
+                          onClick={() => openAssignmentModal(order)}
+                          className="text-purple-600 hover:text-purple-800 p-1.5 transition-all duration-200 hover:bg-purple-100 rounded-full hover:shadow-sm transform hover:scale-110"
+                          title="Advanced Assignment"
+                        >
+                          <UserPlus className="w-4 h-4" />
+                        </button>
+                        <button
+                          onClick={() => setSelectedWorkOrder(order)}
+                          className="text-blue-600 hover:text-blue-800 p-1.5 transition-all duration-200 hover:bg-blue-100 rounded-full hover:shadow-sm transform hover:scale-110"
+                        >
+                          <Eye className="w-4 h-4" />
+                        </button>
+                        <button
+                          onClick={() => startEdit(order)}
+                          className="text-blue-600 hover:text-blue-800 p-1.5 transition-all duration-200 hover:bg-blue-100 rounded-full hover:shadow-sm transform hover:scale-110"
+                        >
+                          <Edit className="w-4 h-4" />
+                        </button>
+                        <button
+                          onClick={() => deleteWorkOrder(order.id)}
+                          className="text-red-600 hover:text-red-800 p-1.5 transition-all duration-200 hover:bg-red-100 rounded-full hover:shadow-sm transform hover:scale-110"
+                        >
+                          <Trash2 className="w-4 h-4" />
+                        </button>
+                      </div>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        ) : (
+          <div className="p-6">
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+              {filteredWorkOrders.map((order) => (
+                <div key={order.id} className="border border-gray-200 rounded-lg p-6 hover:shadow-md transition-shadow cursor-pointer" onClick={() => setSelectedWorkOrder(order)}>
+                  <div className="flex items-start justify-between mb-4">
+                    <div className="flex-1">
+                      <h3 className="text-lg font-semibold text-gray-900 mb-1">{order.wo_number}</h3>
+                      <p className="text-sm text-gray-600 mb-2">{order.title}</p>
+                      <div className="flex space-x-2">
+                        <span className={`inline-flex px-2 py-1 text-xs font-medium rounded-full ${getStatusColor(order.status)}`}>
+                          {order.status.replace('_', ' ').toUpperCase()}
+                        </span>
+                        <span className={`inline-flex px-2 py-1 text-xs font-medium rounded-full ${getPriorityColor(order.priority)}`}>
+                          {order.priority.toUpperCase()}
+                        </span>
+                      </div>
+                    </div>
+                  </div>
+                  
+                  <div className="space-y-2 mb-4">
+                    <div className="flex items-center text-sm text-gray-600">
+                      <Building2 className="w-4 h-4 mr-3" />
+                      <span>
+                        {order.customer?.customer_type === 'residential' 
+                          ? `${order.customer?.first_name} ${order.customer?.last_name}`
+                          : order.customer?.company_name
+                        )}
+                      </span>
+                    </div>
+                    
+                    {order.customer_site && (
+                      <div className="flex items-center text-sm text-gray-600">
+                        <MapPin className="w-4 h-4 mr-3" />
+                        <span>{order.customer_site.site_name}</span>
+                      </div>
                         value={workOrder.status}
                         onChange={(e) => updateStatus(workOrder.id, e.target.value)}
                         className={`text-xs font-semibold rounded-full px-2 py-1 border-0 ${getStatusColor(workOrder.status)}`}
@@ -1028,53 +1230,276 @@ export default function WorkOrders() {
                       {(workOrder as any).scheduled_date ? new Date((workOrder as any).scheduled_date).toLocaleDateString() : 'Not scheduled'}
                     </td>
                     <td className="px-6 py-4 whitespace-nowrap text-sm font-medium">
-                      <div className="flex space-x-2">
-                        <button
-                          onClick={() => setSelectedWorkOrder(workOrder)}
-                          className="text-blue-600 hover:text-blue-800 p-1.5 transition-all duration-200 hover:bg-blue-100 rounded-full hover:shadow-sm transform hover:scale-110"
-                        >
-                          <Eye className="w-4 h-4" />
-                        </button>
-                        {(currentUser?.profile?.role === 'admin' ||
-                          currentUser?.profile?.role === 'manager' ||
-                          currentUser?.profile?.role === 'office') && (
-                          <>
-                            <button
-                              onClick={() => openAssignModal(workOrder)}
-                              className="text-purple-600 hover:text-purple-800 p-1.5 transition-all duration-200 hover:bg-purple-100 rounded-full hover:shadow-sm transform hover:scale-110"
-                              title="Assign Technicians"
-                            >
-                              <Users className="w-4 h-4" />
-                            </button>
-                            <button
-                              onClick={() => handleCreateInvoice(workOrder)}
-                              className="text-green-600 hover:text-green-800 p-1.5 transition-all duration-200 hover:bg-green-100 rounded-full hover:shadow-sm transform hover:scale-110"
-                              title="Create Invoice"
-                            >
-                              <DollarSign className="w-4 h-4" />
-                            </button>
-                          </>
+                    )}
+                    
+                    <div className="flex items-center text-sm text-gray-600">
+                      <User className="w-4 h-4 mr-3" />
+                      <span>
+                        {order.assigned_dept ? (
+                          <span className="inline-flex items-center px-2 py-1 text-xs font-medium rounded-full bg-purple-100 text-purple-800">
+                            <Users className="w-3 h-3 mr-1" />
+                            {order.assigned_dept.name}
+                          </span>
+                        ) : order.assigned_technician ? (
+                          <span className="inline-flex items-center px-2 py-1 text-xs font-medium rounded-full bg-blue-100 text-blue-800">
+                            <User className="w-3 h-3 mr-1" />
+                            {order.assigned_technician.first_name} {order.assigned_technician.last_name}
+                          </span>
+                        ) : order.assignments && order.assignments.length > 0 ? (
+                          <div className="space-y-1">
+                            {order.assignments.slice(0, 2).map((assignment: any) => (
+                              <span key={assignment.id} className="inline-flex items-center px-2 py-1 text-xs font-medium rounded-full bg-green-100 text-green-800">
+                                <User className="w-3 h-3 mr-1" />
+                                {assignment.tech.first_name} {assignment.tech.last_name}
+                                {assignment.is_primary && ' (Primary)'}
+                              </span>
+                            ))}
+                            {order.assignments.length > 2 && (
+                              <span className="text-xs text-gray-500">+{order.assignments.length - 2} more</span>
+                            )}
+                          </div>
+                        ) : (
+                          'Unassigned'
                         )}
-                        <button
-                          onClick={() => startEdit(workOrder)}
-                          className="text-blue-600 hover:text-blue-800 p-1.5 transition-all duration-200 hover:bg-blue-100 rounded-full hover:shadow-sm transform hover:scale-110"
-                        >
-                          <Edit className="w-4 h-4" />
-                        </button>
-                        <button
-                          onClick={() => deleteWorkOrder(workOrder.id)}
-                          className="text-red-600 hover:text-red-800 p-1.5 transition-all duration-200 hover:bg-red-100 rounded-full hover:shadow-sm transform hover:scale-110"
-                        >
-                          <Trash2 className="w-4 h-4" />
-                        </button>
+                      </span>
+                    </div>
+                    
+                    {order.scheduled_date && (
+                      <div className="flex items-center text-sm text-gray-600">
+                        <Calendar className="w-4 h-4 mr-3" />
+                        <span>{new Date(order.scheduled_date).toLocaleDateString()}</span>
                       </div>
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
+                    )}
+                  </div>
+                  
+                  <div className="flex justify-between items-center pt-4 border-t border-gray-200">
+                    <div className="flex space-x-2">
+                      <select
+                        onChange={(e) => e.target.value && quickAssignTechnician(order.id, e.target.value)}
+                        className="text-xs px-2 py-1 border border-gray-300 rounded focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                        defaultValue=""
+                        onClick={(e) => e.stopPropagation()}
+                      >
+                        <option value="">Assign Tech</option>
+                        {technicians.map((tech) => (
+                          <option key={tech.id} value={tech.id}>
+                            {tech.first_name} {tech.last_name}
+                          </option>
+                        ))}
+                      </select>
+                      <select
+                        onChange={(e) => e.target.value && quickAssignTeam(order.id, e.target.value)}
+                        className="text-xs px-2 py-1 border border-gray-300 rounded focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                        defaultValue=""
+                        onClick={(e) => e.stopPropagation()}
+                      >
+                        <option value="">Assign Team</option>
+                        {departments.map((dept) => (
+                          <option key={dept.id} value={dept.id}>
+                            {dept.name}
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+                    <div className="text-blue-600 text-sm font-medium">
+                      Click to view →
+                    </div>
+                  </div>
+                </div>
+              ))}
+            </div>
           </div>
-        ) : (
+        )}
+      </div>
+
+      {/* Assignment Modal */}
+      {showAssignmentModal && selectedWorkOrderForAssignment && (
+        <div className="fixed inset-0 bg-gray-600 bg-opacity-50 flex items-center justify-center p-4 z-50">
+          <div className="bg-white rounded-xl shadow-xl max-w-2xl w-full max-h-screen overflow-y-auto">
+            <div className="p-6 border-b border-gray-200">
+              <div className="flex items-center justify-between">
+                <h3 className="text-lg font-semibold text-gray-900">
+                  Assign Work Order: {selectedWorkOrderForAssignment.wo_number}
+                </h3>
+                <button
+                  onClick={() => setShowAssignmentModal(false)}
+                  className="text-gray-400 hover:text-gray-600"
+                >
+                  <X className="w-6 h-6" />
+                </button>
+              </div>
+            </div>
+            
+            <div className="p-6">
+              {/* Assignment Type Selection */}
+              <div className="mb-6">
+                <label className="block text-sm font-medium text-gray-700 mb-3">
+                  Assignment Type
+                </label>
+                <div className="flex space-x-4">
+                  <label className="flex items-center">
+                    <input
+                      type="radio"
+                      name="assignmentType"
+                      value="individual"
+                      checked={assignmentType === 'individual'}
+                      onChange={(e) => setAssignmentType(e.target.value as 'individual' | 'team')}
+                      className="h-4 w-4 text-blue-600 focus:ring-blue-500 border-gray-300"
+                    />
+                    <span className="ml-2 text-sm text-gray-900">Individual Technicians</span>
+                  </label>
+                  <label className="flex items-center">
+                    <input
+                      type="radio"
+                      name="assignmentType"
+                      value="team"
+                      checked={assignmentType === 'team'}
+                      onChange={(e) => setAssignmentType(e.target.value as 'individual' | 'team')}
+                      className="h-4 w-4 text-blue-600 focus:ring-blue-500 border-gray-300"
+                    />
+                    <span className="ml-2 text-sm text-gray-900">Entire Team/Department</span>
+                  </label>
+                </div>
+              </div>
+
+              {assignmentType === 'individual' ? (
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-3">
+                    Select Technicians
+                  </label>
+                  <div className="space-y-2 max-h-64 overflow-y-auto mb-4">
+                    {technicians.map((tech) => (
+                      <div
+                        key={tech.id}
+                        className={`flex items-center justify-between p-3 border rounded-lg cursor-pointer transition-colors ${
+                          selectedTechnicians.includes(tech.id)
+                            ? 'border-blue-300 bg-blue-50'
+                            : 'border-gray-200 hover:bg-gray-50'
+                        }`}
+                        onClick={() => {
+                          if (selectedTechnicians.includes(tech.id)) {
+                            setSelectedTechnicians(selectedTechnicians.filter(id => id !== tech.id))
+                            if (primaryTechnician === tech.id) {
+                              setPrimaryTechnician('')
+                            }
+                          } else {
+                            setSelectedTechnicians([...selectedTechnicians, tech.id])
+                          }
+                        }}
+                      >
+                        <div className="flex items-center space-x-3">
+                          <div className="w-8 h-8 bg-blue-100 rounded-full flex items-center justify-center">
+                            <span className="text-blue-600 font-medium text-sm">
+                              {tech.first_name[0]}{tech.last_name[0]}
+                            </span>
+                          </div>
+                          <div>
+                            <p className="text-sm font-medium text-gray-900">
+                              {tech.first_name} {tech.last_name}
+                            </p>
+                            <p className="text-xs text-gray-500 capitalize">{tech.role}</p>
+                          </div>
+                        </div>
+                        <div className="flex items-center space-x-2">
+                          {selectedTechnicians.includes(tech.id) && (
+                            <button
+                              onClick={(e) => {
+                                e.stopPropagation()
+                                setPrimaryTechnician(tech.id)
+                              }}
+                              className={`text-xs px-2 py-1 rounded ${
+                                primaryTechnician === tech.id
+                                  ? 'bg-yellow-100 text-yellow-800'
+                                  : 'bg-gray-100 text-gray-600 hover:bg-yellow-100 hover:text-yellow-800'
+                              }`}
+                            >
+                              {primaryTechnician === tech.id ? 'Primary' : 'Set Primary'}
+                            </button>
+                          )}
+                          <input
+                            type="checkbox"
+                            checked={selectedTechnicians.includes(tech.id)}
+                            onChange={() => {}}
+                            className="h-4 w-4 text-blue-600 focus:ring-blue-500 border-gray-300 rounded"
+                            onClick={(e) => e.stopPropagation()}
+                          />
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              ) : (
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-3">
+                    Select Department/Team
+                  </label>
+                  <div className="space-y-2 max-h-64 overflow-y-auto mb-4">
+                    {departments.map((dept) => (
+                      <div
+                        key={dept.id}
+                        className={`flex items-center justify-between p-4 border rounded-lg cursor-pointer transition-colors ${
+                          selectedDepartment === dept.id
+                            ? 'border-purple-300 bg-purple-50'
+                            : 'border-gray-200 hover:bg-gray-50'
+                        }`}
+                        onClick={() => setSelectedDepartment(dept.id)}
+                      >
+                        <div className="flex items-center space-x-3">
+                          <div className="w-10 h-10 bg-purple-100 rounded-lg flex items-center justify-center">
+                            <Building2 className="w-5 h-5 text-purple-600" />
+                          </div>
+                          <div>
+                            <p className="text-sm font-medium text-gray-900">{dept.name}</p>
+                            <p className="text-xs text-gray-500">
+                              {dept.members?.length || 0} member{(dept.members?.length || 0) !== 1 ? 's' : ''}
+                            </p>
+                            {dept.description && (
+                              <p className="text-xs text-gray-500">{dept.description}</p>
+                            )}
+                          </div>
+                        </div>
+                        <input
+                          type="radio"
+                          name="selectedDepartment"
+                          checked={selectedDepartment === dept.id}
+                          onChange={() => setSelectedDepartment(dept.id)}
+                          className="h-4 w-4 text-purple-600 focus:ring-purple-500 border-gray-300"
+                          onClick={(e) => e.stopPropagation()}
+                        />
+                      </div>
+                    ))}
+                  </div>
+
+                  {selectedDepartment && (
+                    <div className="bg-purple-50 border border-purple-200 rounded-lg p-4">
+                      <h4 className="text-sm font-medium text-purple-900 mb-2">Team Members</h4>
+                      <div className="space-y-1">
+                        {departments.find(d => d.id === selectedDepartment)?.members?.map((member: any) => (
+                          <div key={member.user.id} className="flex items-center text-sm text-purple-800">
+                            <User className="w-3 h-3 mr-2" />
+                            {member.user.first_name} {member.user.last_name} ({member.user.role})
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+                </div>
+              )}
+
+              <div className="flex justify-end space-x-3 pt-6 border-t border-gray-200">
+                <button
+                  onClick={() => setShowAssignmentModal(false)}
+                  className="px-4 py-2 text-gray-700 bg-gray-100 rounded-lg hover:bg-gray-200 transition-colors"
+                >
+                  Cancel
+                </button>
+                <button
+                  onClick={handleAssignment}
+                  disabled={loading || (assignmentType === 'individual' && selectedTechnicians.length === 0) || (assignmentType === 'team' && !selectedDepartment)}
+                  className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50 transition-colors"
+                >
+                  {loading ? 'Assigning...' : 'Assign Work Order'}
+                </button>
           <div className="p-6">
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
               {filteredWorkOrders.map((workOrder) => (
