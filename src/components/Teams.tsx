@@ -650,99 +650,6 @@ export default function Teams() {
         </div>
       )}
 
-      {/* Bulk Assignment Modal */}
-      {showBulkAssignModal && (
-        <div className="fixed inset-0 bg-gray-600 bg-opacity-50 flex items-center justify-center p-4 z-50">
-          <div className="bg-white rounded-xl shadow-xl max-w-2xl w-full max-h-screen overflow-y-auto">
-            <div className="p-6 border-b border-gray-200">
-              <div className="flex items-center justify-between">
-                <h3 className="text-lg font-semibold text-gray-900">
-                  Bulk Assign Users to Department
-                </h3>
-                <button
-                  onClick={() => setShowBulkAssignModal(false)}
-                  className="text-gray-400 hover:text-gray-600"
-                >
-                  <X className="w-6 h-6" />
-                </button>
-              </div>
-            </div>
-            
-            <div className="p-6">
-              <div className="mb-6">
-                <label className="block text-sm font-medium text-gray-700 mb-2">
-                  Target Department
-                </label>
-                <select
-                  value={targetDepartment}
-                  onChange={(e) => setTargetDepartment(e.target.value)}
-                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                >
-                  <option value="">Select Department</option>
-                  {departments.map((dept) => (
-                    <option key={dept.id} value={dept.id}>{dept.name}</option>
-                  ))}
-                </select>
-              </div>
-
-              <div className="mb-6">
-                <h4 className="text-md font-medium text-gray-900 mb-4">Select Users</h4>
-                <div className="space-y-2 max-h-64 overflow-y-auto">
-                  {allUsers.map((user) => (
-                    <div
-                      key={user.id}
-                      className={`flex items-center justify-between p-3 border rounded-lg cursor-pointer transition-colors ${
-                        selectedUsers.includes(user.id)
-                          ? 'border-blue-300 bg-blue-50'
-                          : 'border-gray-200 hover:bg-gray-50'
-                      }`}
-                      onClick={() => toggleUserSelection(user.id)}
-                    >
-                      <div className="flex items-center space-x-3">
-                        <div className={`w-8 h-8 rounded-full flex items-center justify-center ${
-                          user.role === 'admin' ? 'bg-purple-100' :
-                          user.role === 'manager' ? 'bg-blue-100' : 'bg-green-100'
-                        }`}>
-                          {user.role === 'admin' ? (
-                            <Crown className="w-4 h-4 text-purple-600" />
-                          ) : user.role === 'manager' ? (
-                            <User className="w-4 h-4 text-blue-600" />
-                          ) : (
-                            <Wrench className="w-4 h-4 text-green-600" />
-                          )}
-                        </div>
-                        <div>
-                          <p className="text-sm font-medium text-gray-900">
-                            {user.first_name} {user.last_name}
-                          </p>
-                          <p className="text-xs text-gray-500 capitalize">{user.role}</p>
-                        </div>
-                      </div>
-                      <input
-                        type="checkbox"
-                        checked={selectedUsers.includes(user.id)}
-                        onChange={() => toggleUserSelection(user.id)}
-                        className="h-4 w-4 text-blue-600 focus:ring-blue-500 border-gray-300 rounded"
-                        onClick={(e) => e.stopPropagation()}
-                      />
-                    </div>
-                  ))}
-                </div>
-              </div>
-
-              {selectedUsers.length > 0 && (
-                <div className="mb-6 p-4 bg-green-50 rounded-lg">
-                  <h5 className="text-sm font-medium text-green-900 mb-2">
-                    Selected Users ({selectedUsers.length})
-                  </h5>
-                  <div className="text-sm text-green-800">
-                    {selectedUsers.map(userId => {
-                      const user = allUsers.find(u => u.id === userId)
-                      return user ? `${user.first_name} ${user.last_name}` : ''
-                    }).join(', ')}
-                  </div>
-                </div>
-              )}
       {/* Members Management Modal */}
       {showMembersModal && selectedDepartment && (
         <div className="fixed inset-0 bg-gray-600 bg-opacity-50 flex items-center justify-center p-4 z-50">
@@ -756,7 +663,7 @@ export default function Teams() {
                   onClick={() => setShowMembersModal(false)}
                   className="text-gray-400 hover:text-gray-600"
                 >
-                  ×
+                  <X className="w-6 h-6" />
                 </button>
               </div>
             </div>
@@ -806,25 +713,6 @@ export default function Teams() {
                 )}
               </div>
 
-              <div className="flex justify-end space-x-3">
-                <button
-                  onClick={() => setShowBulkAssignModal(false)}
-                  className="px-4 py-2 text-gray-700 bg-gray-100 rounded-lg hover:bg-gray-200 transition-colors"
-                >
-                  Cancel
-                </button>
-                <button
-                  onClick={bulkAssignToDepartment}
-                  disabled={!targetDepartment || selectedUsers.length === 0}
-                  className="px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
-                >
-                  Assign {selectedUsers.length} User{selectedUsers.length !== 1 ? 's' : ''}
-                </button>
-              </div>
-            </div>
-          </div>
-        </div>
-      )}
               {/* Available Members */}
               {(currentUser?.profile?.role === 'admin' || 
                 (currentUser?.profile?.role === 'manager' && selectedDepartment.manager_id === currentUser.id)) && (
