@@ -39,7 +39,6 @@ export default function WorkOrders() {
   const [customers, setCustomers] = useState<Customer[]>([])
   const [technicians, setTechnicians] = useState<Profile[]>([])
   const [departments, setDepartments] = useState<any[]>([])
-  const [departments, setDepartments] = useState<any[]>([])
   const [customerSites, setCustomerSites] = useState<CustomerSite[]>([])
   const [projects, setProjects] = useState<any[]>([])
 
