@@ -32,10 +32,18 @@ export default function Estimates() {
     status: 'draft',
     issue_date: new Date().toISOString().split('T')[0],
     expiry_date: '',
-    subtotal: '',
-    tax_rate: '0',
     notes: ''
   })
+
+  const [lineItems, setLineItems] = useState([
+    {
+      id: Date.now().toString(),
+      description: '',
+      quantity: 1,
+      unit_price: 0,
+      amount: 0
+    }
+  ])
 
   useEffect(() => {
     loadData()
@@ -58,6 +66,23 @@ export default function Estimates() {
       setFormData(prev => ({ ...prev, customer_site_id: '' }))
     }
   }, [formData.customer_id])
+
+  // Calculate totals when line items change
+  useEffect(() => {
+    const subtotal = lineItems.reduce((sum, item) => sum + item.amount, 0)
+    const taxRate = 0.08 // Default 8% tax rate - could be made configurable
+    const taxAmount = subtotal * taxRate
+    const totalAmount = subtotal + taxAmount
+    
+    // Update the estimate totals
+    setFormData(prev => ({
+      ...prev,
+      subtotal: subtotal.toString(),
+      tax_rate: (taxRate * 100).toString(),
+      tax_amount: taxAmount.toString(),
+      total_amount: totalAmount.toString()
+    }))
+  }, [lineItems])
 
   const loadCompanyInfo = async () => {
     try {
@@ -154,11 +179,6 @@ export default function Estimates() {
       
       if (!profile) throw new Error('User profile not found')
 
-      const subtotal = parseFloat(formData.subtotal) || 0
-      const taxRate = parseFloat(formData.tax_rate) || 0
-      const taxAmount = (subtotal * taxRate) / 100
-      const totalAmount = subtotal + taxAmount
-
       const estimateData = {
         company_id: profile.company_id,
         customer_id: formData.customer_id,
@@ -169,11 +189,12 @@ export default function Estimates() {
         status: formData.status,
         issue_date: formData.issue_date,
         expiry_date: formData.expiry_date || null,
-        subtotal,
-        tax_rate: taxRate,
-        tax_amount: taxAmount,
-        total_amount: totalAmount,
-        notes: formData.notes || null
+        subtotal: lineItems.reduce((sum, item) => sum + item.amount, 0),
+        tax_rate: 8, // Default 8% tax rate
+        tax_amount: lineItems.reduce((sum, item) => sum + item.amount, 0) * 0.08,
+        total_amount: lineItems.reduce((sum, item) => sum + item.amount, 0) * 1.08,
+        notes: formData.notes || null,
+        settings: { lineItems }
       }
 
       if (editingEstimate) {
@@ -217,15 +238,35 @@ export default function Estimates() {
       status: 'draft',
       issue_date: new Date().toISOString().split('T')[0],
       expiry_date: '',
-      subtotal: '',
-      tax_rate: '0',
       notes: ''
     })
     setCustomerSites([])
+    setLineItems([
+      {
+        id: Date.now().toString(),
+        description: '',
+        quantity: 1,
+        unit_price: 0,
+        amount: 0
+      }
+    ])
   }
 
   const startEdit = (estimate: Estimate) => {
     setEditingEstimate(estimate)
+    
+    // Load line items from settings or create default
+    const savedLineItems = estimate.settings?.lineItems || [
+      {
+        id: Date.now().toString(),
+        description: estimate.description || '',
+        quantity: 1,
+        unit_price: estimate.subtotal || 0,
+        amount: estimate.subtotal || 0
+      }
+    ]
+    setLineItems(savedLineItems)
+    
     setFormData({
       estimate_number: estimate.estimate_number,
       customer_id: estimate.customer_id,
@@ -235,8 +276,6 @@ export default function Estimates() {
       status: estimate.status,
       issue_date: estimate.issue_date,
       expiry_date: estimate.expiry_date || '',
-      subtotal: estimate.subtotal.toString(),
-      tax_rate: estimate.tax_rate.toString(),
       notes: estimate.notes || ''
     })
     
@@ -273,6 +312,92 @@ export default function Estimates() {
       loadData()
     } catch (error) {
       console.error('Error updating status:', error)
+    }
+  }
+
+  const addLineItem = () => {
+    const newItem = {
+      id: Date.now().toString(),
+      description: '',
+      quantity: 1,
+      unit_price: 0,
+      amount: 0
+    }
+    setLineItems([...lineItems, newItem])
+  }
+
+  const removeLineItem = (id: string) => {
+    if (lineItems.length > 1) {
+      setLineItems(lineItems.filter(item => item.id !== id))
+    }
+  }
+
+  const updateLineItem = (id: string, field: string, value: any) => {
+    setLineItems(lineItems.map(item => {
+      if (item.id === id) {
+        const updatedItem = { ...item, [field]: value }
+        
+        // Recalculate amount when quantity or unit_price changes
+        if (field === 'quantity' || field === 'unit_price') {
+          updatedItem.amount = updatedItem.quantity * updatedItem.unit_price
+        }
+        
+        return updatedItem
+      }
+      return item
+    }))
+  }
+
+  const convertToProject = async (estimate: Estimate) => {
+    if (!confirm(`Convert estimate "${estimate.estimate_number}" to a project?`)) return
+
+    try {
+      // Get current user's company_id
+      const { data: { user } } = await supabase.auth.getUser()
+      if (!user) throw new Error('User not authenticated')
+      
+      const { data: profile } = await supabase
+        .from('profiles')
+        .select('company_id')
+        .eq('id', user.id)
+        .single()
+      
+      if (!profile) throw new Error('User profile not found')
+
+      // Generate project number
+      const { formattedNumber: projectNumber, nextSequence } = await getNextNumber('project')
+
+      // Create project from estimate
+      const projectData = {
+        company_id: profile.company_id,
+        project_number: projectNumber,
+        customer_id: estimate.customer_id,
+        customer_site_id: estimate.customer_site_id,
+        title: estimate.title,
+        description: estimate.description,
+        status: 'planning',
+        start_date: new Date().toISOString().split('T')[0],
+        budget: estimate.total_amount,
+        notes: estimate.notes,
+        estimate_id: estimate.id
+      }
+
+      const { error: projectError } = await supabase
+        .from('projects')
+        .insert([projectData])
+      
+      if (projectError) throw projectError
+
+      // Update the project sequence number
+      await updateNextNumber('project', nextSequence)
+
+      // Update estimate status to converted
+      await updateStatus(estimate.id, 'converted')
+
+      alert(`Estimate converted to project ${projectNumber}`)
+    } catch (error) {
+      console.error('Error converting to project:', error)
+      alert('Error converting estimate to project: ' + (error as Error).message)
     }
   }
 
@@ -454,6 +579,48 @@ export default function Estimates() {
       }
 
       yPosition += 15
+
+      // Add line items table
+      const lineItemsData = [
+        ['Description', 'Qty', 'Unit Price', 'Amount'],
+        ...(estimate.settings?.lineItems || [
+          {
+            description: estimate.description || 'Service',
+            quantity: 1,
+            unit_price: estimate.subtotal,
+            amount: estimate.subtotal
+          }
+        ]).map((item: any) => [
+          item.description,
+          item.quantity.toString(),
+          `$${item.unit_price.toFixed(2)}`,
+          `$${item.amount.toFixed(2)}`
+        ])
+      ]
+
+      autoTable(doc, {
+        startY: yPosition,
+        head: [lineItemsData[0]],
+        body: lineItemsData.slice(1),
+        theme: 'grid',
+        headStyles: { 
+          fillColor: [0, 68, 108],
+          textColor: 255,
+          fontStyle: 'bold'
+        },
+        styles: { 
+          fontSize: 10,
+          cellPadding: 3
+        },
+        columnStyles: {
+          0: { cellWidth: 80 },
+          1: { cellWidth: 20, halign: 'center' },
+          2: { cellWidth: 40, halign: 'right' },
+          3: { cellWidth: 40, halign: 'right' }
+        }
+      })
+
+      yPosition = doc.lastAutoTable.finalY + 10
 
       // Financial summary
       doc.setFontSize(14)
@@ -1029,34 +1196,104 @@ export default function Estimates() {
                   />
                 </div>
 
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-2">
-                    Subtotal *
-                  </label>
-                  <input
-                    type="number"
-                    step="0.01"
-                    min="0"
-                    value={formData.subtotal}
-                    onChange={(e) => setFormData({ ...formData, subtotal: e.target.value })}
-                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                    required
-                  />
+                <div className="md:col-span-2">
+                  <div className="flex items-center justify-between mb-4">
+                    <label className="block text-sm font-medium text-gray-700">
+                      Line Items
+                    </label>
+                    <button
+                      type="button"
+                      onClick={addLineItem}
+                      className="inline-flex items-center px-3 py-1 bg-blue-600 text-white rounded-md hover:bg-blue-700 transition-colors text-sm"
+                    >
+                      <Plus className="w-4 h-4 mr-1" />
+                      Add Line Item
+                    </button>
+                  </div>
+                  
+                  <div className="space-y-3">
+                    {lineItems.map((item, index) => (
+                      <div key={item.id} className="grid grid-cols-12 gap-2 items-end p-3 bg-gray-50 rounded-lg">
+                        <div className="col-span-5">
+                          <label className="block text-xs font-medium text-gray-700 mb-1">
+                            Description
+                          </label>
+                          <input
+                            type="text"
+                            value={item.description}
+                            onChange={(e) => updateLineItem(item.id, 'description', e.target.value)}
+                            className="w-full px-2 py-1 border border-gray-300 rounded text-sm focus:ring-1 focus:ring-blue-500 focus:border-transparent"
+                            placeholder="Item description"
+                          />
+                        </div>
+                        <div className="col-span-2">
+                          <label className="block text-xs font-medium text-gray-700 mb-1">
+                            Qty
+                          </label>
+                          <input
+                            type="number"
+                            min="1"
+                            value={item.quantity}
+                            onChange={(e) => updateLineItem(item.id, 'quantity', parseInt(e.target.value) || 1)}
+                            className="w-full px-2 py-1 border border-gray-300 rounded text-sm focus:ring-1 focus:ring-blue-500 focus:border-transparent"
+                          />
+                        </div>
+                        <div className="col-span-2">
+                          <label className="block text-xs font-medium text-gray-700 mb-1">
+                            Unit Price
+                          </label>
+                          <input
+                            type="number"
+                            step="0.01"
+                            min="0"
+                            value={item.unit_price}
+                            onChange={(e) => updateLineItem(item.id, 'unit_price', parseFloat(e.target.value) || 0)}
+                            className="w-full px-2 py-1 border border-gray-300 rounded text-sm focus:ring-1 focus:ring-blue-500 focus:border-transparent"
+                          />
+                        </div>
+                        <div className="col-span-2">
+                          <label className="block text-xs font-medium text-gray-700 mb-1">
+                            Amount
+                          </label>
+                          <input
+                            type="text"
+                            value={`$${item.amount.toFixed(2)}`}
+                            className="w-full px-2 py-1 border border-gray-300 rounded text-sm bg-gray-100"
+                            readOnly
+                          />
+                        </div>
+                        <div className="col-span-1">
+                          {lineItems.length > 1 && (
+                            <button
+                              type="button"
+                              onClick={() => removeLineItem(item.id)}
+                              className="p-1 text-red-600 hover:text-red-800 hover:bg-red-100 rounded transition-colors"
+                            >
+                              <Trash2 className="w-4 h-4" />
+                            </button>
+                          )}
+                        </div>
+                      </div>
+                    ))}
+                  </div>
                 </div>
 
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-2">
-                    Tax Rate (%)
-                  </label>
-                  <input
-                    type="number"
-                    step="0.01"
-                    min="0"
-                    max="100"
-                    value={formData.tax_rate}
-                    onChange={(e) => setFormData({ ...formData, tax_rate: e.target.value })}
-                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                  />
+                {/* Totals Summary */}
+                <div className="md:col-span-2">
+                  <div className="bg-gray-50 rounded-lg p-4 space-y-2">
+                    <div className="flex justify-between text-sm">
+                      <span className="text-gray-600">Subtotal:</span>
+                      <span className="font-medium">${lineItems.reduce((sum, item) => sum + item.amount, 0).toFixed(2)}</span>
+                    </div>
+                    <div className="flex justify-between text-sm">
+                      <span className="text-gray-600">Tax (8%):</span>
+                      <span className="font-medium">${(lineItems.reduce((sum, item) => sum + item.amount, 0) * 0.08).toFixed(2)}</span>
+                    </div>
+                    <div className="flex justify-between text-lg font-bold border-t border-gray-300 pt-2">
+                      <span>Total:</span>
+                      <span>${(lineItems.reduce((sum, item) => sum + item.amount, 0) * 1.08).toFixed(2)}</span>
+                    </div>
+                  </div>
                 </div>
 
                 <div className="md:col-span-2">
@@ -1083,30 +1320,6 @@ export default function Estimates() {
                   />
                 </div>
               </div>
-
-              {/* Totals Preview */}
-              {formData.subtotal && (
-                <div className="bg-gray-50 rounded-lg p-4">
-                  <div className="space-y-2">
-                    <div className="flex justify-between">
-                      <span className="text-sm font-medium text-gray-700">Subtotal:</span>
-                      <span className="text-sm text-gray-900">${parseFloat(formData.subtotal || '0').toFixed(2)}</span>
-                    </div>
-                    <div className="flex justify-between">
-                      <span className="text-sm font-medium text-gray-700">Tax ({formData.tax_rate}%):</span>
-                      <span className="text-sm text-gray-900">
-                        ${((parseFloat(formData.subtotal || '0') * parseFloat(formData.tax_rate || '0')) / 100).toFixed(2)}
-                      </span>
-                    </div>
-                    <div className="flex justify-between pt-2 border-t border-gray-200">
-                      <span className="text-lg font-bold text-gray-900">Total:</span>
-                      <span className="text-lg font-bold text-blue-600">
-                        ${(parseFloat(formData.subtotal || '0') + ((parseFloat(formData.subtotal || '0') * parseFloat(formData.tax_rate || '0')) / 100)).toFixed(2)}
-                      </span>
-                    </div>
-                  </div>
-                </div>
-              )}
 
               <div className="flex justify-end space-x-3 pt-6 border-t border-gray-200">
                 <button
