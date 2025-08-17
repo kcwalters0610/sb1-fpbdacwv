@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react'
-import { Plus, Search, Mail, Phone, MapPin, Building2, User, Edit, Trash2, Eye, X, Star, ClipboardList, FileText, ShoppingCart, FolderOpen, ExternalLink } from 'lucide-react'
+import { Plus, Search, Mail, Phone, MapPin, Building2, User, Edit, Trash2, Eye, X, Star, ClipboardList, FileText, ShoppingCart, FolderOpen, ExternalLink, Navigation } from 'lucide-react'
 import { supabase, Customer, CustomerSite, Profile } from '../lib/supabase'
 import { useViewPreference } from '../hooks/useViewPreference'
 import ViewToggle from './ViewToggle'
@@ -55,6 +55,15 @@ export default function Customers({ currentPage, onPageChange, onNavigateToRecor
     address: '',
     customer_type: 'residential'
   })
+
+  const getDirections = (address: string, city?: string, state?: string, zipCode?: string) => {
+    const fullAddress = [address, city, state, zipCode].filter(Boolean).join(', ')
+    const encodedAddress = encodeURIComponent(fullAddress)
+    
+    // Use a universal maps URL that works on both iOS and Android
+    const mapsUrl = `https://maps.google.com/maps?q=${encodedAddress}`
+    window.open(mapsUrl, '_blank')
+  }
 
   useEffect(() => {
     loadUserProfile()
@@ -734,7 +743,21 @@ export default function Customers({ currentPage, onPageChange, onNavigateToRecor
                     {customer.address && (
                       <div className="flex items-center text-gray-600">
                         <MapPin className="w-4 h-4 mr-3" />
-                        <span className="text-sm">{customer.address}</span>
+                        <div className="flex-1">
+                          <div className="text-sm">
+                            <div>{customer.address}</div>
+                            {customer.city && customer.state && (
+                              <div className="text-gray-500">{customer.city}, {customer.state} {customer.zip_code}</div>
+                            )}
+                          </div>
+                        </div>
+                        <button
+                          onClick={() => getDirections(customer.address!, customer.city, customer.state, customer.zip_code)}
+                          className="ml-2 p-1 text-blue-600 hover:text-blue-800 hover:bg-blue-100 rounded transition-colors"
+                          title="Get Directions"
+                        >
+                          <Navigation className="w-4 h-4" />
+                        </button>
                       </div>
                     )}
                   </div>
@@ -1004,12 +1027,21 @@ export default function Customers({ currentPage, onPageChange, onNavigateToRecor
                         {site.address && (
                           <div className="flex items-center text-gray-600">
                             <MapPin className="w-4 h-4 mr-3" />
-                            <div className="text-sm">
-                              <div>{site.address}</div>
-                              {site.city && site.state && (
-                                <div className="text-gray-500">{site.city}, {site.state} {site.zip_code}</div>
-                              )}
+                            <div className="flex-1">
+                              <div className="text-sm">
+                                <div>{site.address}</div>
+                                {site.city && site.state && (
+                                  <div className="text-gray-500">{site.city}, {site.state} {site.zip_code}</div>
+                                )}
+                              </div>
                             </div>
+                            <button
+                              onClick={() => getDirections(site.address!, site.city, site.state, site.zip_code)}
+                              className="ml-2 p-1 text-blue-600 hover:text-blue-800 hover:bg-blue-100 rounded transition-colors"
+                              title="Get Directions"
+                            >
+                              <Navigation className="w-4 h-4" />
+                            </button>
                           </div>
                         )}
                       </div>
@@ -1280,9 +1312,23 @@ export default function Customers({ currentPage, onPageChange, onNavigateToRecor
                       </div>
                       <div className="space-y-2">
                         {selectedCustomerForDetail.address && (
-                          <div className="flex justify-between">
-                            <span className="text-sm font-medium text-gray-700">Address:</span>
-                            <span className="text-sm text-gray-900">{selectedCustomerForDetail.address}</span>
+                          <div className="flex items-center text-sm text-gray-600">
+                            <MapPin className="w-4 h-4 mr-3" />
+                            <div className="flex-1">
+                              <div>
+                                <div>{selectedCustomerForDetail.address}</div>
+                                {selectedCustomerForDetail.city && selectedCustomerForDetail.state && (
+                                  <div className="text-gray-500">{selectedCustomerForDetail.city}, {selectedCustomerForDetail.state} {selectedCustomerForDetail.zip_code}</div>
+                                )}
+                              </div>
+                            </div>
+                            <button
+                              onClick={() => getDirections(selectedCustomerForDetail.address!, selectedCustomerForDetail.city, selectedCustomerForDetail.state, selectedCustomerForDetail.zip_code)}
+                              className="ml-2 p-1 text-blue-600 hover:text-blue-800 hover:bg-blue-100 rounded transition-colors"
+                              title="Get Directions"
+                            >
+                              <Navigation className="w-4 h-4" />
+                            </button>
                           </div>
                         )}
                         <div className="flex justify-between">
