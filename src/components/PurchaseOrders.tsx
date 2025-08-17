@@ -1104,6 +1104,8 @@ export default function PurchaseOrders({ selectedRecordId, onRecordViewed }: Pur
                   </select>
                 </div>
 
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-2">
                     Customer
                   </label>
                   <select
@@ -1126,11 +1128,6 @@ export default function PurchaseOrders({ selectedRecordId, onRecordViewed }: Pur
                   </p>
                 </div>
 
-                <div>
-                </div>
-
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-2">
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-2">Related Work Order</label>
                   <select
