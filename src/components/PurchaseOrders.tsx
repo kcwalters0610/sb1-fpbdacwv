@@ -132,6 +132,8 @@ export default function PurchaseOrders({ selectedRecordId, onRecordViewed }: Pur
   const [purchaseOrders, setPurchaseOrders] = useState<PurchaseOrder[]>([])
 
   const [pos, setPOs] = useState<PurchaseOrder[]>([])
+  const [customers, setCustomers] = useState<Customer[]>([])
+  const [filteredWorkOrders, setFilteredWorkOrders] = useState<WorkOrder[]>([])
   const [vendors, setVendors] = useState<any[]>([])
   const [customers, setCustomers] = useState<Customer[]>([])
   const [workOrders, setWorkOrders] = useState<any[]>([])
@@ -175,6 +177,7 @@ export default function PurchaseOrders({ selectedRecordId, onRecordViewed }: Pur
   const [formData, setFormData] = useState({
     po_number: '',
     vendor_id: '',
+    customer_id: '',
     work_order_id: '',
     status: 'draft' as POStatus,
     order_date: new Date().toISOString().slice(0, 10),
@@ -246,6 +249,23 @@ export default function PurchaseOrders({ selectedRecordId, onRecordViewed }: Pur
   }, [])
 
   useEffect(() => {
+    // Filter work orders based on selected customer
+    if (formData.customer_id) {
+      const filtered = workOrders.filter(wo => wo.customer_id === formData.customer_id)
+      setFilteredWorkOrders(filtered)
+      // Clear work order selection if it's not for the selected customer
+      if (formData.work_order_id) {
+        const selectedWO = workOrders.find(wo => wo.id === formData.work_order_id)
+        if (selectedWO && selectedWO.customer_id !== formData.customer_id) {
+          setFormData(prev => ({ ...prev, work_order_id: '' }))
+        }
+      }
+    } else {
+      setFilteredWorkOrders(workOrders)
+    }
+  }, [formData.customer_id, workOrders, formData.work_order_id])
+
+  useEffect(() => {
     // Auto-open detail modal if selectedRecordId is provided
     if (selectedRecordId && purchaseOrders.length > 0) {
       const purchaseOrder = purchaseOrders.find(po => po.id === selectedRecordId)
@@ -269,7 +289,7 @@ export default function PurchaseOrders({ selectedRecordId, onRecordViewed }: Pur
 
   const loadData = async () => {
     try {
-      const [posResult, vendorsResult, customersResult, workOrdersResult] = await Promise.all([
+      const [ordersResult, vendorsResult, workOrdersResult, customersResult] = await Promise.all([
         supabase.from('purchase_orders').select(`
           *,
           vendor:vendors(*),
@@ -281,7 +301,11 @@ export default function PurchaseOrders({ selectedRecordId, onRecordViewed }: Pur
         `).order('created_at', { ascending: false }),
         supabase.from('vendors').select('*').order('name'),
         supabase.from('customers').select('*').order('first_name'),
-        supabase.from('work_orders').select('id, wo_number, title').order('created_at', { ascending: false })
+          .order('wo_number'),
+        supabase
+          .from('customers')
+          .select('*')
+          .order('first_name')
       ])
 
       // Process purchase orders to include customer info from work order
@@ -302,6 +326,8 @@ export default function PurchaseOrders({ selectedRecordId, onRecordViewed }: Pur
       setVendors(vendorsResult.data || [])
       setCustomers(customersResult.data || [])
       setWorkOrders(workOrdersResult.data || [])
+      setCustomers(customersResult.data || [])
+      setFilteredWorkOrders(workOrdersResult.data || [])
     } catch (e) {
       console.error('Error loading POs:', e)
     } finally {
@@ -498,6 +524,7 @@ export default function PurchaseOrders({ selectedRecordId, onRecordViewed }: Pur
     setFormData({
       po_number: '',
       vendor_id: '',
+      customer_id: '',
       work_order_id: '',
       status: 'draft',
       order_date: new Date().toISOString().slice(0, 10),
@@ -520,8 +547,14 @@ export default function PurchaseOrders({ selectedRecordId, onRecordViewed }: Pur
     setSelectedPO(null)
     // fill form with null-safe conversions
     setEditingPO(po)
+    
+    // Get customer_id from the associated work order
+    const associatedWorkOrder = workOrders.find(wo => wo.id === po.work_order_id)
+    const customerId = associatedWorkOrder?.customer_id || ''
+    
     setFormData({
       po_number: String(po.po_number ?? ''),
+      customer_id: customerId,
       vendor_id: String(po.vendor_id ?? ''),
       work_order_id: po.work_order_id ?? '',
       status: normalizeStatus(po.status),
@@ -1070,6 +1103,30 @@ export default function PurchaseOrders({ selectedRecordId, onRecordViewed }: Pur
                   </select>
                 </div>
 
+                    Customer
+                  </label>
+                  <select
+                    value={formData.customer_id}
+                    onChange={(e) => setFormData({ ...formData, customer_id: e.target.value })}
+                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                  >
+                    <option value="">Select Customer (Optional)</option>
+                    {customers.map((customer) => (
+                      <option key={customer.id} value={customer.id}>
+                        {customer.customer_type === 'residential' 
+                          ? `${customer.first_name} ${customer.last_name}`
+                          : customer.company_name
+                        }
+                      </option>
+                    ))}
+                  </select>
+                  <p className="text-xs text-gray-500 mt-1">
+                    Select a customer to filter work orders
+                  </p>
+                </div>
+
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-2">
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-2">Related Work Order</label>
                   <select
@@ -1078,10 +1135,15 @@ export default function PurchaseOrders({ selectedRecordId, onRecordViewed }: Pur
                     className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
                   >
                     <option value="">None</option>
-                    {workOrders.map((wo) => (
+                    {filteredWorkOrders.map((wo) => (
                       <option key={wo.id} value={wo.id}>{wo.wo_number} - {wo.title}</option>
                     ))}
                   </select>
+                  {formData.customer_id && filteredWorkOrders.length === 0 && (
+                    <p className="text-xs text-yellow-600 mt-1">
+                      No work orders found for selected customer
+                    </p>
+                  )}
                 </div>
 
                 <div>
