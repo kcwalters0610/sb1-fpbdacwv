@@ -135,7 +135,6 @@ export default function PurchaseOrders({ selectedRecordId, onRecordViewed }: Pur
   const [customers, setCustomers] = useState<Customer[]>([])
   const [filteredWorkOrders, setFilteredWorkOrders] = useState<WorkOrder[]>([])
   const [vendors, setVendors] = useState<any[]>([])
-  const [customers, setCustomers] = useState<Customer[]>([])
   const [workOrders, setWorkOrders] = useState<any[]>([])
   const [loading, setLoading] = useState(true)
 
