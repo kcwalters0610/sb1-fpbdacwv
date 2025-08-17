@@ -35,6 +35,7 @@ function App() {
   const [session, setSession] = useState<any>(null)
   const [loading, setLoading] = useState(true)
   const [currentPage, setCurrentPage] = useState('dashboard')
+  const [selectedRecordId, setSelectedRecordId] = useState<string | null>(null)
   const [hasAccessToPage, setHasAccessToPage] = useState(true)
   const [isPasswordReset, setIsPasswordReset] = useState(false)
   const [showSuccessPage, setShowSuccessPage] = useState(false)
@@ -113,6 +114,32 @@ function App() {
     checkPageAccess()
   }, [currentPage])
 
+  useEffect(() => {
+    // Listen for navigation events from customer detail modal
+    const handleNavigateToRecord = (event: any) => {
+      const { recordType, recordId } = event.detail
+      setSelectedRecordId(recordId)
+      
+      // Navigate to the appropriate page
+      switch (recordType) {
+        case 'work-order':
+          setCurrentPage('work-orders')
+          break
+        case 'estimate':
+          setCurrentPage('estimates')
+          break
+        case 'project':
+          setCurrentPage('projects')
+          break
+        case 'purchase-order':
+          setCurrentPage('purchase-orders')
+          break
+      }
+    }
+
+    window.addEventListener('navigateToRecord', handleNavigateToRecord)
+    return () => window.removeEventListener('navigateToRecord', handleNavigateToRecord)
+  }, [])
   const checkPageAccess = async () => {
     // Define which pages require which features
     const pageFeatureMap: Record<string, string> = {
@@ -185,11 +212,27 @@ function App() {
       case 'projects':
         return <Projects />
       case 'work-orders':
-        return <WorkOrders />
+        return <WorkOrders selectedRecordId={selectedRecordId} onRecordViewed={() => setSelectedRecordId(null)} />
       case 'purchase-orders':
-        return <PurchaseOrders />
+        return <PurchaseOrders selectedRecordId={selectedRecordId} onRecordViewed={() => setSelectedRecordId(null)} />
       case 'customers':
-        return <Customers />
+        return <Customers onNavigateToRecord={(recordType, recordId) => {
+          setSelectedRecordId(recordId)
+          switch (recordType) {
+            case 'work-order':
+              setCurrentPage('work-orders')
+              break
+            case 'estimate':
+              setCurrentPage('estimates')
+              break
+            case 'project':
+              setCurrentPage('projects')
+              break
+            case 'purchase-order':
+              setCurrentPage('purchase-orders')
+              break
+          }
+        }} />
       case 'technicians':
         return <Technicians />
       case 'teams':
@@ -201,9 +244,9 @@ function App() {
       case 'invoices':
         return <Invoices />
       case 'reports':
-        return <Reports />
+        return <Estimates selectedRecordId={selectedRecordId} onRecordViewed={() => setSelectedRecordId(null)} />
       case 'settings':
-        return <Settings />
+        return <Projects selectedRecordId={selectedRecordId} onRecordViewed={() => setSelectedRecordId(null)} />
       default:
         return <Dashboard />
     }

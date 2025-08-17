@@ -1,10 +1,16 @@
 import React, { useState, useEffect } from 'react'
-import { Plus, Search, Mail, Phone, MapPin, Building2, User, Edit, Trash2, Eye, X, Star, ClipboardList, FileText, ShoppingCart, FolderOpen } from 'lucide-react'
+import { Plus, Search, Mail, Phone, MapPin, Building2, User, Edit, Trash2, Eye, X, Star, ClipboardList, FileText, ShoppingCart, FolderOpen, ExternalLink } from 'lucide-react'
 import { supabase, Customer, CustomerSite, Profile } from '../lib/supabase'
 import { useViewPreference } from '../hooks/useViewPreference'
 import ViewToggle from './ViewToggle'
 
-export default function Customers() {
+interface CustomersProps {
+  currentPage?: string
+  onPageChange?: (page: string) => void
+  onNavigateToRecord?: (recordType: string, recordId: string) => void
+}
+
+export default function Customers({ currentPage, onPageChange, onNavigateToRecord }: CustomersProps = {}) {
   const { viewType, setViewType } = useViewPreference('customers')
   const [customers, setCustomers] = useState<Customer[]>([])
   const [userProfile, setUserProfile] = useState<Profile | null>(null)
@@ -336,6 +342,18 @@ export default function Customers() {
       case 'received': return 'text-green-700 bg-green-100'
       default: return 'text-gray-700 bg-gray-100'
     }
+  }
+
+  const handleRecordClick = (recordType: string, recordId: string) => {
+    if (onNavigateToRecord) {
+      onNavigateToRecord(recordType, recordId)
+    } else {
+      // Fallback: dispatch a custom event that the main app can listen to
+      window.dispatchEvent(new CustomEvent('navigateToRecord', { 
+        detail: { recordType, recordId } 
+      }))
+    }
+    setShowCustomerDetail(false)
   }
 
   const resetForm = () => {
@@ -1295,11 +1313,16 @@ export default function Customers() {
                                 <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Assigned To</th>
                                 <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Site</th>
                                 <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Created</th>
+                                <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Action</th>
                               </tr>
                             </thead>
                             <tbody className="divide-y divide-gray-200">
                               {customerWorkOrders.map((wo) => (
-                                <tr key={wo.id} className="hover:bg-gray-50">
+                                <tr 
+                                  key={wo.id} 
+                                  className="hover:bg-blue-50 cursor-pointer transition-colors"
+                                  onClick={() => handleRecordClick('work-order', wo.id)}
+                                >
                                   <td className="px-4 py-3 text-sm font-medium text-gray-900">{wo.wo_number}</td>
                                   <td className="px-4 py-3 text-sm text-gray-900">{wo.title}</td>
                                   <td className="px-4 py-3">
@@ -1318,6 +1341,9 @@ export default function Customers() {
                                   </td>
                                   <td className="px-4 py-3 text-sm text-gray-500">
                                     {new Date(wo.created_at).toLocaleDateString()}
+                                  </td>
+                                  <td className="px-4 py-3">
+                                    <ExternalLink className="w-4 h-4 text-gray-400" />
                                   </td>
                                 </tr>
                               ))}
@@ -1351,11 +1377,16 @@ export default function Customers() {
                                 <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Amount</th>
                                 <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Site</th>
                                 <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Created</th>
+                                <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Action</th>
                               </tr>
                             </thead>
                             <tbody className="divide-y divide-gray-200">
                               {customerEstimates.map((estimate) => (
-                                <tr key={estimate.id} className="hover:bg-gray-50">
+                                <tr 
+                                  key={estimate.id} 
+                                  className="hover:bg-purple-50 cursor-pointer transition-colors"
+                                  onClick={() => handleRecordClick('estimate', estimate.id)}
+                                >
                                   <td className="px-4 py-3 text-sm font-medium text-gray-900">{estimate.estimate_number}</td>
                                   <td className="px-4 py-3 text-sm text-gray-900">{estimate.title}</td>
                                   <td className="px-4 py-3">
@@ -1371,6 +1402,9 @@ export default function Customers() {
                                   </td>
                                   <td className="px-4 py-3 text-sm text-gray-500">
                                     {new Date(estimate.created_at).toLocaleDateString()}
+                                  </td>
+                                  <td className="px-4 py-3">
+                                    <ExternalLink className="w-4 h-4 text-gray-400" />
                                   </td>
                                 </tr>
                               ))}
@@ -1405,11 +1439,16 @@ export default function Customers() {
                                 <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Manager</th>
                                 <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Site</th>
                                 <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Created</th>
+                                <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Action</th>
                               </tr>
                             </thead>
                             <tbody className="divide-y divide-gray-200">
                               {customerProjects.map((project) => (
-                                <tr key={project.id} className="hover:bg-gray-50">
+                                <tr 
+                                  key={project.id} 
+                                  className="hover:bg-green-50 cursor-pointer transition-colors"
+                                  onClick={() => handleRecordClick('project', project.id)}
+                                >
                                   <td className="px-4 py-3 text-sm font-medium text-gray-900">{project.project_number}</td>
                                   <td className="px-4 py-3 text-sm text-gray-900">{project.project_name}</td>
                                   <td className="px-4 py-3">
@@ -1431,6 +1470,9 @@ export default function Customers() {
                                   </td>
                                   <td className="px-4 py-3 text-sm text-gray-500">
                                     {new Date(project.created_at).toLocaleDateString()}
+                                  </td>
+                                  <td className="px-4 py-3">
+                                    <ExternalLink className="w-4 h-4 text-gray-400" />
                                   </td>
                                 </tr>
                               ))}
@@ -1464,11 +1506,16 @@ export default function Customers() {
                                 <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Status</th>
                                 <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Amount</th>
                                 <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Created</th>
+                                <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Action</th>
                               </tr>
                             </thead>
                             <tbody className="divide-y divide-gray-200">
                               {customerPurchaseOrders.map((po) => (
-                                <tr key={po.id} className="hover:bg-gray-50">
+                                <tr 
+                                  key={po.id} 
+                                  className="hover:bg-orange-50 cursor-pointer transition-colors"
+                                  onClick={() => handleRecordClick('purchase-order', po.id)}
+                                >
                                   <td className="px-4 py-3 text-sm font-medium text-gray-900">{po.po_number}</td>
                                   <td className="px-4 py-3 text-sm text-gray-900">{po.vendor?.name || 'No vendor'}</td>
                                   <td className="px-4 py-3 text-sm text-gray-900">
@@ -1484,6 +1531,9 @@ export default function Customers() {
                                   </td>
                                   <td className="px-4 py-3 text-sm text-gray-500">
                                     {new Date(po.created_at).toLocaleDateString()}
+                                  </td>
+                                  <td className="px-4 py-3">
+                                    <ExternalLink className="w-4 h-4 text-gray-400" />
                                   </td>
                                 </tr>
                               ))}
