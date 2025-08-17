@@ -299,7 +299,9 @@ export default function PurchaseOrders({ selectedRecordId, onRecordViewed }: Pur
           )
         `).order('created_at', { ascending: false }),
         supabase.from('vendors').select('*').order('name'),
-        supabase.from('customers').select('*').order('first_name'),
+        supabase
+          .from('work_orders')
+          .select('*')
           .order('wo_number'),
         supabase
           .from('customers')
