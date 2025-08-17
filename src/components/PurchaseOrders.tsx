@@ -1127,6 +1127,9 @@ export default function PurchaseOrders({ selectedRecordId, onRecordViewed }: Pur
                 </div>
 
                 <div>
+                </div>
+
+                <div>
                   <label className="block text-sm font-medium text-gray-700 mb-2">
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-2">Related Work Order</label>
