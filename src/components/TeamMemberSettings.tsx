@@ -11,7 +11,9 @@ import {
   AlertTriangle,
   Crown,
   Wrench,
-  Building2
+  Building2,
+  Camera,
+  Upload
 } from 'lucide-react'
 import { supabase } from '../lib/supabase'
 
@@ -23,6 +25,7 @@ interface TeamMember {
   role: 'admin' | 'manager' | 'tech'
   is_active: boolean
   created_at: string
+  photo_url?: string
   department?: {
     id: string
     name: string
@@ -52,7 +55,8 @@ export default function TeamMemberSettings() {
     last_name: '',
     role: 'tech' as 'admin' | 'manager' | 'tech' | 'office',
     department_id: '',
-    password: ''
+    password: '',
+    photo_url: ''
   })
 
   // Edit form state
@@ -61,7 +65,8 @@ export default function TeamMemberSettings() {
     last_name: '',
     role: 'tech' as 'admin' | 'manager' | 'tech' | 'office',
     is_active: true,
-    department_id: ''
+    department_id: '',
+    photo_url: ''
   })
 
   useEffect(() => {
@@ -184,6 +189,7 @@ export default function TeamMemberSettings() {
           first_name: inviteForm.first_name,
           last_name: inviteForm.last_name,
           role: inviteForm.role,
+          photo_url: inviteForm.photo_url || null,
           department_id: inviteForm.department_id || null
         })
       })
@@ -324,7 +330,8 @@ export default function TeamMemberSettings() {
           first_name: editForm.first_name,
           last_name: editForm.last_name,
           role: editForm.role,
-          is_active: editForm.is_active
+          is_active: editForm.is_active,
+          photo_url: editForm.photo_url || null
         })
         .eq('id', selectedMember.id)
       
@@ -401,7 +408,8 @@ export default function TeamMemberSettings() {
       last_name: '',
       role: 'tech',
       department_id: '',
-      password: ''
+      password: '',
+      photo_url: ''
     })
   }
 
@@ -412,7 +420,8 @@ export default function TeamMemberSettings() {
       last_name: member.last_name,
       role: member.role,
       is_active: member.is_active,
-      department_id: member.department?.id || ''
+      department_id: member.department?.id || '',
+      photo_url: member.photo_url || ''
     })
     setShowEditForm(true)
   }
@@ -516,12 +525,20 @@ export default function TeamMemberSettings() {
                   <td className="px-6 py-4 whitespace-nowrap">
                     <div className="flex items-center">
                       <div className="flex-shrink-0 h-10 w-10">
-                        <div className={`h-10 w-10 rounded-full flex items-center justify-center ${
-                          member.role === 'admin' ? 'bg-purple-100' :
-                          member.role === 'manager' ? 'bg-blue-100' : 'bg-green-100'
-                        }`}>
-                          {getRoleIcon(member.role)}
-                        </div>
+                        {member.photo_url ? (
+                          <img
+                            src={member.photo_url}
+                            alt={`${member.first_name} ${member.last_name}`}
+                            className="h-10 w-10 rounded-full object-cover"
+                          />
+                        ) : (
+                          <div className={`h-10 w-10 rounded-full flex items-center justify-center ${
+                            member.role === 'admin' ? 'bg-purple-100' :
+                            member.role === 'manager' ? 'bg-blue-100' : 'bg-green-100'
+                          }`}>
+                            {getRoleIcon(member.role)}
+                          </div>
+                        )}
                       </div>
                       <div className="ml-4">
                         <div className="text-sm font-medium text-gray-900">
@@ -619,6 +636,20 @@ export default function TeamMemberSettings() {
                   minLength={6}
                 />
                 <p className="text-xs text-gray-500 mt-1">Minimum 6 characters</p>
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-2">
+                  Photo URL
+                </label>
+                <input
+                  type="url"
+                  value={inviteForm.photo_url}
+                  onChange={(e) => setInviteForm({ ...inviteForm, photo_url: e.target.value })}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                  placeholder="https://example.com/photo.jpg"
+                />
+                <p className="text-xs text-gray-500 mt-1">Optional: URL to team member's photo</p>
               </div>
 
               <div>
@@ -792,6 +823,20 @@ export default function TeamMemberSettings() {
                     <option key={dept.id} value={dept.id}>{dept.name}</option>
                   ))}
                 </select>
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-2">
+                  Photo URL
+                </label>
+                <input
+                  type="url"
+                  value={editForm.photo_url}
+                  onChange={(e) => setEditForm({ ...editForm, photo_url: e.target.value })}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                  placeholder="https://example.com/photo.jpg"
+                />
+                <p className="text-xs text-gray-500 mt-1">Optional: URL to team member's photo</p>
               </div>
 
               <div className="flex items-center">
