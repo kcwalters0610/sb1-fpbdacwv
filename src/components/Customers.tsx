@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react'
-import { Plus, Search, Mail, Phone, MapPin, Building2, User, Edit, Trash2, Eye, X, Star, ClipboardList, FileText, ShoppingCart, FolderOpen, ExternalLink } from 'lucide-react'
+import { Plus, Search, Mail, Phone, MapPin, Building2, User, Edit, Trash2, Eye, X, Star, ClipboardList, FileText, ShoppingCart, FolderOpen, ExternalLink, Navigation } from 'lucide-react'
 import { supabase, Customer, CustomerSite, Profile } from '../lib/supabase'
 import { useViewPreference } from '../hooks/useViewPreference'
 import ViewToggle from './ViewToggle'
@@ -118,6 +118,18 @@ export default function Customers({ currentPage, onPageChange, onNavigateToRecor
     } catch (error) {
       console.error('Error loading customer balances:', error)
     }
+  }
+
+  const getDirections = (address: string, city?: string, state?: string, zipCode?: string) => {
+    let fullAddress = address
+    if (city && state) {
+      fullAddress += `, ${city}, ${state}`
+      if (zipCode) {
+        fullAddress += ` ${zipCode}`
+      }
+    }
+    const encodedAddress = encodeURIComponent(fullAddress)
+    window.open(`https://www.google.com/maps/dir/?api=1&destination=${encodedAddress}`, '_blank')
   }
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -767,9 +779,21 @@ export default function Customers({ currentPage, onPageChange, onNavigateToRecor
                     )}
                     
                     {customer.address && (
-                      <div className="flex items-center text-gray-600">
+                      <div 
+                        className="flex items-center text-gray-600 cursor-pointer hover:text-blue-600 transition-colors group"
+                        onClick={() => getDirections(customer.address!, customer.city, customer.state, customer.zip_code)}
+                        title="Click to get directions"
+                      >
                         <MapPin className="w-4 h-4 mr-3" />
-                        <span className="text-sm">{customer.address}</span>
+                        <div className="flex-1">
+                          <div className="text-sm">
+                            <div className="group-hover:underline">{customer.address}</div>
+                            {customer.city && customer.state && (
+                              <div className="text-gray-500 group-hover:text-blue-500">{customer.city}, {customer.state} {customer.zip_code}</div>
+                            )}
+                          </div>
+                        </div>
+                        <Navigation className="w-4 h-4 opacity-0 group-hover:opacity-100 transition-opacity" />
                       </div>
                     )}
                   </div>
@@ -966,6 +990,24 @@ export default function Customers({ currentPage, onPageChange, onNavigateToRecor
                       ${(customerBalances[selectedCustomer.id] || 0).toFixed(2)}
                     </span>
                   </div>
+                  {selectedCustomer.address && (
+                    <div 
+                      className="flex items-center text-sm text-gray-600 cursor-pointer hover:text-blue-600 transition-colors group"
+                      onClick={() => getDirections(selectedCustomer.address!, selectedCustomer.city, selectedCustomer.state, selectedCustomer.zip_code)}
+                      title="Click to get directions"
+                    >
+                      <MapPin className="w-4 h-4 mr-3" />
+                      <div className="flex-1">
+                        <div>
+                          <div className="group-hover:underline">{selectedCustomer.address}</div>
+                          {selectedCustomer.city && selectedCustomer.state && (
+                            <div className="text-gray-500 group-hover:text-blue-500">{selectedCustomer.city}, {selectedCustomer.state} {selectedCustomer.zip_code}</div>
+                          )}
+                        </div>
+                      </div>
+                      <Navigation className="w-4 h-4 opacity-0 group-hover:opacity-100 transition-opacity" />
+                    </div>
+                  )}
                 </div>
                 <div className="flex items-center space-x-3">
                   <button
@@ -1054,14 +1096,21 @@ export default function Customers({ currentPage, onPageChange, onNavigateToRecor
                         )}
                         
                         {site.address && (
-                          <div className="flex items-center text-gray-600">
+                          <div 
+                            className="flex items-center text-sm text-gray-600 cursor-pointer hover:text-blue-600 transition-colors group"
+                            onClick={() => getDirections(site.address!, site.city, site.state, site.zip_code)}
+                            title="Click to get directions"
+                          >
                             <MapPin className="w-4 h-4 mr-3" />
-                            <div className="text-sm">
-                              <div>{site.address}</div>
-                              {site.city && site.state && (
-                                <div className="text-gray-500">{site.city}, {site.state} {site.zip_code}</div>
-                              )}
+                            <div className="flex-1">
+                              <div>
+                                <div className="group-hover:underline">{site.address}</div>
+                                {site.city && site.state && (
+                                  <div className="text-gray-500 group-hover:text-blue-500">{site.city}, {site.state} {site.zip_code}</div>
+                                )}
+                              </div>
                             </div>
+                            <Navigation className="w-4 h-4 opacity-0 group-hover:opacity-100 transition-opacity" />
                           </div>
                         )}
                       </div>
