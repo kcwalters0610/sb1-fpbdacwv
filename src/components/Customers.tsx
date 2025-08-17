@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react'
-import { Plus, Search, Mail, Phone, MapPin, Building2, User, Edit, Trash2, Eye, X, Star, ClipboardList, FileText, ShoppingCart, FolderOpen, ExternalLink, Navigation } from 'lucide-react'
+import { Plus, Search, Mail, Phone, MapPin, Building2, User, Edit, Trash2, Eye, X, Star, ClipboardList, FileText, ShoppingCart, FolderOpen, ExternalLink } from 'lucide-react'
 import { supabase, Customer, CustomerSite, Profile } from '../lib/supabase'
 import { useViewPreference } from '../hooks/useViewPreference'
 import ViewToggle from './ViewToggle'
@@ -22,6 +22,7 @@ export default function Customers({ currentPage, onPageChange, onNavigateToRecor
   const [showSiteForm, setShowSiteForm] = useState(false)
   const [editingSite, setEditingSite] = useState<CustomerSite | null>(null)
   const [customerSites, setCustomerSites] = useState<CustomerSite[]>([])
+  const [customerBalances, setCustomerBalances] = useState<Record<string, number>>({})
   const [showCustomerDetail, setShowCustomerDetail] = useState(false)
   const [selectedCustomerForDetail, setSelectedCustomerForDetail] = useState<Customer | null>(null)
   const [customerWorkOrders, setCustomerWorkOrders] = useState<any[]>([])
@@ -56,18 +57,10 @@ export default function Customers({ currentPage, onPageChange, onNavigateToRecor
     customer_type: 'residential'
   })
 
-  const getDirections = (address: string, city?: string, state?: string, zipCode?: string) => {
-    const fullAddress = [address, city, state, zipCode].filter(Boolean).join(', ')
-    const encodedAddress = encodeURIComponent(fullAddress)
-    
-    // Use a universal maps URL that works on both iOS and Android
-    const mapsUrl = `https://maps.google.com/maps?q=${encodedAddress}`
-    window.open(mapsUrl, '_blank')
-  }
-
   useEffect(() => {
     loadUserProfile()
     loadCustomers()
+    loadCustomerBalances()
   }, [])
 
   const loadUserProfile = async () => {
@@ -101,6 +94,29 @@ export default function Customers({ currentPage, onPageChange, onNavigateToRecor
       console.error('Error loading customers:', error)
     } finally {
       setLoading(false)
+    }
+  }
+
+  const loadCustomerBalances = async () => {
+    try {
+      const { data: invoices, error } = await supabase
+        .from('invoices')
+        .select('customer_id, total_amount, paid_amount, status')
+        .in('status', ['sent', 'overdue'])
+
+      if (error) throw error
+
+      const balances: Record<string, number> = {}
+      invoices?.forEach(invoice => {
+        const outstanding = (invoice.total_amount || 0) - (invoice.paid_amount || 0)
+        if (outstanding > 0) {
+          balances[invoice.customer_id] = (balances[invoice.customer_id] || 0) + outstanding
+        }
+      })
+
+      setCustomerBalances(balances)
+    } catch (error) {
+      console.error('Error loading customer balances:', error)
     }
   }
 
@@ -559,6 +575,9 @@ export default function Customers({ currentPage, onPageChange, onNavigateToRecor
                   <th className="hidden md:table-cell px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
                     <SortButton field="email">Contact</SortButton>
                   </th>
+                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                    Amount Due
+                  </th>
                   <th className="hidden md:table-cell px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
                     Address
                   </th>
@@ -613,6 +632,13 @@ export default function Customers({ currentPage, onPageChange, onNavigateToRecor
                     <td className="hidden md:table-cell px-6 py-4 whitespace-nowrap">
                       <div className="text-sm text-gray-900">{customer.email}</div>
                       <div className="text-sm text-gray-500">{customer.phone}</div>
+                    </td>
+                    <td className="px-6 py-4 whitespace-nowrap">
+                      <div className={`text-sm font-medium ${
+                        customerBalances[customer.id] > 0 ? 'text-red-600' : 'text-green-600'
+                      }`}>
+                        ${(customerBalances[customer.id] || 0).toFixed(2)}
+                      </div>
                     </td>
                     <td className="hidden md:table-cell px-6 py-4 whitespace-nowrap">
                       <div className="text-sm text-gray-900">{customer.address}</div>
@@ -743,23 +769,18 @@ export default function Customers({ currentPage, onPageChange, onNavigateToRecor
                     {customer.address && (
                       <div className="flex items-center text-gray-600">
                         <MapPin className="w-4 h-4 mr-3" />
-                        <div className="flex-1">
-                          <div className="text-sm">
-                            <div>{customer.address}</div>
-                            {customer.city && customer.state && (
-                              <div className="text-gray-500">{customer.city}, {customer.state} {customer.zip_code}</div>
-                            )}
-                          </div>
-                        </div>
-                        <button
-                          onClick={() => getDirections(customer.address!, customer.city, customer.state, customer.zip_code)}
-                          className="ml-2 p-1 text-blue-600 hover:text-blue-800 hover:bg-blue-100 rounded transition-colors"
-                          title="Get Directions"
-                        >
-                          <Navigation className="w-4 h-4" />
-                        </button>
+                        <span className="text-sm">{customer.address}</span>
                       </div>
                     )}
+                  </div>
+                  
+                  <div className="flex items-center justify-between mb-4">
+                    <span className="text-sm font-medium text-gray-700">Amount Due:</span>
+                    <span className={`text-lg font-bold ${
+                      customerBalances[customer.id] > 0 ? 'text-red-600' : 'text-green-600'
+                    }`}>
+                      ${(customerBalances[customer.id] || 0).toFixed(2)}
+                    </span>
                   </div>
                   
                   <div className="mt-4 pt-4 border-t border-gray-200">
@@ -937,6 +958,14 @@ export default function Customers({ currentPage, onPageChange, onNavigateToRecor
                     Manage Sites - {selectedCustomer.company_name}
                   </h3>
                   <p className="text-sm text-gray-600">Add and manage multiple locations for this commercial customer</p>
+                  <div className="flex items-center justify-between mb-4">
+                    <span className="text-sm font-medium text-gray-700">Amount Due:</span>
+                    <span className={`text-lg font-bold ${
+                      customerBalances[selectedCustomer.id] > 0 ? 'text-red-600' : 'text-green-600'
+                    }`}>
+                      ${(customerBalances[selectedCustomer.id] || 0).toFixed(2)}
+                    </span>
+                  </div>
                 </div>
                 <div className="flex items-center space-x-3">
                   <button
@@ -1027,21 +1056,12 @@ export default function Customers({ currentPage, onPageChange, onNavigateToRecor
                         {site.address && (
                           <div className="flex items-center text-gray-600">
                             <MapPin className="w-4 h-4 mr-3" />
-                            <div className="flex-1">
-                              <div className="text-sm">
-                                <div>{site.address}</div>
-                                {site.city && site.state && (
-                                  <div className="text-gray-500">{site.city}, {site.state} {site.zip_code}</div>
-                                )}
-                              </div>
+                            <div className="text-sm">
+                              <div>{site.address}</div>
+                              {site.city && site.state && (
+                                <div className="text-gray-500">{site.city}, {site.state} {site.zip_code}</div>
+                              )}
                             </div>
-                            <button
-                              onClick={() => getDirections(site.address!, site.city, site.state, site.zip_code)}
-                              className="ml-2 p-1 text-blue-600 hover:text-blue-800 hover:bg-blue-100 rounded transition-colors"
-                              title="Get Directions"
-                            >
-                              <Navigation className="w-4 h-4" />
-                            </button>
                           </div>
                         )}
                       </div>
@@ -1312,23 +1332,9 @@ export default function Customers({ currentPage, onPageChange, onNavigateToRecor
                       </div>
                       <div className="space-y-2">
                         {selectedCustomerForDetail.address && (
-                          <div className="flex items-center text-sm text-gray-600">
-                            <MapPin className="w-4 h-4 mr-3" />
-                            <div className="flex-1">
-                              <div>
-                                <div>{selectedCustomerForDetail.address}</div>
-                                {selectedCustomerForDetail.city && selectedCustomerForDetail.state && (
-                                  <div className="text-gray-500">{selectedCustomerForDetail.city}, {selectedCustomerForDetail.state} {selectedCustomerForDetail.zip_code}</div>
-                                )}
-                              </div>
-                            </div>
-                            <button
-                              onClick={() => getDirections(selectedCustomerForDetail.address!, selectedCustomerForDetail.city, selectedCustomerForDetail.state, selectedCustomerForDetail.zip_code)}
-                              className="ml-2 p-1 text-blue-600 hover:text-blue-800 hover:bg-blue-100 rounded transition-colors"
-                              title="Get Directions"
-                            >
-                              <Navigation className="w-4 h-4" />
-                            </button>
+                          <div className="flex justify-between">
+                            <span className="text-sm font-medium text-gray-700">Address:</span>
+                            <span className="text-sm text-gray-900">{selectedCustomerForDetail.address}</span>
                           </div>
                         )}
                         <div className="flex justify-between">
