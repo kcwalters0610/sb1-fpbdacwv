@@ -5,10 +5,15 @@ import { useViewPreference } from '../hooks/useViewPreference'
 import ViewToggle from './ViewToggle'
 import { getNextNumber, updateNextNumber } from '../lib/numbering'
 import jsPDF from 'jspdf'
+interface EstimatesProps {
+  selectedRecordId?: string | null
+  onRecordViewed?: () => void
+}
+
 import autoTable from 'jspdf-autotable'
 
 
-export default function Estimates() {
+export default function Estimates({ selectedRecordId = null, onRecordViewed }: EstimatesProps = {}) {
   const { viewType, setViewType } = useViewPreference('estimates')
   const [estimates, setEstimates] = useState<Estimate[]>([])
   const [customers, setCustomers] = useState<Customer[]>([])
@@ -49,6 +54,17 @@ export default function Estimates() {
     loadData()
     loadCompanyInfo()
   }, [])
+
+  useEffect(() => {
+    // Auto-open detail modal if selectedRecordId is provided
+    if (selectedRecordId && estimates.length > 0) {
+      const estimate = estimates.find(est => est.id === selectedRecordId)
+      if (estimate) {
+        setSelectedEstimate(estimate)
+        onRecordViewed?.()
+      }
+    }
+  }, [selectedRecordId, estimates, onRecordViewed])
 
   useEffect(() => {
     // Auto-open detail modal if selectedRecordId is provided
