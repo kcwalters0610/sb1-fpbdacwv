@@ -51,6 +51,17 @@ export default function Estimates() {
   }, [])
 
   useEffect(() => {
+    // Auto-open detail modal if selectedRecordId is provided
+    if (selectedRecordId && estimates.length > 0) {
+      const estimate = estimates.find(est => est.id === selectedRecordId)
+      if (estimate) {
+        setSelectedEstimate(estimate)
+        onRecordViewed?.()
+      }
+    }
+  }, [selectedRecordId, estimates, onRecordViewed])
+
+  useEffect(() => {
     // Generate estimate number when form opens
     if (showForm && !editingEstimate) {
       generateEstimateNumber()

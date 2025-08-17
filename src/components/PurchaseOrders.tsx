@@ -239,6 +239,17 @@ export default function PurchaseOrders() {
     loadData()
   }, [])
 
+  useEffect(() => {
+    // Auto-open detail modal if selectedRecordId is provided
+    if (selectedRecordId && purchaseOrders.length > 0) {
+      const purchaseOrder = purchaseOrders.find(po => po.id === selectedRecordId)
+      if (purchaseOrder) {
+        setSelectedPO(purchaseOrder)
+        onRecordViewed?.()
+      }
+    }
+  }, [selectedRecordId, purchaseOrders, onRecordViewed])
+
   const loadData = async () => {
     try {
       const [posResult, vendorsResult, customersResult, workOrdersResult] = await Promise.all([

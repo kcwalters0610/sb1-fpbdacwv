@@ -208,9 +208,9 @@ function App() {
       case 'maintenance':
         return <Maintenance />
       case 'estimates':
-        return <Estimates />
+        return <Estimates selectedRecordId={selectedRecordId} onRecordViewed={() => setSelectedRecordId(null)} />
       case 'projects':
-        return <Projects />
+        return <Projects selectedRecordId={selectedRecordId} onRecordViewed={() => setSelectedRecordId(null)} />
       case 'work-orders':
         return <WorkOrders selectedRecordId={selectedRecordId} onRecordViewed={() => setSelectedRecordId(null)} />
       case 'purchase-orders':
@@ -244,9 +244,9 @@ function App() {
       case 'invoices':
         return <Invoices />
       case 'reports':
-        return <Estimates selectedRecordId={selectedRecordId} onRecordViewed={() => setSelectedRecordId(null)} />
+        return <Reports />
       case 'settings':
-        return <Projects selectedRecordId={selectedRecordId} onRecordViewed={() => setSelectedRecordId(null)} />
+        return <Settings />
       default:
         return <Dashboard />
     }

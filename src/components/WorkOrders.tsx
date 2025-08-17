@@ -74,6 +74,17 @@ export default function WorkOrders() {
   }, [])
 
   useEffect(() => {
+    // Auto-open detail modal if selectedRecordId is provided
+    if (selectedRecordId && workOrders.length > 0) {
+      const workOrder = workOrders.find(wo => wo.id === selectedRecordId)
+      if (workOrder) {
+        setSelectedWorkOrder(workOrder)
+        onRecordViewed?.()
+      }
+    }
+  }, [selectedRecordId, workOrders, onRecordViewed])
+
+  useEffect(() => {
     // Generate WO number when form opens
     if (showForm && !editingWorkOrder) {
       generateWONumber()

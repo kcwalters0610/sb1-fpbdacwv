@@ -5,7 +5,12 @@ import { useViewPreference } from '../hooks/useViewPreference'
 import ViewToggle from './ViewToggle'
 import { getNextNumber, updateNextNumber } from '../lib/numbering'
 
-export default function Projects() {
+interface ProjectsProps {
+  selectedRecordId?: string | null
+  onRecordViewed?: () => void
+}
+
+export default function Projects({ selectedRecordId, onRecordViewed }: ProjectsProps = {}) {
   const { viewType, setViewType } = useViewPreference('projects')
   const [projects, setProjects] = useState<Project[]>([])
   const [customers, setCustomers] = useState<Customer[]>([])
@@ -40,6 +45,17 @@ export default function Projects() {
   useEffect(() => {
     loadData()
   }, [])
+
+  useEffect(() => {
+    // Auto-open detail modal if selectedRecordId is provided
+    if (selectedRecordId && projects.length > 0) {
+      const project = projects.find(proj => proj.id === selectedRecordId)
+      if (project) {
+        setSelectedProject(project)
+        onRecordViewed?.()
+      }
+    }
+  }, [selectedRecordId, projects, onRecordViewed])
 
   useEffect(() => {
     // Generate project number when form opens
