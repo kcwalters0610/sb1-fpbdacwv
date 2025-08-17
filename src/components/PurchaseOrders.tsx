@@ -3,7 +3,7 @@ import {
   Plus, Search, DollarSign, Calendar, User, FileText,
   Edit, Trash2, Eye, X
 } from 'lucide-react'
-import { supabase } from '../lib/supabase'
+import { supabase, Customer } from '../lib/supabase'
 import { useViewPreference } from '../hooks/useViewPreference'
 import ViewToggle from './ViewToggle'
 import { getNextNumber, updateNextNumber } from '../lib/numbering'
@@ -29,7 +29,11 @@ interface PurchaseOrder {
   created_at: string
   updated_at: string
   vendor?: any
-  work_order?: any
+  customer?: Customer
+  work_order?: {
+    wo_number: string
+    title: string
+  }
 }
 
 type PrefillPayload = {
@@ -123,6 +127,7 @@ export default function PurchaseOrders() {
 
   const [pos, setPOs] = useState<PurchaseOrder[]>([])
   const [vendors, setVendors] = useState<any[]>([])
+  const [customers, setCustomers] = useState<Customer[]>([])
   const [workOrders, setWorkOrders] = useState<any[]>([])
   const [loading, setLoading] = useState(true)
 
@@ -132,6 +137,7 @@ export default function PurchaseOrders() {
 
   const [searchTerm, setSearchTerm] = useState('')
   const [statusFilter, setStatusFilter] = useState<POStatus | ''>('')
+  const [customerFilter, setCustomerFilter] = useState('')
 
   const [numberingError, setNumberingError] = useState<string>('') 
   const [allowManualNumber, setAllowManualNumber] = useState(false)
@@ -235,18 +241,23 @@ export default function PurchaseOrders() {
 
   const loadData = async () => {
     try {
-      const [posResult, vendorsResult, workOrdersResult] = await Promise.all([
+      const [posResult, vendorsResult, customersResult, workOrdersResult] = await Promise.all([
         supabase.from('purchase_orders').select(`
           *,
           vendor:vendors(*),
-          work_order:work_orders(*)
+          work_order:work_orders(
+            wo_number,
+            title,
+            customer:customers(*)
+          )
         `).order('created_at', { ascending: false }),
         supabase.from('vendors').select('*').order('name'),
+        supabase.from('customers').select('*').order('first_name'),
         supabase.from('work_orders').select('id, wo_number, title').order('created_at', { ascending: false })
       ])
 
-      // Normalize incoming rows (make numeric nulls safe, status normalized)
-      const normalized = (posResult.data || []).map((p: any) => ({
+      // Process purchase orders to include customer info from work order
+      const processedPOs = (posResult.data || []).map((p: any) => ({
         ...p,
         status: normalizeStatus(p.status),
         subtotal: p.subtotal ?? 0,
@@ -256,9 +267,12 @@ export default function PurchaseOrders() {
         paid_amount: p.paid_amount ?? 0,
         order_date: p.order_date ?? null,
         expected_date: p.expected_date ?? null,
+        customer: p.work_order?.customer
       }))
-      setPOs(normalized)
+
+      setPOs(processedPOs)
       setVendors(vendorsResult.data || [])
+      setCustomers(customersResult.data || [])
       setWorkOrders(workOrdersResult.data || [])
     } catch (e) {
       console.error('Error loading POs:', e)
@@ -535,7 +549,7 @@ export default function PurchaseOrders() {
           const updated = [...blockedStatuses, next]
           saveBlocked(updated)
         }
-        alert(`Your database constraint doesn’t allow status "${statusLook[next].label}". I’ve hidden it in the UI.`)
+        alert(`Your database constraint doesn't allow status "${statusLook[next].label}". I've hidden it in the UI.`)
         return
       }
 
@@ -579,9 +593,10 @@ export default function PurchaseOrders() {
         po.po_number?.toLowerCase().includes(term) ||
         (vendorName ? vendorName.toLowerCase().includes(term) : false)
       const matchesStatus = !statusFilter || normalizeStatus(po.status) === statusFilter
-      return matchesSearch && matchesStatus
+      const matchesCustomer = !customerFilter || po.customer?.id === customerFilter
+      return matchesSearch && matchesStatus && matchesCustomer
     })
-  }, [pos, searchTerm, statusFilter])
+  }, [pos, searchTerm, statusFilter, customerFilter])
 
   const totalOrdered = pos.reduce((sum, po) => sum + (po.total_amount ?? 0), 0)
   const receivedAmount = pos
@@ -672,7 +687,7 @@ export default function PurchaseOrders() {
 
       {/* Filters */}
       <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-6">
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+        <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
           <div className="relative">
             <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 w-5 h-5" />
             <input
@@ -691,6 +706,21 @@ export default function PurchaseOrders() {
             <option value="">All Statuses</option>
             {ALL_STATUSES.filter(allowStatus).map(s => (
               <option key={s} value={s}>{statusLook[s].label}</option>
+            ))}
+          </select>
+          <select
+            value={customerFilter}
+            onChange={(e) => setCustomerFilter(e.target.value)}
+            className="px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+          >
+            <option value="">All Customers</option>
+            {customers.map((customer) => (
+              <option key={customer.id} value={customer.id}>
+                {customer.customer_type === 'residential' 
+                  ? `${customer.first_name} ${customer.last_name}`
+                  : customer.company_name
+                }
+              </option>
             ))}
           </select>
           <div className="flex items-center justify-end">
@@ -727,6 +757,8 @@ export default function PurchaseOrders() {
                 <tr>
                   <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">PO</th>
                   <th className="hidden md:table-cell px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Vendor</th>
+                  <th className="hidden md:table-cell px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Customer</th>
+                  <th className="hidden md:table-cell px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Work Order</th>
                   <th className="hidden md:table-cell px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Amount</th>
                   <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Status</th>
                   <th className="hidden md:table-cell px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Expected</th>
@@ -758,11 +790,25 @@ export default function PurchaseOrders() {
                           </div>
                           <div>
                             <div className="text-sm text-gray-900">{vendorName || '—'}</div>
-                            {po.work_order && (
-                              <div className="text-xs text-gray-500">WO: {po.work_order.wo_number}</div>
-                            )}
                           </div>
                         </div>
+                      </td>
+
+                      <td className="hidden md:table-cell px-6 py-4 whitespace-nowrap text-sm text-gray-900">
+                        {po.customer ? (
+                          po.customer.customer_type === 'residential' 
+                            ? `${po.customer.first_name} ${po.customer.last_name}`
+                            : po.customer.company_name
+                        ) : 'No customer'}
+                      </td>
+
+                      <td className="hidden md:table-cell px-6 py-4 whitespace-nowrap text-sm text-gray-900">
+                        {po.work_order ? (
+                          <div>
+                            <div className="font-medium">{po.work_order.wo_number}</div>
+                            <div className="text-xs text-gray-500">{po.work_order.title}</div>
+                          </div>
+                        ) : 'No work order'}
                       </td>
 
                       <td className="hidden md:table-cell px-6 py-4 whitespace-nowrap">
@@ -895,11 +941,19 @@ export default function PurchaseOrders() {
                         <span>Expected: {po.expected_date ? new Date(po.expected_date).toLocaleDateString() : '—'}</span>
                       </div>
 
+                      {po.customer && (
+                        <p className="text-sm text-gray-600 mb-2">
+                          Customer: {po.customer.customer_type === 'residential' 
+                            ? `${po.customer.first_name} ${po.customer.last_name}`
+                            : po.customer.company_name
+                          }
+                        </p>
+                      )}
+
                       {po.work_order && (
-                        <div className="flex items-center text-sm text-gray-600">
-                          <FileText className="w-4 h-4 mr-2" />
-                          <span>WO: {po.work_order.wo_number}</span>
-                        </div>
+                        <p className="text-sm text-gray-600 mb-2">
+                          Work Order: {po.work_order.wo_number} - {po.work_order.title}
+                        </p>
                       )}
                     </div>
 
@@ -1151,6 +1205,19 @@ export default function PurchaseOrders() {
                         <span className="text-sm font-medium text-gray-700">Work Order:</span>
                         <span className="text-sm text-gray-900">{selectedPO.work_order.wo_number}</span>
                       </div>
+                    )}
+                    {selectedPO.customer && (
+                      <p className="text-sm text-gray-600">
+                        Customer: {selectedPO.customer.customer_type === 'residential' 
+                          ? `${selectedPO.customer.first_name} ${selectedPO.customer.last_name}`
+                          : selectedPO.customer.company_name
+                        }
+                      </p>
+                    )}
+                    {selectedPO.work_order && (
+                      <p className="text-sm text-gray-600">
+                        Work Order: {selectedPO.work_order.wo_number} - {selectedPO.work_order.title}
+                      </p>
                     )}
                   </div>
                 </div>
