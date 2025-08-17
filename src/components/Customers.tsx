@@ -729,22 +729,28 @@ export default function Customers({ currentPage, onPageChange, onNavigateToRecor
                         >
                           Sites
                         </button>
-                      )}
+                    <div className="flex items-center space-x-3 text-sm">
+                      <button
+                        onClick={() => loadCustomerSites(customer.id)}
+                        className="text-purple-600 hover:text-purple-800 font-medium transition-colors"
+                      >
+                        Sites
+                      </button>
                       <button
                         onClick={() => startEdit(customer)}
-                        className="text-blue-600 hover:text-blue-800 text-sm font-medium"
+                        className="text-blue-600 hover:text-blue-800 font-medium transition-colors"
                       >
                         Edit
                       </button>
                       <button
-                        onClick={() => openCustomerDetail(customer)}
-                        className="text-green-600 hover:text-green-800 text-sm font-medium"
+                        onClick={() => viewCustomer(customer)}
+                        className="text-green-600 hover:text-green-800 font-medium transition-colors"
                       >
                         View Details
                       </button>
                       <button
                         onClick={() => deleteCustomer(customer.id)}
-                        className="text-red-600 hover:text-red-800 text-sm font-medium"
+                        className="text-red-600 hover:text-red-800 font-medium transition-colors"
                       >
                         Delete
                       </button>
