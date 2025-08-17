@@ -8,6 +8,11 @@ import { useViewPreference } from '../hooks/useViewPreference'
 import ViewToggle from './ViewToggle'
 import { getNextNumber, updateNextNumber } from '../lib/numbering'
 
+interface PurchaseOrdersProps {
+  selectedRecordId?: string | null
+  onRecordViewed?: () => void
+}
+
 type POStatus = 'draft' | 'ordered' | 'partially_received' | 'received' | 'cancelled'
 
 interface PurchaseOrder {
@@ -122,7 +127,7 @@ const isMissingColumnError = (err: any, col: string) => {
 
 const ALL_STATUSES: POStatus[] = ['draft','ordered','partially_received','received','cancelled']
 
-export default function PurchaseOrders() {
+export default function PurchaseOrders({ selectedRecordId, onRecordViewed }: PurchaseOrdersProps = {}) {
   const { viewType, setViewType } = useViewPreference('purchase_orders')
 
   const [pos, setPOs] = useState<PurchaseOrder[]>([])
@@ -238,6 +243,17 @@ export default function PurchaseOrders() {
   useEffect(() => {
     loadData()
   }, [])
+
+  useEffect(() => {
+    // Auto-open detail modal if selectedRecordId is provided
+    if (selectedRecordId && purchaseOrders.length > 0) {
+      const purchaseOrder = purchaseOrders.find(po => po.id === selectedRecordId)
+      if (purchaseOrder) {
+        setSelectedPO(purchaseOrder)
+        onRecordViewed?.()
+      }
+    }
+  }, [selectedRecordId, purchaseOrders, onRecordViewed])
 
   useEffect(() => {
     // Auto-open detail modal if selectedRecordId is provided
