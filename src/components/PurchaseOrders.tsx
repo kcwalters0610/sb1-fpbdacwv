@@ -129,6 +129,7 @@ const ALL_STATUSES: POStatus[] = ['draft','ordered','partially_received','receiv
 
 export default function PurchaseOrders({ selectedRecordId, onRecordViewed }: PurchaseOrdersProps = {}) {
   const { viewType, setViewType } = useViewPreference('purchase_orders')
+  const [purchaseOrders, setPurchaseOrders] = useState<PurchaseOrder[]>([])
 
   const [pos, setPOs] = useState<PurchaseOrder[]>([])
   const [vendors, setVendors] = useState<any[]>([])
