@@ -287,8 +287,10 @@ export default function PurchaseOrders({ selectedRecordId, onRecordViewed }: Pur
   }, [selectedRecordId, purchaseOrders, onRecordViewed])
 
   const loadData = async () => {
+    let posResult, vendorsResult, workOrdersResult, customersResult
+    
     try {
-      const [ordersResult, vendorsResult, workOrdersResult, customersResult] = await Promise.all([
+      [posResult, vendorsResult, workOrdersResult, customersResult] = await Promise.all([
         supabase.from('purchase_orders').select(`
           *,
           vendor:vendors(*),
@@ -309,7 +311,7 @@ export default function PurchaseOrders({ selectedRecordId, onRecordViewed }: Pur
           .order('first_name')
       ])
 
-      // Process purchase orders to include customer info from work order
+      setPurchaseOrders(posResult.data || [])
       const processedPOs = (posResult.data || []).map((p: any) => ({
         ...p,
         status: normalizeStatus(p.status),
