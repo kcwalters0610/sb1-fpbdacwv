@@ -1008,7 +1008,7 @@ export default function PurchaseOrders({ selectedRecordId, onRecordViewed }: Pur
 
       {/* Form Modal */}
       {showForm && (
-        <div className="fixed inset-0 bg-gray-600/60 backdrop-blur-[1px] flex items-center justify-center p-4 z-50">
+        <div className="fixed inset-0 bg-gray-600 bg-opacity-50 flex items-center justify-center p-4 z-[9999]">
           <div className="bg-white rounded-xl shadow-xl max-w-2xl w-full max-h-screen overflow-y-auto">
             <div className="p-6 border-b border-gray-200">
               <h3 className="text-lg font-semibold text-gray-900">
@@ -1194,7 +1194,7 @@ export default function PurchaseOrders({ selectedRecordId, onRecordViewed }: Pur
 
       {/* Detail Modal (hidden while form is open) */}
       {selectedPO && !showForm && (
-        <div className="fixed inset-0 bg-gray-600/60 backdrop-blur-[1px] flex items-center justify-center p-4 z-40">
+        <div className="fixed inset-0 bg-gray-600 bg-opacity-50 flex items-center justify-center p-4 z-[9999]">
           <div className="bg-white rounded-xl shadow-xl max-w-4xl w-full max-h-screen overflow-y-auto">
             <div className="p-6 border-b border-gray-200">
               <div className="flex items-center justify-between">
