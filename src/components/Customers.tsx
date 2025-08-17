@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react'
-import { Plus, Search, Mail, Phone, MapPin, Building2, User, Edit, Trash2, Eye, X, Star } from 'lucide-react'
+import { Plus, Search, Mail, Phone, MapPin, Building2, User, Edit, Trash2, Eye, X, Star, ClipboardList, FileText, ShoppingCart, FolderOpen } from 'lucide-react'
 import { supabase, Customer, CustomerSite, Profile } from '../lib/supabase'
 import { useViewPreference } from '../hooks/useViewPreference'
 import ViewToggle from './ViewToggle'
@@ -16,6 +16,13 @@ export default function Customers() {
   const [showSiteForm, setShowSiteForm] = useState(false)
   const [editingSite, setEditingSite] = useState<CustomerSite | null>(null)
   const [customerSites, setCustomerSites] = useState<CustomerSite[]>([])
+  const [showCustomerDetail, setShowCustomerDetail] = useState(false)
+  const [selectedCustomerForDetail, setSelectedCustomerForDetail] = useState<Customer | null>(null)
+  const [customerWorkOrders, setCustomerWorkOrders] = useState<any[]>([])
+  const [customerEstimates, setCustomerEstimates] = useState<any[]>([])
+  const [customerPurchaseOrders, setCustomerPurchaseOrders] = useState<any[]>([])
+  const [customerProjects, setCustomerProjects] = useState<any[]>([])
+  const [detailLoading, setDetailLoading] = useState(false)
   const [searchTerm, setSearchTerm] = useState('')
   const [sortField, setSortField] = useState<string>('first_name')
   const [sortDirection, setSortDirection] = useState<'asc' | 'desc'>('asc')
@@ -246,6 +253,89 @@ export default function Customers() {
     setSelectedCustomer(customer)
     loadCustomerSites(customer.id)
     setShowSitesModal(true)
+  }
+
+  const openCustomerDetail = async (customer: Customer) => {
+    setSelectedCustomerForDetail(customer)
+    setDetailLoading(true)
+    setShowCustomerDetail(true)
+
+    try {
+      // Load all associated records for this customer
+      const [workOrdersResult, estimatesResult, purchaseOrdersResult, projectsResult] = await Promise.all([
+        supabase
+          .from('work_orders')
+          .select(`
+            *,
+            assigned_technician:profiles!work_orders_assigned_to_fkey(first_name, last_name),
+            customer_site:customer_sites(site_name)
+          `)
+          .eq('customer_id', customer.id)
+          .order('created_at', { ascending: false }),
+        supabase
+          .from('estimates')
+          .select(`
+            *,
+            customer_site:customer_sites(site_name)
+          `)
+          .eq('customer_id', customer.id)
+          .order('created_at', { ascending: false }),
+        supabase
+          .from('purchase_orders')
+          .select(`
+            *,
+            vendor:vendors(name),
+            work_order:work_orders(wo_number, title)
+          `)
+          .in('work_order_id', 
+            // Get work order IDs for this customer first
+            (await supabase
+              .from('work_orders')
+              .select('id')
+              .eq('customer_id', customer.id)
+            ).data?.map(wo => wo.id) || []
+          )
+          .order('created_at', { ascending: false }),
+        supabase
+          .from('projects')
+          .select(`
+            *,
+            project_manager_profile:profiles!project_manager(first_name, last_name),
+            customer_site:customer_sites(site_name)
+          `)
+          .eq('customer_id', customer.id)
+          .order('created_at', { ascending: false })
+      ])
+
+      setCustomerWorkOrders(workOrdersResult.data || [])
+      setCustomerEstimates(estimatesResult.data || [])
+      setCustomerPurchaseOrders(purchaseOrdersResult.data || [])
+      setCustomerProjects(projectsResult.data || [])
+    } catch (error) {
+      console.error('Error loading customer details:', error)
+    } finally {
+      setDetailLoading(false)
+    }
+  }
+
+  const getStatusColor = (status: string) => {
+    switch (status) {
+      case 'completed': return 'text-green-700 bg-green-100'
+      case 'in_progress': return 'text-blue-700 bg-blue-100'
+      case 'scheduled': return 'text-purple-700 bg-purple-100'
+      case 'open': return 'text-yellow-700 bg-yellow-100'
+      case 'cancelled': return 'text-red-700 bg-red-100'
+      case 'approved': return 'text-green-700 bg-green-100'
+      case 'sent': return 'text-blue-700 bg-blue-100'
+      case 'draft': return 'text-gray-700 bg-gray-100'
+      case 'rejected': return 'text-red-700 bg-red-100'
+      case 'expired': return 'text-red-700 bg-red-100'
+      case 'converted': return 'text-purple-700 bg-purple-100'
+      case 'planning': return 'text-purple-700 bg-purple-100'
+      case 'on_hold': return 'text-yellow-700 bg-yellow-100'
+      case 'received': return 'text-green-700 bg-green-100'
+      default: return 'text-gray-700 bg-gray-100'
+    }
   }
 
   const resetForm = () => {
@@ -523,6 +613,13 @@ export default function Customers() {
                         <Edit className="w-4 h-4" />
                       </button>
                       <button
+                        onClick={() => openCustomerDetail(customer)}
+                        className="text-green-600 hover:text-green-800 mr-2 sm:mr-3 p-1.5 transition-all duration-200 hover:bg-green-100 rounded-full hover:shadow-sm transform hover:scale-110"
+                        title="View Details"
+                      >
+                        <Eye className="w-4 h-4" />
+                      </button>
+                      <button
                         onClick={() => deleteCustomer(customer.id)}
                         className="text-red-600 hover:text-red-800 p-1.5 transition-all duration-200 hover:bg-red-100 rounded-full hover:shadow-sm transform hover:scale-110"
                       >
@@ -585,6 +682,12 @@ export default function Customers() {
                         className="text-blue-600 hover:text-blue-800 text-sm font-medium"
                       >
                         Edit
+                      </button>
+                      <button
+                        onClick={() => openCustomerDetail(customer)}
+                        className="text-green-600 hover:text-green-800 text-sm font-medium"
+                      >
+                        View Details
                       </button>
                       <button
                         onClick={() => deleteCustomer(customer.id)}
@@ -1092,6 +1195,312 @@ export default function Customers() {
                 </button>
               </div>
             </form>
+          </div>
+        </div>
+      )}
+
+      {/* Customer Detail Modal */}
+      {showCustomerDetail && selectedCustomerForDetail && (
+        <div className="fixed inset-0 bg-gray-600 bg-opacity-50 flex items-center justify-center p-4 z-50">
+          <div className="bg-white rounded-xl shadow-xl max-w-6xl w-full max-h-screen overflow-y-auto">
+            <div className="p-6 border-b border-gray-200">
+              <div className="flex items-center justify-between">
+                <div>
+                  <h3 className="text-xl font-semibold text-gray-900">
+                    {selectedCustomerForDetail.customer_type === 'residential' 
+                      ? `${selectedCustomerForDetail.first_name} ${selectedCustomerForDetail.last_name}`
+                      : selectedCustomerForDetail.company_name
+                    }
+                  </h3>
+                  <p className="text-sm text-gray-600 mt-1">
+                    Customer Details & Associated Records
+                  </p>
+                </div>
+                <button
+                  onClick={() => setShowCustomerDetail(false)}
+                  className="text-gray-400 hover:text-gray-600"
+                >
+                  <X className="w-6 h-6" />
+                </button>
+              </div>
+            </div>
+            
+            <div className="p-6">
+              {detailLoading ? (
+                <div className="flex items-center justify-center h-64">
+                  <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600"></div>
+                </div>
+              ) : (
+                <div className="space-y-8">
+                  {/* Customer Information */}
+                  <div className="bg-gray-50 rounded-lg p-6">
+                    <h4 className="text-lg font-medium text-gray-900 mb-4">Customer Information</h4>
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                      <div className="space-y-2">
+                        <div className="flex justify-between">
+                          <span className="text-sm font-medium text-gray-700">Type:</span>
+                          <span className={`inline-flex px-2 py-1 text-xs font-medium rounded-full ${
+                            selectedCustomerForDetail.customer_type === 'commercial' 
+                              ? 'text-blue-700 bg-blue-100' 
+                              : 'text-green-700 bg-green-100'
+                          }`}>
+                            {selectedCustomerForDetail.customer_type === 'commercial' ? 'Commercial' : 'Residential'}
+                          </span>
+                        </div>
+                        {selectedCustomerForDetail.email && (
+                          <div className="flex justify-between">
+                            <span className="text-sm font-medium text-gray-700">Email:</span>
+                            <span className="text-sm text-gray-900">{selectedCustomerForDetail.email}</span>
+                          </div>
+                        )}
+                        {selectedCustomerForDetail.phone && (
+                          <div className="flex justify-between">
+                            <span className="text-sm font-medium text-gray-700">Phone:</span>
+                            <span className="text-sm text-gray-900">{selectedCustomerForDetail.phone}</span>
+                          </div>
+                        )}
+                      </div>
+                      <div className="space-y-2">
+                        {selectedCustomerForDetail.address && (
+                          <div className="flex justify-between">
+                            <span className="text-sm font-medium text-gray-700">Address:</span>
+                            <span className="text-sm text-gray-900">{selectedCustomerForDetail.address}</span>
+                          </div>
+                        )}
+                        <div className="flex justify-between">
+                          <span className="text-sm font-medium text-gray-700">Added:</span>
+                          <span className="text-sm text-gray-900">
+                            {new Date(selectedCustomerForDetail.created_at).toLocaleDateString()}
+                          </span>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Work Orders */}
+                  <div>
+                    <div className="flex items-center mb-4">
+                      <ClipboardList className="w-5 h-5 text-blue-600 mr-2" />
+                      <h4 className="text-lg font-medium text-gray-900">Work Orders ({customerWorkOrders.length})</h4>
+                    </div>
+                    {customerWorkOrders.length > 0 ? (
+                      <div className="bg-white border border-gray-200 rounded-lg overflow-hidden">
+                        <div className="overflow-x-auto">
+                          <table className="w-full">
+                            <thead className="bg-gray-50">
+                              <tr>
+                                <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">WO Number</th>
+                                <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Title</th>
+                                <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Status</th>
+                                <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Assigned To</th>
+                                <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Site</th>
+                                <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Created</th>
+                              </tr>
+                            </thead>
+                            <tbody className="divide-y divide-gray-200">
+                              {customerWorkOrders.map((wo) => (
+                                <tr key={wo.id} className="hover:bg-gray-50">
+                                  <td className="px-4 py-3 text-sm font-medium text-gray-900">{wo.wo_number}</td>
+                                  <td className="px-4 py-3 text-sm text-gray-900">{wo.title}</td>
+                                  <td className="px-4 py-3">
+                                    <span className={`inline-flex px-2 py-1 text-xs font-medium rounded-full ${getStatusColor(wo.status)}`}>
+                                      {wo.status}
+                                    </span>
+                                  </td>
+                                  <td className="px-4 py-3 text-sm text-gray-900">
+                                    {wo.assigned_technician ? 
+                                      `${wo.assigned_technician.first_name} ${wo.assigned_technician.last_name}` : 
+                                      'Unassigned'
+                                    }
+                                  </td>
+                                  <td className="px-4 py-3 text-sm text-gray-900">
+                                    {wo.customer_site?.site_name || 'Main Location'}
+                                  </td>
+                                  <td className="px-4 py-3 text-sm text-gray-500">
+                                    {new Date(wo.created_at).toLocaleDateString()}
+                                  </td>
+                                </tr>
+                              ))}
+                            </tbody>
+                          </table>
+                        </div>
+                      </div>
+                    ) : (
+                      <div className="text-center py-8 text-gray-500 bg-gray-50 rounded-lg">
+                        <ClipboardList className="w-12 h-12 mx-auto mb-4 text-gray-400" />
+                        <p>No work orders found for this customer</p>
+                      </div>
+                    )}
+                  </div>
+
+                  {/* Estimates */}
+                  <div>
+                    <div className="flex items-center mb-4">
+                      <FileText className="w-5 h-5 text-purple-600 mr-2" />
+                      <h4 className="text-lg font-medium text-gray-900">Estimates ({customerEstimates.length})</h4>
+                    </div>
+                    {customerEstimates.length > 0 ? (
+                      <div className="bg-white border border-gray-200 rounded-lg overflow-hidden">
+                        <div className="overflow-x-auto">
+                          <table className="w-full">
+                            <thead className="bg-gray-50">
+                              <tr>
+                                <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Estimate #</th>
+                                <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Title</th>
+                                <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Status</th>
+                                <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Amount</th>
+                                <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Site</th>
+                                <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Created</th>
+                              </tr>
+                            </thead>
+                            <tbody className="divide-y divide-gray-200">
+                              {customerEstimates.map((estimate) => (
+                                <tr key={estimate.id} className="hover:bg-gray-50">
+                                  <td className="px-4 py-3 text-sm font-medium text-gray-900">{estimate.estimate_number}</td>
+                                  <td className="px-4 py-3 text-sm text-gray-900">{estimate.title}</td>
+                                  <td className="px-4 py-3">
+                                    <span className={`inline-flex px-2 py-1 text-xs font-medium rounded-full ${getStatusColor(estimate.status)}`}>
+                                      {estimate.status}
+                                    </span>
+                                  </td>
+                                  <td className="px-4 py-3 text-sm font-medium text-gray-900">
+                                    ${estimate.total_amount.toLocaleString()}
+                                  </td>
+                                  <td className="px-4 py-3 text-sm text-gray-900">
+                                    {estimate.customer_site?.site_name || 'Main Location'}
+                                  </td>
+                                  <td className="px-4 py-3 text-sm text-gray-500">
+                                    {new Date(estimate.created_at).toLocaleDateString()}
+                                  </td>
+                                </tr>
+                              ))}
+                            </tbody>
+                          </table>
+                        </div>
+                      </div>
+                    ) : (
+                      <div className="text-center py-8 text-gray-500 bg-gray-50 rounded-lg">
+                        <FileText className="w-12 h-12 mx-auto mb-4 text-gray-400" />
+                        <p>No estimates found for this customer</p>
+                      </div>
+                    )}
+                  </div>
+
+                  {/* Projects */}
+                  <div>
+                    <div className="flex items-center mb-4">
+                      <FolderOpen className="w-5 h-5 text-green-600 mr-2" />
+                      <h4 className="text-lg font-medium text-gray-900">Projects ({customerProjects.length})</h4>
+                    </div>
+                    {customerProjects.length > 0 ? (
+                      <div className="bg-white border border-gray-200 rounded-lg overflow-hidden">
+                        <div className="overflow-x-auto">
+                          <table className="w-full">
+                            <thead className="bg-gray-50">
+                              <tr>
+                                <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Project #</th>
+                                <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Name</th>
+                                <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Status</th>
+                                <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Budget</th>
+                                <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Manager</th>
+                                <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Site</th>
+                                <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Created</th>
+                              </tr>
+                            </thead>
+                            <tbody className="divide-y divide-gray-200">
+                              {customerProjects.map((project) => (
+                                <tr key={project.id} className="hover:bg-gray-50">
+                                  <td className="px-4 py-3 text-sm font-medium text-gray-900">{project.project_number}</td>
+                                  <td className="px-4 py-3 text-sm text-gray-900">{project.project_name}</td>
+                                  <td className="px-4 py-3">
+                                    <span className={`inline-flex px-2 py-1 text-xs font-medium rounded-full ${getStatusColor(project.status)}`}>
+                                      {project.status.replace('_', ' ')}
+                                    </span>
+                                  </td>
+                                  <td className="px-4 py-3 text-sm font-medium text-gray-900">
+                                    ${project.total_budget.toLocaleString()}
+                                  </td>
+                                  <td className="px-4 py-3 text-sm text-gray-900">
+                                    {project.project_manager_profile ? 
+                                      `${project.project_manager_profile.first_name} ${project.project_manager_profile.last_name}` : 
+                                      'Unassigned'
+                                    }
+                                  </td>
+                                  <td className="px-4 py-3 text-sm text-gray-900">
+                                    {project.customer_site?.site_name || 'Main Location'}
+                                  </td>
+                                  <td className="px-4 py-3 text-sm text-gray-500">
+                                    {new Date(project.created_at).toLocaleDateString()}
+                                  </td>
+                                </tr>
+                              ))}
+                            </tbody>
+                          </table>
+                        </div>
+                      </div>
+                    ) : (
+                      <div className="text-center py-8 text-gray-500 bg-gray-50 rounded-lg">
+                        <FolderOpen className="w-12 h-12 mx-auto mb-4 text-gray-400" />
+                        <p>No projects found for this customer</p>
+                      </div>
+                    )}
+                  </div>
+
+                  {/* Purchase Orders */}
+                  <div>
+                    <div className="flex items-center mb-4">
+                      <ShoppingCart className="w-5 h-5 text-orange-600 mr-2" />
+                      <h4 className="text-lg font-medium text-gray-900">Purchase Orders ({customerPurchaseOrders.length})</h4>
+                    </div>
+                    {customerPurchaseOrders.length > 0 ? (
+                      <div className="bg-white border border-gray-200 rounded-lg overflow-hidden">
+                        <div className="overflow-x-auto">
+                          <table className="w-full">
+                            <thead className="bg-gray-50">
+                              <tr>
+                                <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">PO Number</th>
+                                <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Vendor</th>
+                                <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Work Order</th>
+                                <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Status</th>
+                                <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Amount</th>
+                                <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Created</th>
+                              </tr>
+                            </thead>
+                            <tbody className="divide-y divide-gray-200">
+                              {customerPurchaseOrders.map((po) => (
+                                <tr key={po.id} className="hover:bg-gray-50">
+                                  <td className="px-4 py-3 text-sm font-medium text-gray-900">{po.po_number}</td>
+                                  <td className="px-4 py-3 text-sm text-gray-900">{po.vendor?.name || 'No vendor'}</td>
+                                  <td className="px-4 py-3 text-sm text-gray-900">
+                                    {po.work_order ? `${po.work_order.wo_number} - ${po.work_order.title}` : 'No work order'}
+                                  </td>
+                                  <td className="px-4 py-3">
+                                    <span className={`inline-flex px-2 py-1 text-xs font-medium rounded-full ${getStatusColor(po.status)}`}>
+                                      {po.status}
+                                    </span>
+                                  </td>
+                                  <td className="px-4 py-3 text-sm font-medium text-gray-900">
+                                    ${po.total_amount.toLocaleString()}
+                                  </td>
+                                  <td className="px-4 py-3 text-sm text-gray-500">
+                                    {new Date(po.created_at).toLocaleDateString()}
+                                  </td>
+                                </tr>
+                              ))}
+                            </tbody>
+                          </table>
+                        </div>
+                      </div>
+                    ) : (
+                      <div className="text-center py-8 text-gray-500 bg-gray-50 rounded-lg">
+                        <ShoppingCart className="w-12 h-12 mx-auto mb-4 text-gray-400" />
+                        <p>No purchase orders found for this customer</p>
+                      </div>
+                    )}
+                  </div>
+                </div>
+              )}
+            </div>
           </div>
         </div>
       )}
