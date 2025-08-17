@@ -1098,6 +1098,12 @@ export default function MyJobs() {
             <div className="p-6 border-b border-gray-200">
               <h3 className="text-lg font-semibold text-gray-900">Create Purchase Order</h3>
               <p className="text-sm text-gray-600 mt-1">For work order: {selectedOrder?.wo_number}</p>
+              <p className="text-sm text-gray-600 mt-1">
+                Customer: {selectedOrder?.customer?.customer_type === 'residential' 
+                  ? `${selectedOrder?.customer?.first_name} ${selectedOrder?.customer?.last_name}`
+                  : selectedOrder?.customer?.company_name || 'Unknown Customer'
+                }
+              </p>
             </div>
             
             <form onSubmit={handlePOSubmit} className="p-6 space-y-6">
