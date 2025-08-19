@@ -877,9 +877,10 @@ export default function Invoices() {
       }
       yPos += 20;
       const tableData = [
-        ['Description', 'Amount']
-      ]
         ...(invoice.markup_rate > 0 ? [['Markup (' + invoice.markup_rate + '%)', `$${invoice.markup_amount.toFixed(2)}`]] : []),
+        ['Tax (' + invoice.tax_rate + '%)', `$${invoice.tax_amount.toFixed(2)}`],
+        ['Total', `$${invoice.total_amount.toFixed(2)}`]
+      ]
       
       // Add line items (simplified - you may want to expand this based on your invoice structure)
       if (invoice.work_orders) {
