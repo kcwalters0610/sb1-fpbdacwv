@@ -4,6 +4,7 @@ import { supabase, WorkOrder, Customer, Profile, CustomerSite } from '../lib/sup
 import { useViewPreference } from '../hooks/useViewPreference'
 import ViewToggle from './ViewToggle'
 import { getNextNumber, updateNextNumber } from '../lib/numbering'
+import { getNextNumber, updateNextNumber } from '../lib/numbering'
 
 interface WorkOrdersProps {
   selectedRecordId?: string | null
@@ -224,6 +225,57 @@ export default function WorkOrders({ selectedRecordId, onRecordViewed }: WorkOrd
       setCustomerSites([])
     } finally {
       setLoadingSites(false)
+    }
+  }
+
+  const convertToInvoice = async (workOrder: WorkOrder) => {
+    if (!confirm(`Convert work order "${workOrder.wo_number}" to an invoice?`)) return
+
+    try {
+      // Get current user's company_id
+      const { data: { user } } = await supabase.auth.getUser()
+      if (!user) throw new Error('User not authenticated')
+      
+      const { data: profile } = await supabase
+        .from('profiles')
+        .select('company_id')
+        .eq('id', user.id)
+        .single()
+      
+      if (!profile) throw new Error('User profile not found')
+
+      // Generate invoice number
+      const { formattedNumber: invoiceNumber, nextSequence } = await getNextNumber('invoice')
+      
+      // Create invoice from work order
+      const invoiceData = {
+        company_id: profile.company_id,
+        customer_id: workOrder.customer_id,
+        work_order_id: workOrder.id,
+        invoice_number: invoiceNumber,
+        status: 'draft',
+        issue_date: new Date().toISOString().split('T')[0],
+        due_date: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString().split('T')[0], // 30 days from now
+        subtotal: 0,
+        tax_rate: 0,
+        tax_amount: 0,
+        total_amount: 0,
+        notes: `Generated from work order: ${workOrder.wo_number}`
+      }
+
+      const { error } = await supabase
+        .from('invoices')
+        .insert([invoiceData])
+      
+      if (error) throw error
+      
+      // Update the sequence number
+      await updateNextNumber('invoice', nextSequence)
+
+      alert(`Invoice ${invoiceNumber} created successfully from work order ${workOrder.wo_number}!`)
+    } catch (error) {
+      console.error('Error converting to invoice:', error)
+      alert('Error converting work order to invoice: ' + (error as Error).message)
     }
   }
 
