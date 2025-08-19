@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { supabase } from '../lib/supabase';
 import { Plus, Search, Eye, DollarSign, FileText, Calendar, User, Building, Phone, Mail, MapPin, Edit, Trash2, CreditCard, X, Download } from 'lucide-react';
 import { jsPDF } from 'jspdf';
-import autoTable from 'jspdf-autotable';
+import 'jspdf-autotable';
 
 interface Invoice {
   id: string;
@@ -775,7 +775,7 @@ export default function Invoices() {
       
       tableData.push(['TOTAL', `$${invoice.total_amount.toFixed(2)}`]);
       
-      doc.autoTable({
+      (doc as any).autoTable({
         startY: yPos,
         head: [tableData[0]],
         body: tableData.slice(1),
