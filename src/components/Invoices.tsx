@@ -1,6 +1,8 @@
 import React, { useState, useEffect } from 'react';
 import { supabase } from '../lib/supabase';
-import { Plus, Search, Eye, DollarSign, FileText, Calendar, User, Building, Phone, Mail, MapPin, Edit, Trash2, CreditCard, X } from 'lucide-react';
+import { Plus, Search, Eye, DollarSign, FileText, Calendar, User, Building, Phone, Mail, MapPin, Edit, Trash2, CreditCard, X, Download } from 'lucide-react';
+import { jsPDF } from 'jspdf';
+import autoTable from 'jspdf-autotable';
 
 interface Invoice {
   id: string;
@@ -18,8 +20,6 @@ interface Invoice {
   paid_amount: number;
   payment_date?: string;
   notes?: string;
-  markup_rate?: number;
-  markup_amount?: number;
   created_at: string;
   updated_at: string;
   customers?: {
@@ -112,7 +112,6 @@ export default function Invoices() {
     due_date: '',
     subtotal: 0,
     tax_rate: 0,
-    markup_rate: 20.00,
     tax_amount: 0,
     total_amount: 0,
     notes: ''
@@ -245,19 +244,11 @@ export default function Invoices() {
 
       if (!profile) return;
 
-      const subtotal = formData.subtotal;
-      const markupRate = formData.markup_rate;
-      const markupAmount = (subtotal * markupRate) / 100;
-      const subtotalWithMarkup = subtotal + markupAmount;
-      const taxAmount = (subtotal * formData.tax_rate) / 100;
-      const totalAmount = subtotalWithMarkup + taxAmount;
-
       const invoiceData = {
         ...formData,
         company_id: profile.company_id,
-        markup_amount: markupAmount,
-        tax_amount: taxAmount,
-        total_amount: totalAmount
+        tax_amount: (formData.subtotal * formData.tax_rate) / 100,
+        total_amount: formData.subtotal + ((formData.subtotal * formData.tax_rate) / 100)
       };
 
       if (editingInvoice) {
@@ -286,7 +277,6 @@ export default function Invoices() {
         due_date: '',
         subtotal: 0,
         tax_rate: 0,
-        markup_rate: 20.00,
         tax_amount: 0,
         total_amount: 0,
         notes: ''
@@ -308,7 +298,6 @@ export default function Invoices() {
       due_date: invoice.due_date || '',
       subtotal: invoice.subtotal,
       tax_rate: invoice.tax_rate,
-      markup_rate: invoice.markup_rate || 20.00,
       tax_amount: invoice.tax_amount,
       total_amount: invoice.total_amount,
       notes: invoice.notes || ''
@@ -329,6 +318,31 @@ export default function Invoices() {
       fetchInvoices();
     } catch (error) {
       console.error('Error deleting invoice:', error);
+    }
+  };
+
+  const updateStatus = async (id: string, status: string) => {
+    try {
+      const updateData: any = { status };
+      
+      // Set payment date when marking as paid
+      if (status === 'paid') {
+        updateData.payment_date = new Date().toISOString().split('T')[0];
+        // Set paid amount to total amount if not already set
+        const invoice = invoices.find(inv => inv.id === id);
+        if (invoice && !invoice.paid_amount) {
+          updateData.paid_amount = invoice.total_amount;
+        }
+      }
+      
+      const { error } = await supabase
+        .from('invoices')
+        .update(updateData)
+        .eq('id', id);
+      if (error) throw error;
+      fetchInvoices();
+    } catch (error) {
+      console.error('Error updating status:', error);
     }
   };
 
@@ -643,6 +657,169 @@ export default function Invoices() {
     }
   };
 
+  const exportInvoicePDF = async (invoice: Invoice) => {
+    try {
+      // Get company information
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user) return;
+
+      const { data: profile } = await supabase
+        .from('profiles')
+        .select('company_id')
+        .eq('id', user.id)
+        .single();
+
+      if (!profile) return;
+
+      const { data: company } = await supabase
+        .from('companies')
+        .select('*')
+        .eq('id', profile.company_id)
+        .single();
+
+      // Create PDF
+      const doc = new jsPDF();
+      
+      // Company header
+      doc.setFontSize(20);
+      doc.setTextColor(0, 68, 108);
+      doc.text(company?.name || 'Company Name', 20, 30);
+      
+      // Invoice title
+      doc.setFontSize(16);
+      doc.setTextColor(51, 51, 51);
+      doc.text('INVOICE', 150, 30);
+      
+      // Invoice details
+      doc.setFontSize(12);
+      doc.text(`Invoice #: ${invoice.invoice_number}`, 150, 45);
+      doc.text(`Issue Date: ${new Date(invoice.issue_date).toLocaleDateString()}`, 150, 55);
+      if (invoice.due_date) {
+        doc.text(`Due Date: ${new Date(invoice.due_date).toLocaleDateString()}`, 150, 65);
+      }
+      doc.text(`Status: ${invoice.status.toUpperCase()}`, 150, 75);
+      
+      // Company info
+      let yPos = 50;
+      if (company?.address) {
+        doc.text(company.address, 20, yPos);
+        yPos += 10;
+      }
+      if (company?.city && company?.state) {
+        doc.text(`${company.city}, ${company.state} ${company.zip_code || ''}`, 20, yPos);
+        yPos += 10;
+      }
+      if (company?.phone) {
+        doc.text(`Phone: ${company.phone}`, 20, yPos);
+        yPos += 10;
+      }
+      if (company?.email) {
+        doc.text(`Email: ${company.email}`, 20, yPos);
+        yPos += 10;
+      }
+      
+      // Customer info
+      yPos = Math.max(yPos + 10, 90);
+      doc.setFontSize(14);
+      doc.text('Bill To:', 20, yPos);
+      yPos += 10;
+      
+      doc.setFontSize(12);
+      if (invoice.customers) {
+        if (invoice.customers.customer_type === 'residential') {
+          doc.text(`${invoice.customers.first_name} ${invoice.customers.last_name}`, 20, yPos);
+        } else {
+          doc.text(invoice.customers.company_name || 'Commercial Customer', 20, yPos);
+          yPos += 10;
+          doc.text(`${invoice.customers.first_name} ${invoice.customers.last_name}`, 20, yPos);
+        }
+        yPos += 10;
+        
+        if (invoice.customers.email) {
+          doc.text(`Email: ${invoice.customers.email}`, 20, yPos);
+          yPos += 10;
+        }
+        if (invoice.customers.phone) {
+          doc.text(`Phone: ${invoice.customers.phone}`, 20, yPos);
+          yPos += 10;
+        }
+      }
+      
+      // Work order info if available
+      if (invoice.work_orders) {
+        yPos += 10;
+        doc.setFontSize(14);
+        doc.text('Work Order:', 20, yPos);
+        yPos += 10;
+        doc.setFontSize(12);
+        doc.text(`${invoice.work_orders.wo_number} - ${invoice.work_orders.title}`, 20, yPos);
+        yPos += 10;
+      }
+      
+      // Invoice items table
+      yPos += 20;
+      const tableData = [
+        ['Description', 'Amount']
+      ];
+      
+      // Add line items (simplified - you may want to expand this based on your invoice structure)
+      if (invoice.work_orders) {
+        tableData.push([`Work Order: ${invoice.work_orders.wo_number}`, `$${invoice.subtotal.toFixed(2)}`]);
+      } else {
+        tableData.push(['Services Rendered', `$${invoice.subtotal.toFixed(2)}`]);
+      }
+      
+      if (invoice.tax_amount > 0) {
+        tableData.push([`Tax (${invoice.tax_rate}%)`, `$${invoice.tax_amount.toFixed(2)}`]);
+      }
+      
+      tableData.push(['TOTAL', `$${invoice.total_amount.toFixed(2)}`]);
+      
+      doc.autoTable({
+        startY: yPos,
+        head: [tableData[0]],
+        body: tableData.slice(1),
+        theme: 'grid',
+        headStyles: { 
+          fillColor: [0, 68, 108],
+          textColor: 255,
+          fontStyle: 'bold'
+        },
+        styles: { 
+          fontSize: 10,
+          cellPadding: 5
+        },
+        columnStyles: {
+          0: { cellWidth: 120 },
+          1: { cellWidth: 40, halign: 'right' }
+        }
+      });
+      
+      // Notes
+      if (invoice.notes) {
+        const finalY = (doc as any).lastAutoTable.finalY || yPos + 50;
+        doc.setFontSize(12);
+        doc.text('Notes:', 20, finalY + 20);
+        doc.setFontSize(10);
+        const splitNotes = doc.splitTextToSize(invoice.notes, 170);
+        doc.text(splitNotes, 20, finalY + 30);
+      }
+      
+      // Footer
+      const pageHeight = doc.internal.pageSize.height;
+      doc.setFontSize(10);
+      doc.setTextColor(150, 150, 150);
+      doc.text(`Generated on ${new Date().toLocaleDateString()}`, 20, pageHeight - 20);
+      
+      // Save the PDF
+      doc.save(`Invoice_${invoice.invoice_number}.pdf`);
+      
+    } catch (error) {
+      console.error('Error generating PDF:', error);
+      alert('Error generating PDF. Please try again.');
+    }
+  };
+
   const filteredInvoices = invoices.filter(invoice => {
     const matchesSearch = 
       invoice.invoice_number.toLowerCase().includes(searchTerm.toLowerCase()) ||
@@ -780,17 +957,6 @@ export default function Invoices() {
                     <div className="text-sm font-medium text-gray-900">
                       {formatCurrency(invoice.total_amount)}
                     </div>
-                    <div className="text-sm text-gray-900">
-                      ${invoice.subtotal.toFixed(2)}
-                    </div>
-                    {invoice.markup_amount && invoice.markup_amount > 0 && (
-                      <div className="text-xs text-gray-500">
-                        +${invoice.markup_amount.toFixed(2)} markup
-                      </div>
-                    )}
-                    <div className="text-xs text-gray-500">
-                      +${invoice.tax_amount.toFixed(2)} tax
-                    </div>
                     {invoice.paid_amount > 0 && (
                       <div className="text-xs text-green-600">
                         Paid: {formatCurrency(invoice.paid_amount)}
@@ -798,14 +964,29 @@ export default function Invoices() {
                     )}
                   </td>
                   <td className="px-6 py-4 whitespace-nowrap">
-                    <span className={`inline-flex px-2 py-1 text-xs font-semibold rounded-full ${getStatusColor(invoice.status)}`}>
-                      {invoice.status}
-                    </span>
+                    <select
+                      value={invoice.status}
+                      onChange={(e) => updateStatus(invoice.id, e.target.value)}
+                      className={`text-xs font-medium rounded-full px-2 py-1 border-0 ${getStatusColor(invoice.status)}`}
+                    >
+                      <option value="draft">Draft</option>
+                      <option value="sent">Sent</option>
+                      <option value="paid">Paid</option>
+                      <option value="overdue">Overdue</option>
+                      <option value="cancelled">Cancelled</option>
+                    </select>
                   </td>
                   <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
                     {invoice.due_date ? new Date(invoice.due_date).toLocaleDateString() : 'No due date'}
                   </td>
                   <td className="px-6 py-4 whitespace-nowrap text-sm font-medium space-x-2">
+                    <button
+                      onClick={() => exportInvoicePDF(invoice)}
+                      className="text-green-600 hover:text-green-800 p-1.5 transition-all duration-200 hover:bg-green-100 rounded-full hover:shadow-sm transform hover:scale-110"
+                      title="Export PDF"
+                    >
+                      <Download className="w-4 h-4" />
+                    </button>
                     <button
                       onClick={() => setSelectedInvoice(invoice)}
                       className="text-blue-600 hover:text-blue-900"
@@ -982,49 +1163,47 @@ export default function Invoices() {
                   </div>
 
                   <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-2">
+                    <label className="block text-sm font-medium text-gray-700 mb-1">
                       Subtotal *
                     </label>
                     <input
                       type="number"
                       step="0.01"
-                      min="0"
                       value={formData.subtotal}
-                      onChange={(e) => setFormData({ ...formData, subtotal: parseFloat(e.target.value) || 0 })}
+                      onChange={(e) => {
+                        const subtotal = parseFloat(e.target.value) || 0;
+                        const taxAmount = (subtotal * formData.tax_rate) / 100;
+                        setFormData({ 
+                          ...formData, 
+                          subtotal,
+                          tax_amount: taxAmount,
+                          total_amount: subtotal + taxAmount
+                        });
+                      }}
                       className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
                       required
                     />
                   </div>
 
                   <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-2">
-                      Markup Rate (%)
-                    </label>
-                    <input
-                      type="number"
-                      step="0.01"
-                      min="0"
-                      max="100"
-                      value={formData.markup_rate}
-                      onChange={(e) => setFormData({ ...formData, markup_rate: parseFloat(e.target.value) || 0 })}
-                      className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                      placeholder="20.00"
-                    />
-                  </div>
-
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-2">
+                    <label className="block text-sm font-medium text-gray-700 mb-1">
                       Tax Rate (%)
                     </label>
                     <input
                       type="number"
                       step="0.01"
-                      min="0"
-                      max="100"
                       value={formData.tax_rate}
-                      onChange={(e) => setFormData({ ...formData, tax_rate: parseFloat(e.target.value) || 0 })}
+                      onChange={(e) => {
+                        const taxRate = parseFloat(e.target.value) || 0;
+                        const taxAmount = (formData.subtotal * taxRate) / 100;
+                        setFormData({ 
+                          ...formData, 
+                          tax_rate: taxRate,
+                          tax_amount: taxAmount,
+                          total_amount: formData.subtotal + taxAmount
+                        });
+                      }}
                       className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                      placeholder="8.00"
                     />
                   </div>
                 </div>
@@ -1085,7 +1264,6 @@ export default function Invoices() {
                         due_date: '',
                         subtotal: 0,
                         tax_rate: 0,
-                        markup_rate: 20.00,
                         tax_amount: 0,
                         total_amount: 0,
                         notes: ''
@@ -1385,24 +1563,6 @@ export default function Invoices() {
                     Paid: ${selectedInvoiceForPayments.paid_amount.toFixed(2)} | 
                     Balance: ${(selectedInvoiceForPayments.total_amount - selectedInvoiceForPayments.paid_amount).toFixed(2)}
                   </p>
-                  <div className="space-y-2 mb-4">
-                    <div className="flex items-center text-sm text-gray-600">
-                      <DollarSign className="w-4 h-4 mr-3" />
-                      <span>Subtotal: ${selectedInvoiceForPayments.subtotal.toFixed(2)}</span>
-                    </div>
-                    
-                    {selectedInvoiceForPayments.markup_amount && selectedInvoiceForPayments.markup_amount > 0 && (
-                      <div className="flex items-center text-sm text-gray-600">
-                        <DollarSign className="w-4 h-4 mr-3" />
-                        <span>Markup ({selectedInvoiceForPayments.markup_rate}%): ${selectedInvoiceForPayments.markup_amount.toFixed(2)}</span>
-                      </div>
-                    )}
-                    
-                    <div className="flex items-center text-sm text-gray-600">
-                      <DollarSign className="w-4 h-4 mr-3" />
-                      <span>Tax ({selectedInvoiceForPayments.tax_rate}%): ${selectedInvoiceForPayments.tax_amount.toFixed(2)}</span>
-                    </div>
-                  </div>
                 </div>
                 <div className="flex items-center space-x-3">
                   <button
@@ -1698,10 +1858,18 @@ export default function Invoices() {
                     </h3>
                     <div className="bg-gray-50 p-4 rounded-lg space-y-2">
                       <div className="flex justify-between">
-                        <span className="text-gray-600">Status:</span>
-                        <span className={`px-2 py-1 text-xs font-semibold rounded-full ${getStatusColor(selectedInvoice.status)}`}>
-                          {selectedInvoice.status}
-                        </span>
+                        <span className="text-sm font-medium text-gray-700">Status:</span>
+                        <select
+                          value={selectedInvoice.status}
+                          onChange={(e) => updateStatus(selectedInvoice.id, e.target.value)}
+                          className={`text-xs font-medium rounded px-2 py-1 border ${getStatusColor(selectedInvoice.status)}`}
+                        >
+                          <option value="draft">Draft</option>
+                          <option value="sent">Sent</option>
+                          <option value="paid">Paid</option>
+                          <option value="overdue">Overdue</option>
+                          <option value="cancelled">Cancelled</option>
+                        </select>
                       </div>
                       <div className="flex justify-between">
                         <span className="text-gray-600">Issue Date:</span>
@@ -1714,18 +1882,12 @@ export default function Invoices() {
                         </div>
                       )}
                       <div className="flex justify-between">
-                        <span className="text-sm font-medium text-gray-700">Subtotal:</span>
-                        <span className="text-sm text-gray-900">${selectedInvoice.subtotal.toFixed(2)}</span>
+                        <span className="text-gray-600">Subtotal:</span>
+                        <span>{formatCurrency(selectedInvoice.subtotal)}</span>
                       </div>
-                      {selectedInvoice.markup_amount && selectedInvoice.markup_amount > 0 && (
-                        <div className="flex justify-between">
-                          <span className="text-sm font-medium text-gray-700">Markup ({selectedInvoice.markup_rate}%):</span>
-                          <span className="text-sm text-gray-900">${selectedInvoice.markup_amount.toFixed(2)}</span>
-                        </div>
-                      )}
                       <div className="flex justify-between">
-                        <span className="text-sm font-medium text-gray-700">Tax ({selectedInvoice.tax_rate}%):</span>
-                        <span className="text-sm text-gray-900">${selectedInvoice.tax_amount.toFixed(2)}</span>
+                        <span className="text-gray-600">Tax ({selectedInvoice.tax_rate}%):</span>
+                        <span>{formatCurrency(selectedInvoice.tax_amount)}</span>
                       </div>
                       <div className="flex justify-between font-medium text-lg border-t pt-2">
                         <span>Total:</span>
@@ -1756,6 +1918,21 @@ export default function Invoices() {
                   </div>
                 </div>
               )}
+
+              <div className="flex justify-end space-x-3 mt-8 pt-6 border-t border-gray-200">
+                <button
+                  onClick={() => exportInvoicePDF(selectedInvoice)}
+                  className="px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 transition-colors"
+                >
+                  Export PDF
+                </button>
+                <button
+                  onClick={() => handleEdit(selectedInvoice)}
+                  className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors"
+                >
+                  Edit Invoice
+                </button>
+              </div>
             </div>
           </div>
         </div>
