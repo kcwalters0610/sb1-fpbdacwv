@@ -109,18 +109,35 @@ export default function WorkOrders({ selectedRecordId, onRecordViewed }: WorkOrd
         supabase.from('departments').select('*').eq('is_active', true).order('name')
       ])
 
-      // Manually fetch customer sites for each work order
+      // Manually fetch customer sites and time entries for each work order
       const workOrdersWithSites = await Promise.all(
         (workOrdersResult.data || []).map(async (workOrder) => {
+          // Load customer site if exists
+          let customerSite = null
           if (workOrder.customer_site_id) {
-            const { data: customerSite } = await supabase
+            const { data: siteData } = await supabase
               .from('customer_sites')
               .select('*')
               .eq('id', workOrder.customer_site_id)
               .single()
-            return { ...workOrder, customer_site: customerSite }
+            customerSite = siteData
           }
-          return workOrder
+          
+          // Load and calculate total hours from time entries
+          const { data: timeEntries } = await supabase
+            .from('time_entries')
+            .select('duration_minutes, status')
+            .eq('work_order_id', workOrder.id)
+            .eq('status', 'approved')
+          
+          const totalMinutes = timeEntries?.reduce((sum, entry) => sum + (entry.duration_minutes || 0), 0) || 0
+          const totalHours = Math.round((totalMinutes / 60) * 10) / 10 // Round to 1 decimal place
+          
+          return { 
+            ...workOrder, 
+            customer_site: customerSite,
+            calculated_hours: totalHours
+          }
         })
       )
 
@@ -608,7 +625,7 @@ export default function WorkOrders({ selectedRecordId, onRecordViewed }: WorkOrd
                     </td>
                     <td className="hidden lg:table-cell px-6 py-4 whitespace-nowrap">
                       <div className="text-sm text-gray-900">
-                        {workOrder.actual_hours && workOrder.actual_hours > 0 ? `${workOrder.actual_hours}h logged` : 'No hours logged'}
+                        {workOrder.calculated_hours && workOrder.calculated_hours > 0 ? `${workOrder.calculated_hours}h logged` : 'No hours logged'}
                       </div>
                       {workOrder.status === 'completed' && workOrder.completed_date && (
                         <div className="text-xs text-green-600">
@@ -760,10 +777,10 @@ export default function WorkOrders({ selectedRecordId, onRecordViewed }: WorkOrd
                       </div>
                     )}
                     
-                    {workOrder.actual_hours && workOrder.actual_hours > 0 && (
+                    {workOrder.calculated_hours && workOrder.calculated_hours > 0 && (
                       <div className="flex items-center text-sm text-gray-600">
                         <Clock className="w-4 h-4 mr-3" />
-                        <span>{workOrder.actual_hours}h logged</span>
+                        <span>{workOrder.calculated_hours}h logged</span>
                       </div>
                     )}
                     
@@ -1164,8 +1181,8 @@ export default function WorkOrders({ selectedRecordId, onRecordViewed }: WorkOrd
                     <div className="flex justify-between">
                       <span className="text-sm font-medium text-gray-700">Hours Logged:</span>
                       <span className="text-sm text-gray-900">
-                        {selectedWorkOrder.actual_hours && selectedWorkOrder.actual_hours > 0 
-                          ? `${selectedWorkOrder.actual_hours} hours` 
+                        {selectedWorkOrder.calculated_hours && selectedWorkOrder.calculated_hours > 0 
+                          ? `${selectedWorkOrder.calculated_hours} hours` 
                           : 'No hours logged'
                         }
                       </span>
