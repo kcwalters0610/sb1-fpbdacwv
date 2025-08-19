@@ -795,6 +795,18 @@ export default function WorkOrders({ selectedRecordId, onRecordViewed }: WorkOrd
                         >
                           <Eye className="w-4 h-4" />
                         </button>
+                        {workOrder.status === 'completed' && (
+                          <button
+                            onClick={(e) => {
+                              e.stopPropagation()
+                              convertToInvoice(workOrder)
+                            }}
+                            className="text-green-600 hover:text-green-800 p-1.5 transition-all duration-200 hover:bg-green-100 rounded-full hover:shadow-sm transform hover:scale-110"
+                            title="Convert to Invoice"
+                          >
+                            <DollarSign className="w-4 h-4" />
+                          </button>
+                        )}
                         <button
                           onClick={(e) => {
                             e.stopPropagation()
@@ -892,6 +904,42 @@ export default function WorkOrders({ selectedRecordId, onRecordViewed }: WorkOrd
                   
                   <div className="flex justify-between items-center pt-4 border-t border-gray-200">
                     <div className="flex space-x-2">
+                      {!workOrder.assigned_to && (
+                        <>
+                          <button
+                            onClick={(e) => {
+                              e.stopPropagation()
+                              openAssignmentModal(workOrder, 'single')
+                            }}
+                            className="inline-flex items-center px-3 py-1 bg-blue-100 text-blue-700 rounded-md hover:bg-blue-200 transition-colors text-sm"
+                          >
+                            <UserPlus className="w-4 h-4 mr-1" />
+                            Assign
+                          </button>
+                          <button
+                            onClick={(e) => {
+                              e.stopPropagation()
+                              openAssignmentModal(workOrder, 'team')
+                            }}
+                            className="inline-flex items-center px-3 py-1 bg-purple-100 text-purple-700 rounded-md hover:bg-purple-200 transition-colors text-sm"
+                          >
+                            <Users className="w-4 h-4 mr-1" />
+                            Team
+                          </button>
+                        </>
+                      )}
+                      {workOrder.status === 'completed' && (
+                        <button
+                          onClick={(e) => {
+                            e.stopPropagation()
+                            convertToInvoice(workOrder)
+                          }}
+                          className="inline-flex items-center px-3 py-1 bg-green-100 text-green-700 rounded-md hover:bg-green-200 transition-colors text-sm"
+                        >
+                          <DollarSign className="w-4 h-4 mr-1" />
+                          Invoice
+                        </button>
+                      )}
                       {!workOrder.assigned_to && (!workOrder.assignments || workOrder.assignments.length === 0) && (
                         <>
                           <button
