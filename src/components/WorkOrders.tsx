@@ -745,6 +745,18 @@ export default function WorkOrders({ selectedRecordId, onRecordViewed }: WorkOrd
                     </td>
                     <td className="px-6 py-4 whitespace-nowrap text-sm font-medium">
                       <div className="flex space-x-2">
+                        {order.status === 'completed' && (
+                          <button
+                            onClick={(e) => {
+                              e.stopPropagation()
+                              convertToInvoice(order)
+                            }}
+                            className="text-green-600 hover:text-green-800 p-1.5 transition-all duration-200 hover:bg-green-100 rounded-full hover:shadow-sm transform hover:scale-110"
+                            title="Convert to Invoice"
+                          >
+                            <DollarSign className="w-4 h-4" />
+                          </button>
+                        )}
                         {(currentUser?.profile?.role === 'admin' || currentUser?.profile?.role === 'manager' || currentUser?.profile?.role === 'office') && (
                           <>
                             <button
