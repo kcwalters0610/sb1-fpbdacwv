@@ -719,6 +719,11 @@ export default function WorkOrders({ selectedRecordId, onRecordViewed }: WorkOrd
           <div className="p-6">
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
               {filteredWorkOrders.map((workOrder) => (
+                <div key={workOrder.id} className="border border-gray-200 rounded-lg p-6 hover:shadow-md transition-shadow cursor-pointer" onClick={() => setSelectedWorkOrder(workOrder)}>
+                  <div className="flex items-start justify-between mb-4">
+                    <div className="flex-1">
+                      <h3 className="text-lg font-semibold text-gray-900 mb-1">{workOrder.wo_number}</h3>
+                      <p className="text-sm text-gray-600 mb-2">{workOrder.title}</p>
                       <div className="flex space-x-2">
                         <span className={`inline-flex px-2 py-1 text-xs font-medium rounded-full ${getStatusColor(workOrder.status)}`}>
                           {workOrder.status.replace('_', ' ').toUpperCase()}
@@ -727,6 +732,8 @@ export default function WorkOrders({ selectedRecordId, onRecordViewed }: WorkOrd
                           {workOrder.priority.toUpperCase()}
                         </span>
                       </div>
+                    </div>
+                  </div>
                   
                   <div className="space-y-2 mb-4">
                     <div className="flex items-center text-sm text-gray-600">
