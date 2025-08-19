@@ -660,6 +660,40 @@ export default function Invoices() {
   const exportInvoicePDF = async (invoice: Invoice) => {
     try {
       // Get company information
+      
+      // Load related data for the invoice
+      const [purchaseOrdersResult, timeEntriesResult, laborRatesResult] = await Promise.all([
+        // Get purchase orders for this work order
+        invoice.work_order_id ? supabase
+          .from('purchase_orders')
+          .select(`
+            *,
+            vendor:vendors(*),
+            items:purchase_order_items(*)
+          `)
+          .eq('work_order_id', invoice.work_order_id)
+          .eq('status', 'received') : Promise.resolve({ data: [] }),
+        
+        // Get time entries for this work order
+        invoice.work_order_id ? supabase
+          .from('time_entries')
+          .select(`
+            *,
+            user:profiles(*)
+          `)
+          .eq('work_order_id', invoice.work_order_id)
+          .eq('status', 'approved') : Promise.resolve({ data: [] }),
+        
+        // Get labor rates
+        supabase
+          .from('labor_rates')
+          .select('*')
+          .eq('is_active', true)
+      ])
+      
+      const purchaseOrders = purchaseOrdersResult.data || []
+      const timeEntries = timeEntriesResult.data || []
+      const laborRates = laborRatesResult.data || []
       const { data: { user } } = await supabase.auth.getUser();
       if (!user) return;
 
@@ -756,11 +790,98 @@ export default function Invoices() {
         yPos += 10;
       }
       
-      // Invoice items table
+      // Time Entries Section
+      if (timeEntries.length > 0) {
+        yPos += 10
+        doc.setFontSize(14)
+        doc.setFont('helvetica', 'bold')
+        doc.text('Labor Charges', 20, yPos)
+        yPos += 10
+        
+        const timeTableData = timeEntries.map(entry => {
+          const user = entry.user
+          const hours = (entry.duration_minutes || 0) / 60
+          
+          // Find labor rate for this user's role
+          const laborRate = laborRates.find(rate => 
+            rate.role === user?.role && 
+            (!rate.department_id || rate.department_id === user?.department_id)
+          )
+          
+          const hourlyRate = laborRate?.hourly_rate || 50 // Default rate if not found
+          const totalCost = hours * hourlyRate
+          
+          return [
+            user ? `${user.first_name} ${user.last_name}` : 'Unknown',
+            new Date(entry.start_time).toLocaleDateString(),
+            hours.toFixed(2),
+            `$${hourlyRate.toFixed(2)}`,
+            `$${totalCost.toFixed(2)}`,
+            entry.description || 'No description'
+          ]
+        })
+        
+        autoTable(doc, {
+          startY: yPos,
+          head: [['Employee', 'Date', 'Hours', 'Rate', 'Amount', 'Description']],
+          body: timeTableData,
+          theme: 'grid',
+          headStyles: { fillColor: [59, 130, 246] },
+          styles: { fontSize: 9 }
+        })
+        
+        yPos = (doc as any).lastAutoTable.finalY + 10
+      }
+      
+      // Purchase Orders Section
+      if (purchaseOrders.length > 0) {
+        yPos += 10
+        doc.setFontSize(14)
+        doc.setFont('helvetica', 'bold')
+        doc.text('Material Costs', 20, yPos)
+        yPos += 10
+        
+        // Group all items from all purchase orders
+        const allItems: any[] = []
+        purchaseOrders.forEach(po => {
+          if (po.items && po.items.length > 0) {
+            po.items.forEach((item: any) => {
+              allItems.push({
+                ...item,
+                vendor_name: po.vendor?.name || 'Unknown Vendor',
+                po_number: po.po_number
+              })
+            })
+          }
+        })
+        
+        const materialTableData = allItems.map(item => [
+          item.po_number,
+          item.vendor_name,
+          item.description,
+          item.quantity.toString(),
+          `$${item.unit_price.toFixed(2)}`,
+          `$${item.amount.toFixed(2)}`
+        ])
+        
+        autoTable(doc, {
+          startY: yPos,
+          head: [['PO Number', 'Vendor', 'Description', 'Qty', 'Unit Price', 'Amount']],
+          body: materialTableData,
+          theme: 'grid',
+          headStyles: { fillColor: [59, 130, 246] },
+          styles: { fontSize: 9 }
+        })
+        
+        yPos = (doc as any).lastAutoTable.finalY + 10
+      }
+      
+      // Invoice summary table
       yPos += 20;
       const tableData = [
         ['Description', 'Amount']
       ];
+        ...(invoice.markup_rate > 0 ? [['Markup (' + invoice.markup_rate + '%)', `$${invoice.markup_amount.toFixed(2)}`]] : []),
       
       // Add line items (simplified - you may want to expand this based on your invoice structure)
       if (invoice.work_orders) {
