@@ -573,7 +573,6 @@ export default function WorkOrders({ selectedRecordId, onRecordViewed }: WorkOrd
               <tbody className="bg-white divide-y divide-gray-200">
                 {filteredWorkOrders.map((workOrder) => (
                   <tr key={workOrder.id} className="hover:bg-gray-50 cursor-pointer" onClick={() => setSelectedWorkOrder(workOrder)}>
-                    </td>
                     <td className="hidden md:table-cell px-6 py-4 whitespace-nowrap">
                       <div className="text-sm text-gray-900">
                         {workOrder.customer?.customer_type === 'residential' 
