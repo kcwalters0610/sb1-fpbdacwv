@@ -18,6 +18,8 @@ interface Invoice {
   paid_amount: number;
   payment_date?: string;
   notes?: string;
+  markup_rate?: number;
+  markup_amount?: number;
   created_at: string;
   updated_at: string;
   customers?: {
@@ -110,6 +112,7 @@ export default function Invoices() {
     due_date: '',
     subtotal: 0,
     tax_rate: 0,
+    markup_rate: 20.00,
     tax_amount: 0,
     total_amount: 0,
     notes: ''
@@ -242,11 +245,19 @@ export default function Invoices() {
 
       if (!profile) return;
 
+      const subtotal = formData.subtotal;
+      const markupRate = formData.markup_rate;
+      const markupAmount = (subtotal * markupRate) / 100;
+      const subtotalWithMarkup = subtotal + markupAmount;
+      const taxAmount = (subtotal * formData.tax_rate) / 100;
+      const totalAmount = subtotalWithMarkup + taxAmount;
+
       const invoiceData = {
         ...formData,
         company_id: profile.company_id,
-        tax_amount: (formData.subtotal * formData.tax_rate) / 100,
-        total_amount: formData.subtotal + ((formData.subtotal * formData.tax_rate) / 100)
+        markup_amount: markupAmount,
+        tax_amount: taxAmount,
+        total_amount: totalAmount
       };
 
       if (editingInvoice) {
@@ -275,6 +286,7 @@ export default function Invoices() {
         due_date: '',
         subtotal: 0,
         tax_rate: 0,
+        markup_rate: 20.00,
         tax_amount: 0,
         total_amount: 0,
         notes: ''
@@ -296,6 +308,7 @@ export default function Invoices() {
       due_date: invoice.due_date || '',
       subtotal: invoice.subtotal,
       tax_rate: invoice.tax_rate,
+      markup_rate: invoice.markup_rate || 20.00,
       tax_amount: invoice.tax_amount,
       total_amount: invoice.total_amount,
       notes: invoice.notes || ''
@@ -767,6 +780,17 @@ export default function Invoices() {
                     <div className="text-sm font-medium text-gray-900">
                       {formatCurrency(invoice.total_amount)}
                     </div>
+                    <div className="text-sm text-gray-900">
+                      ${invoice.subtotal.toFixed(2)}
+                    </div>
+                    {invoice.markup_amount && invoice.markup_amount > 0 && (
+                      <div className="text-xs text-gray-500">
+                        +${invoice.markup_amount.toFixed(2)} markup
+                      </div>
+                    )}
+                    <div className="text-xs text-gray-500">
+                      +${invoice.tax_amount.toFixed(2)} tax
+                    </div>
                     {invoice.paid_amount > 0 && (
                       <div className="text-xs text-green-600">
                         Paid: {formatCurrency(invoice.paid_amount)}
@@ -958,47 +982,49 @@ export default function Invoices() {
                   </div>
 
                   <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-1">
+                    <label className="block text-sm font-medium text-gray-700 mb-2">
                       Subtotal *
                     </label>
                     <input
                       type="number"
                       step="0.01"
+                      min="0"
                       value={formData.subtotal}
-                      onChange={(e) => {
-                        const subtotal = parseFloat(e.target.value) || 0;
-                        const taxAmount = (subtotal * formData.tax_rate) / 100;
-                        setFormData({ 
-                          ...formData, 
-                          subtotal,
-                          tax_amount: taxAmount,
-                          total_amount: subtotal + taxAmount
-                        });
-                      }}
+                      onChange={(e) => setFormData({ ...formData, subtotal: parseFloat(e.target.value) || 0 })}
                       className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
                       required
                     />
                   </div>
 
                   <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-1">
+                    <label className="block text-sm font-medium text-gray-700 mb-2">
+                      Markup Rate (%)
+                    </label>
+                    <input
+                      type="number"
+                      step="0.01"
+                      min="0"
+                      max="100"
+                      value={formData.markup_rate}
+                      onChange={(e) => setFormData({ ...formData, markup_rate: parseFloat(e.target.value) || 0 })}
+                      className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                      placeholder="20.00"
+                    />
+                  </div>
+
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-2">
                       Tax Rate (%)
                     </label>
                     <input
                       type="number"
                       step="0.01"
+                      min="0"
+                      max="100"
                       value={formData.tax_rate}
-                      onChange={(e) => {
-                        const taxRate = parseFloat(e.target.value) || 0;
-                        const taxAmount = (formData.subtotal * taxRate) / 100;
-                        setFormData({ 
-                          ...formData, 
-                          tax_rate: taxRate,
-                          tax_amount: taxAmount,
-                          total_amount: formData.subtotal + taxAmount
-                        });
-                      }}
+                      onChange={(e) => setFormData({ ...formData, tax_rate: parseFloat(e.target.value) || 0 })}
                       className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                      placeholder="8.00"
                     />
                   </div>
                 </div>
@@ -1059,6 +1085,7 @@ export default function Invoices() {
                         due_date: '',
                         subtotal: 0,
                         tax_rate: 0,
+                        markup_rate: 20.00,
                         tax_amount: 0,
                         total_amount: 0,
                         notes: ''
@@ -1358,6 +1385,24 @@ export default function Invoices() {
                     Paid: ${selectedInvoiceForPayments.paid_amount.toFixed(2)} | 
                     Balance: ${(selectedInvoiceForPayments.total_amount - selectedInvoiceForPayments.paid_amount).toFixed(2)}
                   </p>
+                  <div className="space-y-2 mb-4">
+                    <div className="flex items-center text-sm text-gray-600">
+                      <DollarSign className="w-4 h-4 mr-3" />
+                      <span>Subtotal: ${selectedInvoiceForPayments.subtotal.toFixed(2)}</span>
+                    </div>
+                    
+                    {selectedInvoiceForPayments.markup_amount && selectedInvoiceForPayments.markup_amount > 0 && (
+                      <div className="flex items-center text-sm text-gray-600">
+                        <DollarSign className="w-4 h-4 mr-3" />
+                        <span>Markup ({selectedInvoiceForPayments.markup_rate}%): ${selectedInvoiceForPayments.markup_amount.toFixed(2)}</span>
+                      </div>
+                    )}
+                    
+                    <div className="flex items-center text-sm text-gray-600">
+                      <DollarSign className="w-4 h-4 mr-3" />
+                      <span>Tax ({selectedInvoiceForPayments.tax_rate}%): ${selectedInvoiceForPayments.tax_amount.toFixed(2)}</span>
+                    </div>
+                  </div>
                 </div>
                 <div className="flex items-center space-x-3">
                   <button
@@ -1669,12 +1714,18 @@ export default function Invoices() {
                         </div>
                       )}
                       <div className="flex justify-between">
-                        <span className="text-gray-600">Subtotal:</span>
-                        <span>{formatCurrency(selectedInvoice.subtotal)}</span>
+                        <span className="text-sm font-medium text-gray-700">Subtotal:</span>
+                        <span className="text-sm text-gray-900">${selectedInvoice.subtotal.toFixed(2)}</span>
                       </div>
+                      {selectedInvoice.markup_amount && selectedInvoice.markup_amount > 0 && (
+                        <div className="flex justify-between">
+                          <span className="text-sm font-medium text-gray-700">Markup ({selectedInvoice.markup_rate}%):</span>
+                          <span className="text-sm text-gray-900">${selectedInvoice.markup_amount.toFixed(2)}</span>
+                        </div>
+                      )}
                       <div className="flex justify-between">
-                        <span className="text-gray-600">Tax ({selectedInvoice.tax_rate}%):</span>
-                        <span>{formatCurrency(selectedInvoice.tax_amount)}</span>
+                        <span className="text-sm font-medium text-gray-700">Tax ({selectedInvoice.tax_rate}%):</span>
+                        <span className="text-sm text-gray-900">${selectedInvoice.tax_amount.toFixed(2)}</span>
                       </div>
                       <div className="flex justify-between font-medium text-lg border-t pt-2">
                         <span>Total:</span>
