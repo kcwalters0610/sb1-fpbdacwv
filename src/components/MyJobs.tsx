@@ -19,7 +19,9 @@ import {
   Edit,
   Trash2,
   ShoppingCart,
-  FileText
+  FileText,
+  DollarSign,
+  Receipt
 } from 'lucide-react'
 import { supabase, WorkOrder, Profile } from '../lib/supabase'
 import { getNextNumber, updateNextNumber } from '../lib/numbering'
@@ -72,6 +74,9 @@ export default function MyJobs() {
   const [uploadingPhoto, setUploadingPhoto] = useState(false)
   const [savingDescription, setSavingDescription] = useState(false)
   const [workOrderDescription, setWorkOrderDescription] = useState('')
+  const [showConvertModal, setShowConvertModal] = useState(false)
+  const [convertingToInvoice, setConvertingToInvoice] = useState(false)
+  const [purchaseOrders, setPurchaseOrders] = useState<any[]>([])
 
   const [timeForm, setTimeForm] = useState({
     start_time: '',
@@ -482,6 +487,125 @@ export default function MyJobs() {
       const diffMs = end.getTime() - start.getTime()
       const diffMins = Math.round(diffMs / (1000 * 60))
       setTimeForm({ ...timeForm, duration_minutes: diffMins })
+    }
+  }
+
+  const openConvertModal = async (workOrder: MyJobsWorkOrder) => {
+    setSelectedOrder(workOrder)
+    setShowConvertModal(true)
+    
+    // Load related purchase orders and time entries
+    try {
+      const [poResult, timeResult] = await Promise.all([
+        supabase
+          .from('purchase_orders')
+          .select(`
+            *,
+            items:purchase_order_items(*)
+          `)
+          .eq('work_order_id', workOrder.id),
+        supabase
+          .from('time_entries')
+          .select(`
+            *,
+            user:profiles(first_name, last_name, role)
+          `)
+          .eq('work_order_id', workOrder.id)
+          .eq('status', 'approved')
+      ])
+      
+      setPurchaseOrders(poResult.data || [])
+      setTimeEntries(timeResult.data || [])
+    } catch (error) {
+      console.error('Error loading conversion data:', error)
+    }
+  }
+
+  const convertToInvoice = async () => {
+    if (!selectedOrder) return
+    
+    setConvertingToInvoice(true)
+    try {
+      // Get current user's company_id
+      const { data: { user } } = await supabase.auth.getUser()
+      if (!user) throw new Error('User not authenticated')
+      
+      const { data: profile } = await supabase
+        .from('profiles')
+        .select('company_id')
+        .eq('id', user.id)
+        .single()
+      
+      if (!profile) throw new Error('User profile not found')
+
+      // Generate invoice number
+      const { formattedNumber: invoiceNumber, nextSequence } = await getNextNumber('invoice')
+      
+      // Calculate totals from purchase orders and time entries
+      let subtotal = 0
+      
+      // Add purchase order costs
+      purchaseOrders.forEach(po => {
+        subtotal += po.total_amount || 0
+      })
+      
+      // Add labor costs from time entries
+      timeEntries.forEach(entry => {
+        const hours = entry.duration_minutes / 60
+        // Use a default rate of $75/hour - in a real app, you'd get this from labor rates
+        subtotal += hours * 75
+      })
+      
+      const taxRate = 0.08 // 8% tax rate - should be configurable
+      const taxAmount = subtotal * taxRate
+      const totalAmount = subtotal + taxAmount
+      
+      // Create invoice
+      const invoiceData = {
+        company_id: profile.company_id,
+        customer_id: selectedOrder.customer_id,
+        work_order_id: selectedOrder.id,
+        invoice_number: invoiceNumber,
+        status: 'draft',
+        issue_date: new Date().toISOString().split('T')[0],
+        due_date: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString().split('T')[0], // 30 days from now
+        subtotal: subtotal,
+        tax_rate: taxRate,
+        tax_amount: taxAmount,
+        total_amount: totalAmount,
+        notes: `Generated from Work Order: ${selectedOrder.wo_number}`
+      }
+      
+      const { error } = await supabase
+        .from('invoices')
+        .insert([invoiceData])
+      
+      if (error) throw error
+      
+      // Update the sequence number
+      await updateNextNumber('invoice', nextSequence)
+      
+      // Update work order status to completed if not already
+      if (selectedOrder.status !== 'completed') {
+        await supabase
+          .from('work_orders')
+          .update({ 
+            status: 'completed',
+            completed_date: new Date().toISOString()
+          })
+          .eq('id', selectedOrder.id)
+      }
+      
+      setShowConvertModal(false)
+      setSelectedOrder(null)
+      loadMyJobs()
+      
+      alert(`Invoice ${invoiceNumber} created successfully! Subtotal: $${subtotal.toFixed(2)}, Total: $${totalAmount.toFixed(2)}`)
+    } catch (error) {
+      console.error('Error converting to invoice:', error)
+      alert('Error converting work order to invoice: ' + (error as Error).message)
+    } finally {
+      setConvertingToInvoice(false)
     }
   }
 
@@ -930,6 +1054,15 @@ export default function MyJobs() {
                       <FileText className="w-5 h-5 mr-2" />
                       Edit Description
                     </button>
+                    {selectedOrder.status === 'completed' && (
+                      <button
+                        onClick={() => openConvertModal(selectedOrder)}
+                        className="w-full inline-flex items-center justify-center px-4 py-2 bg-green-100 text-green-700 rounded-lg hover:bg-green-200 transition-colors"
+                      >
+                        <Receipt className="w-5 h-5 mr-2" />
+                        Convert to Invoice
+                      </button>
+                    )}
                   </div>
                 </div>
               </div>
@@ -1374,6 +1507,149 @@ export default function MyJobs() {
                   className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50 transition-colors"
                 >
                   {savingDescription ? 'Saving...' : 'Save Description'}
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Convert to Invoice Modal */}
+      {showConvertModal && selectedOrder && (
+        <div className="fixed inset-0 bg-gray-600 bg-opacity-50 flex items-center justify-center p-4 z-50">
+          <div className="bg-white rounded-xl shadow-xl max-w-4xl w-full max-h-screen overflow-y-auto">
+            <div className="p-6 border-b border-gray-200">
+              <div className="flex items-center justify-between">
+                <h3 className="text-lg font-semibold text-gray-900">
+                  Convert Work Order to Invoice - {selectedOrder.wo_number}
+                </h3>
+                <button
+                  onClick={() => setShowConvertModal(false)}
+                  className="text-gray-400 hover:text-gray-600"
+                >
+                  <X className="w-6 h-6" />
+                </button>
+              </div>
+            </div>
+            
+            <div className="p-6">
+              <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
+                {/* Work Order Info */}
+                <div>
+                  <h4 className="text-lg font-medium text-gray-900 mb-4">Work Order Details</h4>
+                  <div className="bg-gray-50 rounded-lg p-4 space-y-2">
+                    <div className="flex justify-between">
+                      <span className="text-sm font-medium text-gray-700">WO Number:</span>
+                      <span className="text-sm text-gray-900">{selectedOrder.wo_number}</span>
+                    </div>
+                    <div className="flex justify-between">
+                      <span className="text-sm font-medium text-gray-700">Title:</span>
+                      <span className="text-sm text-gray-900">{selectedOrder.title}</span>
+                    </div>
+                    <div className="flex justify-between">
+                      <span className="text-sm font-medium text-gray-700">Customer:</span>
+                      <span className="text-sm text-gray-900">
+                        {selectedOrder.customer?.customer_type === 'residential' 
+                          ? `${selectedOrder.customer?.first_name} ${selectedOrder.customer?.last_name}`
+                          : selectedOrder.customer?.company_name
+                        }
+                      </span>
+                    </div>
+                    <div className="flex justify-between">
+                      <span className="text-sm font-medium text-gray-700">Status:</span>
+                      <span className="text-sm text-gray-900">{selectedOrder.status}</span>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Invoice Preview */}
+                <div>
+                  <h4 className="text-lg font-medium text-gray-900 mb-4">Invoice Preview</h4>
+                  <div className="bg-blue-50 rounded-lg p-4">
+                    <div className="space-y-3">
+                      {/* Labor Costs */}
+                      {timeEntries.length > 0 && (
+                        <div>
+                          <h5 className="text-sm font-semibold text-gray-900 mb-2">Labor Costs</h5>
+                          {timeEntries.map((entry) => (
+                            <div key={entry.id} className="flex justify-between text-sm">
+                              <span className="text-gray-700">
+                                {entry.user?.first_name} {entry.user?.last_name} - {(entry.duration_minutes / 60).toFixed(1)}h
+                              </span>
+                              <span className="text-gray-900 font-medium">
+                                ${((entry.duration_minutes / 60) * 75).toFixed(2)}
+                              </span>
+                            </div>
+                          ))}
+                        </div>
+                      )}
+
+                      {/* Purchase Order Costs */}
+                      {purchaseOrders.length > 0 && (
+                        <div>
+                          <h5 className="text-sm font-semibold text-gray-900 mb-2">Materials & Parts</h5>
+                          {purchaseOrders.map((po) => (
+                            <div key={po.id} className="flex justify-between text-sm">
+                              <span className="text-gray-700">PO: {po.po_number}</span>
+                              <span className="text-gray-900 font-medium">${(po.total_amount || 0).toFixed(2)}</span>
+                            </div>
+                          ))}
+                        </div>
+                      )}
+
+                      {/* Totals */}
+                      <div className="border-t border-blue-200 pt-3 space-y-2">
+                        <div className="flex justify-between text-sm">
+                          <span className="text-gray-700">Subtotal:</span>
+                          <span className="text-gray-900 font-medium">
+                            ${(() => {
+                              const laborCost = timeEntries.reduce((sum, entry) => sum + ((entry.duration_minutes / 60) * 75), 0)
+                              const materialCost = purchaseOrders.reduce((sum, po) => sum + (po.total_amount || 0), 0)
+                              return (laborCost + materialCost).toFixed(2)
+                            })()}
+                          </span>
+                        </div>
+                        <div className="flex justify-between text-sm">
+                          <span className="text-gray-700">Tax (8%):</span>
+                          <span className="text-gray-900 font-medium">
+                            ${(() => {
+                              const laborCost = timeEntries.reduce((sum, entry) => sum + ((entry.duration_minutes / 60) * 75), 0)
+                              const materialCost = purchaseOrders.reduce((sum, po) => sum + (po.total_amount || 0), 0)
+                              const subtotal = laborCost + materialCost
+                              return (subtotal * 0.08).toFixed(2)
+                            })()}
+                          </span>
+                        </div>
+                        <div className="flex justify-between text-lg font-bold border-t border-blue-300 pt-2">
+                          <span className="text-gray-900">Total:</span>
+                          <span className="text-blue-600">
+                            ${(() => {
+                              const laborCost = timeEntries.reduce((sum, entry) => sum + ((entry.duration_minutes / 60) * 75), 0)
+                              const materialCost = purchaseOrders.reduce((sum, po) => sum + (po.total_amount || 0), 0)
+                              const subtotal = laborCost + materialCost
+                              return (subtotal * 1.08).toFixed(2)
+                            })()}
+                          </span>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              <div className="flex justify-end space-x-3 mt-8 pt-6 border-t border-gray-200">
+                <button
+                  onClick={() => setShowConvertModal(false)}
+                  className="px-4 py-2 text-gray-700 bg-gray-100 rounded-lg hover:bg-gray-200 transition-colors"
+                >
+                  Cancel
+                </button>
+                <button
+                  onClick={convertToInvoice}
+                  disabled={convertingToInvoice}
+                  className="px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 disabled:opacity-50 transition-colors"
+                >
+                  {convertingToInvoice ? 'Converting...' : 'Create Invoice'}
                 </button>
               </div>
             </div>
