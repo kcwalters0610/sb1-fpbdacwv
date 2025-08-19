@@ -724,11 +724,6 @@ export default function WorkOrders({ selectedRecordId, onRecordViewed }: WorkOrd
                     <div className="flex-1">
                       <h3 className="text-lg font-semibold text-gray-900 mb-1">{workOrder.wo_number}</h3>
                       <p className="text-sm text-gray-600 mb-2">{workOrder.title}</p>
-                <div key={workOrder.id} className="border border-gray-200 rounded-lg p-6 hover:shadow-md transition-shadow cursor-pointer" onClick={() => setSelectedWorkOrder(workOrder)}>
-                  <div className="flex items-start justify-between mb-4">
-                    <div className="flex-1">
-                      <h3 className="text-lg font-semibold text-gray-900 mb-1">{workOrder.wo_number}</h3>
-                      <p className="text-sm text-gray-600 mb-2">{workOrder.title}</p>
                       <div className="flex space-x-2">
                         <span className={`inline-flex px-2 py-1 text-xs font-medium rounded-full ${getStatusColor(workOrder.status)}`}>
                           {workOrder.status.replace('_', ' ').toUpperCase()}
@@ -737,8 +732,6 @@ export default function WorkOrders({ selectedRecordId, onRecordViewed }: WorkOrd
                           {workOrder.priority.toUpperCase()}
                         </span>
                       </div>
-                    </div>
-                  </div>
                     </div>
                   </div>
                   
@@ -764,13 +757,6 @@ export default function WorkOrders({ selectedRecordId, onRecordViewed }: WorkOrd
                       <div className="flex items-center text-sm text-gray-600">
                         <User className="w-4 h-4 mr-3" />
                         <span>{workOrder.assigned_technician.first_name} {workOrder.assigned_technician.last_name}</span>
-                      </div>
-                    )}
-                    
-                    {workOrder.actual_hours && workOrder.actual_hours > 0 && (
-                      <div className="flex items-center text-sm text-gray-600">
-                        <Clock className="w-4 h-4 mr-3" />
-                        <span>{workOrder.actual_hours}h logged</span>
                       </div>
                     )}
                     
@@ -1184,12 +1170,6 @@ export default function WorkOrders({ selectedRecordId, onRecordViewed }: WorkOrd
                         }
                       </span>
                     </div>
-                    {selectedWorkOrder.actual_hours && selectedWorkOrder.actual_hours > 0 && (
-                      <div className="flex justify-between">
-                        <span className="text-sm font-medium text-gray-700">Hours Logged:</span>
-                        <span className="text-sm text-gray-900">{selectedWorkOrder.actual_hours}h</span>
-                      </div>
-                    )}
                     {selectedWorkOrder.scheduled_date && (
                       <div className="flex justify-between">
                         <span className="text-sm font-medium text-gray-700">Scheduled:</span>
@@ -1221,15 +1201,6 @@ export default function WorkOrders({ selectedRecordId, onRecordViewed }: WorkOrd
                     <div className="mt-6">
                       <h5 className="text-md font-medium text-gray-900 mb-3">Resolution Notes</h5>
                       <div className="bg-green-50 border border-green-200 rounded-lg p-4">
-                        <p className="text-sm text-green-800">{selectedWorkOrder.resolution_notes}</p>
-                      </div>
-                    </div>
-                  )}
-
-                  {selectedWorkOrder.resolution_notes && (
-                    <div className="mt-6">
-                      <h5 className="text-md font-medium text-gray-900 mb-3">Resolution Notes</h5>
-                      <div className="bg-green-50 rounded-lg p-4 border border-green-200">
                         <p className="text-sm text-green-800">{selectedWorkOrder.resolution_notes}</p>
                       </div>
                     </div>
