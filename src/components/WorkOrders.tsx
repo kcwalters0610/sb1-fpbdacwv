@@ -4,7 +4,6 @@ import { supabase, WorkOrder, Customer, Profile, CustomerSite } from '../lib/sup
 import { useViewPreference } from '../hooks/useViewPreference'
 import ViewToggle from './ViewToggle'
 import { getNextNumber, updateNextNumber } from '../lib/numbering'
-import { getNextNumber, updateNextNumber } from '../lib/numbering'
 
 interface WorkOrdersProps {
   selectedRecordId?: string | null
