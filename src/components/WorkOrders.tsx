@@ -553,6 +553,9 @@ export default function WorkOrders({ selectedRecordId, onRecordViewed }: WorkOrd
                   <th className="hidden md:table-cell px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
                     Assigned To
                   </th>
+                  <th className="hidden lg:table-cell px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                    Hours/Progress
+                  </th>
                   <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
                     Status
                   </th>
@@ -573,6 +576,11 @@ export default function WorkOrders({ selectedRecordId, onRecordViewed }: WorkOrd
                     <td className="px-6 py-4 whitespace-nowrap">
                       <div className="text-sm font-medium text-gray-900">{workOrder.wo_number}</div>
                       <div className="text-sm text-gray-500">{workOrder.title}</div>
+                      {workOrder.resolution_notes && (
+                        <div className="text-xs text-blue-600 mt-1 max-w-xs truncate" title={workOrder.resolution_notes}>
+                          Resolution: {workOrder.resolution_notes}
+                        </div>
+                      )}
                     </td>
                     <td className="hidden md:table-cell px-6 py-4 whitespace-nowrap">
                       <div className="text-sm text-gray-900">
@@ -596,6 +604,21 @@ export default function WorkOrders({ selectedRecordId, onRecordViewed }: WorkOrd
                       </div>
                       {workOrder.assigned_dept && (
                         <div className="text-xs text-gray-500">{workOrder.assigned_dept.name}</div>
+                    <td className="hidden lg:table-cell px-6 py-4 whitespace-nowrap">
+                      <div className="text-sm text-gray-900">
+                        {workOrder.actual_hours ? `${workOrder.actual_hours}h logged` : 'No hours logged'}
+                      </div>
+                      {workOrder.status === 'completed' && workOrder.completed_date && (
+                        <div className="text-xs text-green-600">
+                          Completed: {new Date(workOrder.completed_date).toLocaleDateString()}
+                        </div>
+                      )}
+                      {workOrder.status === 'in_progress' && (
+                        <div className="text-xs text-blue-600">
+                          In Progress
+                        </div>
+                      )}
+                    </td>
                       )}
                     </td>
                     <td className="px-6 py-4 whitespace-nowrap">
@@ -734,6 +757,20 @@ export default function WorkOrders({ selectedRecordId, onRecordViewed }: WorkOrd
                       <div className="flex items-center text-sm text-gray-600">
                         <User className="w-4 h-4 mr-3" />
                         <span>{workOrder.assigned_technician.first_name} {workOrder.assigned_technician.last_name}</span>
+                      </div>
+                    )}
+                    
+                    {workOrder.actual_hours && workOrder.actual_hours > 0 && (
+                      <div className="flex items-center text-sm text-gray-600">
+                        <Clock className="w-4 h-4 mr-3" />
+                        <span>{workOrder.actual_hours}h logged</span>
+                      </div>
+                    )}
+                    
+                    {workOrder.resolution_notes && (
+                      <div className="flex items-start text-sm text-gray-600">
+                        <CheckCircle className="w-4 h-4 mr-3 mt-0.5" />
+                        <span className="text-xs">{workOrder.resolution_notes}</span>
                       </div>
                     )}
                     
@@ -954,42 +991,6 @@ export default function WorkOrders({ selectedRecordId, onRecordViewed }: WorkOrd
                           {site.site_name}
                         </option>
                       ))
-                    ) : (
-                      formData.customer_id && <option disabled>No additional sites found</option>
-                    )}
-                  </select>
-                </div>
-
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-2">
-                    Assigned Technician
-                  </label>
-                  <select
-                    value={formData.assigned_to}
-                    onChange={(e) => setFormData({ ...formData, assigned_to: e.target.value })}
-                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                  >
-                    <option value="">Unassigned</option>
-                    {technicians.map((tech) => (
-                      <option key={tech.id} value={tech.id}>
-                        {tech.first_name} {tech.last_name}
-                      </option>
-                    ))}
-                  </select>
-                </div>
-
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-2">
-                    Department
-                  </label>
-                  <select
-                    value={formData.department_id}
-                    onChange={(e) => setFormData({ ...formData, department_id: e.target.value })}
-                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                  >
-                    <option value="">No Department</option>
-                    {departments.map((dept) => (
-                      <option key={dept.id} value={dept.id}>
                         {dept.name}
                       </option>
                     ))}
@@ -1126,11 +1127,25 @@ export default function WorkOrders({ selectedRecordId, onRecordViewed }: WorkOrd
                         {selectedWorkOrder.priority.toUpperCase()}
                       </span>
                     </div>
+                    {selectedWorkOrder.actual_hours && selectedWorkOrder.actual_hours > 0 && (
+                      <div className="flex justify-between">
+                        <span className="text-sm font-medium text-gray-700">Hours Logged:</span>
+                        <span className="text-sm text-gray-900">{selectedWorkOrder.actual_hours}h</span>
+                      </div>
+                    )}
                     {selectedWorkOrder.scheduled_date && (
                       <div className="flex justify-between">
                         <span className="text-sm font-medium text-gray-700">Scheduled:</span>
                         <span className="text-sm text-gray-900">
                           {new Date(selectedWorkOrder.scheduled_date).toLocaleDateString()}
+                        </span>
+                      </div>
+                    )}
+                    {selectedWorkOrder.completed_date && (
+                      <div className="flex justify-between">
+                        <span className="text-sm font-medium text-gray-700">Completed:</span>
+                        <span className="text-sm text-gray-900">
+                          {new Date(selectedWorkOrder.completed_date).toLocaleDateString()}
                         </span>
                       </div>
                     )}
@@ -1149,6 +1164,15 @@ export default function WorkOrders({ selectedRecordId, onRecordViewed }: WorkOrd
                       <h5 className="text-md font-medium text-gray-900 mb-3">Description</h5>
                       <div className="bg-gray-50 rounded-lg p-4">
                         <p className="text-sm text-gray-700">{selectedWorkOrder.description}</p>
+                      </div>
+                    </div>
+                  )}
+
+                  {selectedWorkOrder.resolution_notes && (
+                    <div className="mt-6">
+                      <h5 className="text-md font-medium text-gray-900 mb-3">Resolution Notes</h5>
+                      <div className="bg-green-50 rounded-lg p-4 border border-green-200">
+                        <p className="text-sm text-green-800">{selectedWorkOrder.resolution_notes}</p>
                       </div>
                     </div>
                   )}
