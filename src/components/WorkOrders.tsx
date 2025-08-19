@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react'
-import { Plus, Search, Calendar, User, Building2, Edit, Trash2, Eye, X, Clock, UserPlus, Users, DollarSign, ArrowRight } from 'lucide-react'
+import { Plus, Search, Calendar, User, Building2, Edit, Trash2, Eye, X, Clock, UserPlus, Users, DollarSign, ArrowRight, CheckCircle } from 'lucide-react'
 import { supabase, WorkOrder, Customer, Profile, CustomerSite } from '../lib/supabase'
 import { useViewPreference } from '../hooks/useViewPreference'
 import ViewToggle from './ViewToggle'
@@ -604,6 +604,8 @@ export default function WorkOrders({ selectedRecordId, onRecordViewed }: WorkOrd
                       </div>
                       {workOrder.assigned_dept && (
                         <div className="text-xs text-gray-500">{workOrder.assigned_dept.name}</div>
+                      )}
+                    </td>
                     <td className="hidden lg:table-cell px-6 py-4 whitespace-nowrap">
                       <div className="text-sm text-gray-900">
                         {workOrder.actual_hours ? `${workOrder.actual_hours}h logged` : 'No hours logged'}
@@ -617,8 +619,6 @@ export default function WorkOrders({ selectedRecordId, onRecordViewed }: WorkOrd
                         <div className="text-xs text-blue-600">
                           In Progress
                         </div>
-                      )}
-                    </td>
                       )}
                     </td>
                     <td className="px-6 py-4 whitespace-nowrap">
@@ -991,6 +991,40 @@ export default function WorkOrders({ selectedRecordId, onRecordViewed }: WorkOrd
                           {site.site_name}
                         </option>
                       ))
+                    ) : null}
+                  </select>
+                </div>
+
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-2">
+                    Assigned Technician
+                  </label>
+                  <select
+                    value={formData.assigned_to}
+                    onChange={(e) => setFormData({ ...formData, assigned_to: e.target.value })}
+                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                  >
+                    <option value="">Select Technician</option>
+                    {technicians.map((tech) => (
+                      <option key={tech.id} value={tech.id}>
+                        {tech.first_name} {tech.last_name}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-2">
+                    Department
+                  </label>
+                  <select
+                    value={formData.department_id}
+                    onChange={(e) => setFormData({ ...formData, department_id: e.target.value })}
+                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                  >
+                    <option value="">Select Department</option>
+                    {departments.map((dept) => (
+                      <option key={dept.id} value={dept.id}>
                         {dept.name}
                       </option>
                     ))}
@@ -1138,14 +1172,6 @@ export default function WorkOrders({ selectedRecordId, onRecordViewed }: WorkOrd
                         <span className="text-sm font-medium text-gray-700">Scheduled:</span>
                         <span className="text-sm text-gray-900">
                           {new Date(selectedWorkOrder.scheduled_date).toLocaleDateString()}
-                        </span>
-                      </div>
-                    )}
-                    {selectedWorkOrder.completed_date && (
-                      <div className="flex justify-between">
-                        <span className="text-sm font-medium text-gray-700">Completed:</span>
-                        <span className="text-sm text-gray-900">
-                          {new Date(selectedWorkOrder.completed_date).toLocaleDateString()}
                         </span>
                       </div>
                     )}
