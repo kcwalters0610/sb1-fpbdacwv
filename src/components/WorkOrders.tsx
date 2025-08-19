@@ -727,7 +727,6 @@ export default function WorkOrders({ selectedRecordId, onRecordViewed }: WorkOrd
                           {workOrder.priority.toUpperCase()}
                         </span>
                       </div>
-                  </div>
                   
                   <div className="space-y-2 mb-4">
                     <div className="flex items-center text-sm text-gray-600">
