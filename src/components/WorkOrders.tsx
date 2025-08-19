@@ -952,6 +952,8 @@ export default function WorkOrders({ selectedRecordId, onRecordViewed }: WorkOrd
                             <UserPlus className="w-4 h-4 mr-1" />
                             Assign
                           </button>
+                        </>
+                      )}
                     </div>
                     <div className="text-blue-600 text-sm font-medium">
                       Click to view →
