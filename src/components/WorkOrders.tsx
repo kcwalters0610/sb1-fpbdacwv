@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react'
-import { Plus, Search, Calendar, User, Clock, Edit, Trash2, Eye, X, Building2, MapPin, Phone, CheckCircle, ArrowRight, Users } from 'lucide-react'
+import { Plus, Search, Calendar, User, Clock, Edit, Trash2, Eye, X, Building2, MapPin, Phone, CheckCircle, ArrowRight, Users, DollarSign } from 'lucide-react'
 import { supabase, WorkOrder, Customer, Profile, CustomerSite } from '../lib/supabase'
 import { useViewPreference } from '../hooks/useViewPreference'
 import ViewToggle from './ViewToggle'
