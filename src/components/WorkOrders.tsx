@@ -573,15 +573,6 @@ export default function WorkOrders({ selectedRecordId, onRecordViewed }: WorkOrd
               <tbody className="bg-white divide-y divide-gray-200">
                 {filteredWorkOrders.map((workOrder) => (
                   <tr key={workOrder.id} className="hover:bg-gray-50 cursor-pointer" onClick={() => setSelectedWorkOrder(workOrder)}>
-                    <td className="px-6 py-4 whitespace-nowrap">
-                      <div className="text-sm font-medium text-gray-900">{workOrder.wo_number}</div>
-                      <div className="text-sm text-gray-500">{workOrder.title}</div>
-                      <div className="text-xs text-blue-600 mt-1">
-                        {workOrder.totalHours && workOrder.totalHours > 0 
-                          ? `${workOrder.totalHours}h logged` 
-                          : 'No hours logged'
-                        }
-                      </div>
                     </td>
                     <td className="hidden md:table-cell px-6 py-4 whitespace-nowrap">
                       <div className="text-sm text-gray-900">
@@ -609,7 +600,7 @@ export default function WorkOrders({ selectedRecordId, onRecordViewed }: WorkOrd
                     </td>
                     <td className="hidden lg:table-cell px-6 py-4 whitespace-nowrap">
                       <div className="text-sm text-gray-900">
-                        {workOrder.actual_hours && workOrder.actual_hours > 0 ? `${workOrder.actual_hours}h logged` : 'No hours logged'}
+                        {workOrder.totalHours && workOrder.totalHours > 0 ? `${workOrder.totalHours.toFixed(1)}h logged` : 'No hours logged'}
                       </div>
                       {workOrder.status === 'completed' && workOrder.completed_date && (
                         <div className="text-xs text-green-600">
