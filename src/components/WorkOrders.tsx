@@ -576,11 +576,6 @@ export default function WorkOrders({ selectedRecordId, onRecordViewed }: WorkOrd
                     <td className="px-6 py-4 whitespace-nowrap">
                       <div className="text-sm font-medium text-gray-900">{workOrder.wo_number}</div>
                       <div className="text-sm text-gray-500">{workOrder.title}</div>
-                      {workOrder.resolution_notes && (
-                        <div className="text-xs text-blue-600 mt-1 max-w-xs truncate" title={workOrder.resolution_notes}>
-                          Resolution: {workOrder.resolution_notes}
-                        </div>
-                      )}
                     </td>
                     <td className="hidden md:table-cell px-6 py-4 whitespace-nowrap">
                       <div className="text-sm text-gray-900">
