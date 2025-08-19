@@ -875,12 +875,10 @@ export default function Invoices() {
         
         yPos = (doc as any).lastAutoTable.finalY + 10
       }
-      
-      // Invoice summary table
       yPos += 20;
       const tableData = [
         ['Description', 'Amount']
-      ];
+      ]
         ...(invoice.markup_rate > 0 ? [['Markup (' + invoice.markup_rate + '%)', `$${invoice.markup_amount.toFixed(2)}`]] : []),
       
       // Add line items (simplified - you may want to expand this based on your invoice structure)
