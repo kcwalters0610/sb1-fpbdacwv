@@ -18,7 +18,8 @@ import {
   Save,
   Edit,
   Trash2,
-  ShoppingCart
+  ShoppingCart,
+  FileText
 } from 'lucide-react'
 import { supabase, WorkOrder, Profile } from '../lib/supabase'
 import { getNextNumber, updateNextNumber } from '../lib/numbering'
@@ -64,10 +65,13 @@ export default function MyJobs() {
   const [showTimeModal, setShowTimeModal] = useState(false)
   const [showPhotoModal, setShowPhotoModal] = useState(false)
   const [showPOModal, setShowPOModal] = useState(false)
+  const [showDescriptionModal, setShowDescriptionModal] = useState(false)
   const [timeEntries, setTimeEntries] = useState<TimeEntry[]>([])
   const [photos, setPhotos] = useState<WorkOrderPhoto[]>([])
   const [vendors, setVendors] = useState<Vendor[]>([])
   const [uploadingPhoto, setUploadingPhoto] = useState(false)
+  const [savingDescription, setSavingDescription] = useState(false)
+  const [workOrderDescription, setWorkOrderDescription] = useState('')
 
   const [timeForm, setTimeForm] = useState({
     start_time: '',
@@ -225,6 +229,41 @@ export default function MyJobs() {
       console.error('Error loading my jobs:', error)
     } finally {
       setLoading(false)
+    }
+  }
+
+  const openDescriptionModal = (workOrder: MyJobsWorkOrder) => {
+    setSelectedOrder(workOrder)
+    setWorkOrderDescription(workOrder.description || '')
+    setShowDescriptionModal(true)
+  }
+
+  const saveDescription = async () => {
+    if (!selectedOrder) return
+    
+    setSavingDescription(true)
+    try {
+      const { error } = await supabase
+        .from('work_orders')
+        .update({ description: workOrderDescription })
+        .eq('id', selectedOrder.id)
+      
+      if (error) throw error
+      
+      // Update the local state
+      setWorkOrders(prev => prev.map(wo => 
+        wo.id === selectedOrder.id 
+          ? { ...wo, description: workOrderDescription }
+          : wo
+      ))
+      
+      setShowDescriptionModal(false)
+      setSelectedOrder(null)
+    } catch (error) {
+      console.error('Error saving description:', error)
+      alert('Error saving description')
+    } finally {
+      setSavingDescription(false)
     }
   }
 
@@ -884,6 +923,13 @@ export default function MyJobs() {
                       <ShoppingCart className="w-5 h-5 mr-2" />
                       Create Purchase Order
                     </button>
+                    <button
+                      onClick={() => openDescriptionModal(selectedOrder)}
+                      className="w-full inline-flex items-center justify-center px-4 py-2 bg-blue-100 text-blue-700 rounded-lg hover:bg-blue-200 transition-colors"
+                    >
+                      <FileText className="w-5 h-5 mr-2" />
+                      Edit Description
+                    </button>
                   </div>
                 </div>
               </div>
@@ -1269,6 +1315,68 @@ export default function MyJobs() {
                 </button>
               </div>
             </form>
+          </div>
+        </div>
+      )}
+
+      {/* Description Modal */}
+      {showDescriptionModal && selectedOrder && (
+        <div className="fixed inset-0 bg-gray-600 bg-opacity-50 flex items-center justify-center p-4 z-50">
+          <div className="bg-white rounded-xl shadow-xl max-w-2xl w-full">
+            <div className="p-6 border-b border-gray-200">
+              <div className="flex items-center justify-between">
+                <h3 className="text-lg font-semibold text-gray-900">
+                  Work Order Description - {selectedOrder.wo_number}
+                </h3>
+                <button
+                  onClick={() => setShowDescriptionModal(false)}
+                  className="text-gray-400 hover:text-gray-600"
+                >
+                  <X className="w-6 h-6" />
+                </button>
+              </div>
+            </div>
+            
+            <div className="p-6">
+              <div className="mb-4">
+                <h4 className="text-md font-medium text-gray-900 mb-2">Job Title</h4>
+                <p className="text-sm text-gray-700 bg-gray-50 p-3 rounded-lg">
+                  {selectedOrder.title}
+                </p>
+              </div>
+              
+              <div className="mb-6">
+                <label className="block text-sm font-medium text-gray-700 mb-2">
+                  Work Description & Notes
+                </label>
+                <textarea
+                  value={workOrderDescription}
+                  onChange={(e) => setWorkOrderDescription(e.target.value)}
+                  rows={8}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                  placeholder="Add detailed description of work performed, issues found, parts used, recommendations, etc..."
+                />
+                <p className="text-xs text-gray-500 mt-1">
+                  Document work performed, issues encountered, and any recommendations for the customer.
+                </p>
+              </div>
+
+              <div className="flex justify-end space-x-3">
+                <button
+                  onClick={() => setShowDescriptionModal(false)}
+                  className="px-4 py-2 text-gray-700 bg-gray-100 rounded-lg hover:bg-gray-200 transition-colors"
+                >
+                  Cancel
+                </button>
+                <button
+                  onClick={saveDescription}
+                  disabled={savingDescription}
+                  className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50 transition-colors"
+                >
+                  {savingDescription ? 'Saving...' : 'Save Description'}
+                </button>
+              </div>
+            </div>
           </div>
         </div>
       )}
