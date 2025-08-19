@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react'
-import { Plus, Search, Calendar, User, Building2, Edit, Trash2, Eye, X, Clock, UserPlus, Users, DollarSign, ArrowRight, CheckCircle } from 'lucide-react'
+import { Plus, Search, Calendar, User, Clock, Edit, Trash2, Eye, X, Building2, MapPin, Phone, CheckCircle, ArrowRight, Users } from 'lucide-react'
 import { supabase, WorkOrder, Customer, Profile, CustomerSite } from '../lib/supabase'
 import { useViewPreference } from '../hooks/useViewPreference'
 import ViewToggle from './ViewToggle'
@@ -10,24 +10,48 @@ interface WorkOrdersProps {
   onRecordViewed?: () => void
 }
 
+interface TimeEntry {
+  id: string
+  user_id: string
+  work_order_id: string
+  start_time: string
+  end_time?: string
+  duration_minutes: number
+  description: string
+  status: 'pending' | 'approved' | 'rejected'
+  entry_type: 'work' | 'pto' | 'sick' | 'holiday'
+  user?: {
+    first_name: string
+    last_name: string
+    role: string
+  }
+}
+
+interface WorkOrderWithHours extends WorkOrder {
+  time_entries?: TimeEntry[]
+  total_hours?: number
+  approved_hours?: number
+}
+
 export default function WorkOrders({ selectedRecordId, onRecordViewed }: WorkOrdersProps = {}) {
-  const { viewType, setViewType } = useViewPreference('workOrders')
-  const [workOrders, setWorkOrders] = useState<WorkOrder[]>([])
+  const { viewType, setViewType } = useViewPreference('workorders')
+  const [workOrders, setWorkOrders] = useState<WorkOrderWithHours[]>([])
   const [customers, setCustomers] = useState<Customer[]>([])
   const [technicians, setTechnicians] = useState<Profile[]>([])
   const [customerSites, setCustomerSites] = useState<CustomerSite[]>([])
+  const [projects, setProjects] = useState<any[]>([])
   const [departments, setDepartments] = useState<any[]>([])
   const [loading, setLoading] = useState(true)
   const [showForm, setShowForm] = useState(false)
   const [editingWorkOrder, setEditingWorkOrder] = useState<WorkOrder | null>(null)
-  const [selectedWorkOrder, setSelectedWorkOrder] = useState<WorkOrder | null>(null)
+  const [selectedWorkOrder, setSelectedWorkOrder] = useState<WorkOrderWithHours | null>(null)
   const [searchTerm, setSearchTerm] = useState('')
   const [statusFilter, setStatusFilter] = useState('')
   const [priorityFilter, setPriorityFilter] = useState('')
   const [loadingSites, setLoadingSites] = useState(false)
+  const [currentUser, setCurrentUser] = useState<any>(null)
   const [showAssignmentModal, setShowAssignmentModal] = useState(false)
-  const [assignmentWorkOrder, setAssignmentWorkOrder] = useState<WorkOrder | null>(null)
-  const [assignmentType, setAssignmentType] = useState<'single' | 'team'>('single')
+  const [selectedWorkOrderForAssignment, setSelectedWorkOrderForAssignment] = useState<WorkOrder | null>(null)
   const [selectedTechnicians, setSelectedTechnicians] = useState<string[]>([])
 
   const [formData, setFormData] = useState({
@@ -38,13 +62,16 @@ export default function WorkOrders({ selectedRecordId, onRecordViewed }: WorkOrd
     customer_site_id: '',
     assigned_to: '',
     department_id: '',
+    project_id: '',
     priority: 'medium',
     status: 'open',
     scheduled_date: '',
+    work_type: '',
     notes: ''
   })
 
   useEffect(() => {
+    getCurrentUser()
     loadData()
   }, [])
 
@@ -76,6 +103,23 @@ export default function WorkOrders({ selectedRecordId, onRecordViewed }: WorkOrd
     }
   }, [formData.customer_id])
 
+  const getCurrentUser = async () => {
+    try {
+      const { data: { user } } = await supabase.auth.getUser()
+      if (user) {
+        const { data: profile } = await supabase
+          .from('profiles')
+          .select('*')
+          .eq('id', user.id)
+          .single()
+        
+        setCurrentUser({ ...user, profile })
+      }
+    } catch (error) {
+      console.error('Error getting current user:', error)
+    }
+  }
+
   const generateWorkOrderNumber = async () => {
     try {
       const { formattedNumber: woNumber } = await getNextNumber('work_order')
@@ -87,7 +131,7 @@ export default function WorkOrders({ selectedRecordId, onRecordViewed }: WorkOrd
 
   const loadData = async () => {
     try {
-      const [workOrdersResult, customersResult, techniciansResult, departmentsResult] = await Promise.all([
+      const [workOrdersResult, customersResult, techniciansResult, projectsResult, departmentsResult] = await Promise.all([
         supabase
           .from('work_orders')
           .select(`
@@ -100,18 +144,44 @@ export default function WorkOrders({ selectedRecordId, onRecordViewed }: WorkOrd
               id,
               tech_id,
               is_primary,
-              tech:profiles!work_order_assignments_tech_id_fkey(*)
+              technician:profiles!tech_id(*)
             )
           `)
           .order('created_at', { ascending: false }),
         supabase.from('customers').select('*').order('first_name'),
-        supabase.from('profiles').select('*').in('role', ['tech', 'admin', 'manager']).eq('is_active', true).order('first_name'),
+        supabase.from('profiles').select('*').in('role', ['tech', 'admin', 'manager']).order('first_name'),
+        supabase.from('projects').select('*').order('project_name'),
         supabase.from('departments').select('*').eq('is_active', true).order('name')
       ])
 
+      // Load time entries for each work order
+      const workOrdersWithHours = await Promise.all(
+        (workOrdersResult.data || []).map(async (workOrder) => {
+          const { data: timeEntries } = await supabase
+            .from('time_entries')
+            .select(`
+              *,
+              user:profiles(first_name, last_name, role)
+            `)
+            .eq('work_order_id', workOrder.id)
+            .order('start_time', { ascending: false })
+
+          const totalMinutes = timeEntries?.reduce((sum, entry) => sum + (entry.duration_minutes || 0), 0) || 0
+          const approvedMinutes = timeEntries?.filter(entry => entry.status === 'approved')
+            .reduce((sum, entry) => sum + (entry.duration_minutes || 0), 0) || 0
+
+          return {
+            ...workOrder,
+            time_entries: timeEntries || [],
+            total_hours: totalMinutes / 60,
+            approved_hours: approvedMinutes / 60
+          }
+        })
+      )
+
       // Manually fetch customer sites for each work order
       const workOrdersWithSites = await Promise.all(
-        (workOrdersResult.data || []).map(async (workOrder) => {
+        workOrdersWithHours.map(async (workOrder) => {
           if (workOrder.customer_site_id) {
             const { data: customerSite } = await supabase
               .from('customer_sites')
@@ -127,6 +197,7 @@ export default function WorkOrders({ selectedRecordId, onRecordViewed }: WorkOrd
       setWorkOrders(workOrdersWithSites)
       setCustomers(customersResult.data || [])
       setTechnicians(techniciansResult.data || [])
+      setProjects(projectsResult.data || [])
       setDepartments(departmentsResult.data || [])
     } catch (error) {
       console.error('Error loading data:', error)
@@ -156,109 +227,6 @@ export default function WorkOrders({ selectedRecordId, onRecordViewed }: WorkOrd
     }
   }
 
-  const openAssignmentModal = (workOrder: WorkOrder, type: 'single' | 'team') => {
-    setAssignmentWorkOrder(workOrder)
-    setAssignmentType(type)
-    setSelectedTechnicians(
-      workOrder.assignments?.map(a => a.tech_id) || 
-      (workOrder.assigned_to ? [workOrder.assigned_to] : [])
-    )
-    setShowAssignmentModal(true)
-  }
-
-  const handleAssignment = async () => {
-    if (!assignmentWorkOrder || selectedTechnicians.length === 0) return
-
-    try {
-      if (assignmentType === 'single') {
-        // Single assignment - update the work order's assigned_to field
-        const { error } = await supabase
-          .from('work_orders')
-          .update({ assigned_to: selectedTechnicians[0] })
-          .eq('id', assignmentWorkOrder.id)
-        if (error) throw error
-      } else {
-        // Team assignment - use work_order_assignments table
-        // First, remove existing assignments
-        await supabase
-          .from('work_order_assignments')
-          .delete()
-          .eq('work_order_id', assignmentWorkOrder.id)
-
-        // Then add new assignments
-        const assignments = selectedTechnicians.map((techId, index) => ({
-          work_order_id: assignmentWorkOrder.id,
-          tech_id: techId,
-          is_primary: index === 0,
-          company_id: assignmentWorkOrder.company_id
-        }))
-
-        const { error } = await supabase
-          .from('work_order_assignments')
-          .insert(assignments)
-        if (error) throw error
-      }
-
-      setShowAssignmentModal(false)
-      setAssignmentWorkOrder(null)
-      setSelectedTechnicians([])
-      loadData()
-    } catch (error) {
-      console.error('Error assigning technicians:', error)
-    }
-  }
-
-  const convertToInvoice = async (workOrder: WorkOrder) => {
-    if (!confirm(`Convert work order "${workOrder.wo_number}" to an invoice?`)) return
-
-    try {
-      // Get current user's company_id
-      const { data: { user } } = await supabase.auth.getUser()
-      if (!user) throw new Error('User not authenticated')
-      
-      const { data: profile } = await supabase
-        .from('profiles')
-        .select('company_id')
-        .eq('id', user.id)
-        .single()
-      
-      if (!profile) throw new Error('User profile not found')
-
-      // Generate invoice number
-      const { formattedNumber: invoiceNumber, nextSequence } = await getNextNumber('invoice')
-      
-      // Create invoice from work order
-      const invoiceData = {
-        company_id: profile.company_id,
-        invoice_number: invoiceNumber,
-        customer_id: workOrder.customer_id,
-        work_order_id: workOrder.id,
-        status: 'draft',
-        issue_date: new Date().toISOString().split('T')[0],
-        due_date: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString().split('T')[0], // 30 days from now
-        subtotal: 0,
-        tax_rate: 0,
-        tax_amount: 0,
-        total_amount: 0,
-        notes: `Generated from work order: ${workOrder.wo_number}`
-      }
-
-      const { error } = await supabase
-        .from('invoices')
-        .insert([invoiceData])
-      
-      if (error) throw error
-      
-      // Update the sequence number
-      await updateNextNumber('invoice', nextSequence)
-
-      alert(`Invoice ${invoiceNumber} created successfully from work order ${workOrder.wo_number}!`)
-    } catch (error) {
-      console.error('Error converting to invoice:', error)
-      alert('Error converting work order to invoice: ' + (error as Error).message)
-    }
-  }
-
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
     setLoading(true)
@@ -285,9 +253,11 @@ export default function WorkOrders({ selectedRecordId, onRecordViewed }: WorkOrd
         customer_site_id: formData.customer_site_id || null,
         assigned_to: formData.assigned_to || null,
         department_id: formData.department_id || null,
+        project_id: formData.project_id || null,
         priority: formData.priority,
         status: formData.status,
         scheduled_date: formData.scheduled_date || null,
+        work_type: formData.work_type || null,
         notes: formData.notes || null
       }
 
@@ -331,9 +301,11 @@ export default function WorkOrders({ selectedRecordId, onRecordViewed }: WorkOrd
       customer_site_id: '',
       assigned_to: '',
       department_id: '',
+      project_id: '',
       priority: 'medium',
       status: 'open',
       scheduled_date: '',
+      work_type: '',
       notes: ''
     })
     setCustomerSites([])
@@ -349,9 +321,11 @@ export default function WorkOrders({ selectedRecordId, onRecordViewed }: WorkOrd
       customer_site_id: workOrder.customer_site_id || '',
       assigned_to: workOrder.assigned_to || '',
       department_id: workOrder.department_id || '',
+      project_id: workOrder.project_id || '',
       priority: workOrder.priority,
       status: workOrder.status,
-      scheduled_date: workOrder.scheduled_date ? workOrder.scheduled_date.split('T')[0] : '',
+      scheduled_date: workOrder.scheduled_date ? workOrder.scheduled_date.slice(0, 16) : '',
+      work_type: workOrder.work_type || '',
       notes: workOrder.notes || ''
     })
     
@@ -396,6 +370,47 @@ export default function WorkOrders({ selectedRecordId, onRecordViewed }: WorkOrd
     }
   }
 
+  const openAssignmentModal = (workOrder: WorkOrder) => {
+    setSelectedWorkOrderForAssignment(workOrder)
+    setSelectedTechnicians(workOrder.assignments?.map(a => a.tech_id) || [])
+    setShowAssignmentModal(true)
+  }
+
+  const handleMultiAssignment = async () => {
+    if (!selectedWorkOrderForAssignment) return
+
+    try {
+      // Remove existing assignments
+      await supabase
+        .from('work_order_assignments')
+        .delete()
+        .eq('work_order_id', selectedWorkOrderForAssignment.id)
+
+      // Add new assignments
+      if (selectedTechnicians.length > 0) {
+        const assignments = selectedTechnicians.map((techId, index) => ({
+          work_order_id: selectedWorkOrderForAssignment.id,
+          tech_id: techId,
+          is_primary: index === 0,
+          company_id: selectedWorkOrderForAssignment.company_id
+        }))
+
+        const { error } = await supabase
+          .from('work_order_assignments')
+          .insert(assignments)
+
+        if (error) throw error
+      }
+
+      setShowAssignmentModal(false)
+      setSelectedWorkOrderForAssignment(null)
+      setSelectedTechnicians([])
+      loadData()
+    } catch (error) {
+      console.error('Error updating assignments:', error)
+    }
+  }
+
   const getStatusColor = (status: string) => {
     switch (status) {
       case 'completed': return 'text-green-700 bg-green-100'
@@ -415,6 +430,11 @@ export default function WorkOrders({ selectedRecordId, onRecordViewed }: WorkOrd
       case 'low': return 'text-green-700 bg-green-100'
       default: return 'text-gray-700 bg-gray-100'
     }
+  }
+
+  const formatHours = (hours: number) => {
+    if (hours === 0) return 'No hours logged'
+    return `${hours.toFixed(1)}h`
   }
 
   const filteredWorkOrders = workOrders.filter(workOrder => {
@@ -459,7 +479,7 @@ export default function WorkOrders({ selectedRecordId, onRecordViewed }: WorkOrd
       <div className="grid grid-cols-1 md:grid-cols-4 gap-6">
         <div className="bg-white rounded-lg border border-gray-200 p-6">
           <div className="flex items-center">
-            <Building2 className="w-8 h-8 text-blue-600" />
+            <Calendar className="w-8 h-8 text-blue-600" />
             <div className="ml-4">
               <p className="text-sm font-medium text-gray-600">Total Work Orders</p>
               <p className="text-2xl font-bold text-gray-900">{workOrders.length}</p>
@@ -468,16 +488,7 @@ export default function WorkOrders({ selectedRecordId, onRecordViewed }: WorkOrd
         </div>
         <div className="bg-white rounded-lg border border-gray-200 p-6">
           <div className="flex items-center">
-            <Clock className="w-8 h-8 text-yellow-600" />
-            <div className="ml-4">
-              <p className="text-sm font-medium text-gray-600">Open</p>
-              <p className="text-2xl font-bold text-gray-900">{workOrders.filter(wo => wo.status === 'open').length}</p>
-            </div>
-          </div>
-        </div>
-        <div className="bg-white rounded-lg border border-gray-200 p-6">
-          <div className="flex items-center">
-            <User className="w-8 h-8 text-blue-600" />
+            <Clock className="w-8 h-8 text-blue-600" />
             <div className="ml-4">
               <p className="text-sm font-medium text-gray-600">In Progress</p>
               <p className="text-2xl font-bold text-gray-900">{workOrders.filter(wo => wo.status === 'in_progress').length}</p>
@@ -486,10 +497,21 @@ export default function WorkOrders({ selectedRecordId, onRecordViewed }: WorkOrd
         </div>
         <div className="bg-white rounded-lg border border-gray-200 p-6">
           <div className="flex items-center">
-            <DollarSign className="w-8 h-8 text-green-600" />
+            <CheckCircle className="w-8 h-8 text-green-600" />
             <div className="ml-4">
               <p className="text-sm font-medium text-gray-600">Completed</p>
               <p className="text-2xl font-bold text-gray-900">{workOrders.filter(wo => wo.status === 'completed').length}</p>
+            </div>
+          </div>
+        </div>
+        <div className="bg-white rounded-lg border border-gray-200 p-6">
+          <div className="flex items-center">
+            <Clock className="w-8 h-8 text-green-600" />
+            <div className="ml-4">
+              <p className="text-sm font-medium text-gray-600">Total Hours</p>
+              <p className="text-2xl font-bold text-gray-900">
+                {workOrders.reduce((sum, wo) => sum + (wo.approved_hours || 0), 0).toFixed(1)}h
+              </p>
             </div>
           </div>
         </div>
@@ -553,14 +575,11 @@ export default function WorkOrders({ selectedRecordId, onRecordViewed }: WorkOrd
                   <th className="hidden md:table-cell px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
                     Assigned To
                   </th>
-                  <th className="hidden lg:table-cell px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                    Hours/Progress
-                  </th>
                   <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
                     Status
                   </th>
                   <th className="hidden md:table-cell px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                    Priority
+                    Hours Logged
                   </th>
                   <th className="hidden md:table-cell px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
                     Scheduled
@@ -576,11 +595,9 @@ export default function WorkOrders({ selectedRecordId, onRecordViewed }: WorkOrd
                     <td className="px-6 py-4 whitespace-nowrap">
                       <div className="text-sm font-medium text-gray-900">{workOrder.wo_number}</div>
                       <div className="text-sm text-gray-500">{workOrder.title}</div>
-                      {workOrder.resolution_notes && (
-                        <div className="text-xs text-blue-600 mt-1 max-w-xs truncate" title={workOrder.resolution_notes}>
-                          Resolution: {workOrder.resolution_notes}
-                        </div>
-                      )}
+                      <span className={`inline-flex px-2 py-1 text-xs font-medium rounded-full ${getPriorityColor(workOrder.priority)}`}>
+                        {workOrder.priority.toUpperCase()}
+                      </span>
                     </td>
                     <td className="hidden md:table-cell px-6 py-4 whitespace-nowrap">
                       <div className="text-sm text-gray-900">
@@ -595,38 +612,35 @@ export default function WorkOrders({ selectedRecordId, onRecordViewed }: WorkOrd
                     </td>
                     <td className="hidden md:table-cell px-6 py-4 whitespace-nowrap">
                       <div className="text-sm text-gray-900">
-                        {workOrder.assigned_technician ? 
-                          `${workOrder.assigned_technician.first_name} ${workOrder.assigned_technician.last_name}` : 
-                          workOrder.assignments && workOrder.assignments.length > 0 ?
-                          `${workOrder.assignments[0].tech.first_name} ${workOrder.assignments[0].tech.last_name}${workOrder.assignments.length > 1 ? ` +${workOrder.assignments.length - 1}` : ''}` :
+                        {workOrder.assignments && workOrder.assignments.length > 0 ? (
+                          <div>
+                            {workOrder.assignments.map((assignment, index) => (
+                              <div key={assignment.id} className="flex items-center">
+                                <span className={`text-sm ${assignment.is_primary ? 'font-semibold' : ''}`}>
+                                  {assignment.technician?.first_name} {assignment.technician?.last_name}
+                                </span>
+                                {assignment.is_primary && (
+                                  <span className="ml-1 text-xs text-blue-600">(Primary)</span>
+                                )}
+                              </div>
+                            ))}
+                          </div>
+                        ) : workOrder.assigned_technician ? (
+                          `${workOrder.assigned_technician.first_name} ${workOrder.assigned_technician.last_name}`
+                        ) : (
                           'Unassigned'
-                        }
+                        )}
                       </div>
-                      {workOrder.assigned_dept && (
-                        <div className="text-xs text-gray-500">{workOrder.assigned_dept.name}</div>
-                      )}
-                    </td>
-                    <td className="hidden lg:table-cell px-6 py-4 whitespace-nowrap">
-                      <div className="text-sm text-gray-900">
-                        {workOrder.actual_hours && workOrder.actual_hours > 0 ? `${workOrder.actual_hours}h logged` : 'No hours logged'}
-                      </div>
-                      {workOrder.status === 'completed' && workOrder.completed_date && (
-                        <div className="text-xs text-green-600">
-                          Completed: {new Date(workOrder.completed_date).toLocaleDateString()}
-                        </div>
-                      )}
-                      {workOrder.status === 'in_progress' && (
-                        <div className="text-xs text-blue-600">
-                          In Progress
-                        </div>
-                      )}
                     </td>
                     <td className="px-6 py-4 whitespace-nowrap">
                       <select
                         value={workOrder.status}
-                        onChange={(e) => updateStatus(workOrder.id, e.target.value)}
+                        onChange={(e) => {
+                          e.stopPropagation()
+                          updateStatus(workOrder.id, e.target.value)
+                        }}
                         className={`text-xs font-semibold rounded-full px-2 py-1 border-0 ${getStatusColor(workOrder.status)}`}
-                        onClick={(e) => e.stopPropagation()}
+                        disabled={currentUser?.profile?.role === 'tech'}
                       >
                         <option value="open">Open</option>
                         <option value="scheduled">Scheduled</option>
@@ -636,49 +650,45 @@ export default function WorkOrders({ selectedRecordId, onRecordViewed }: WorkOrd
                       </select>
                     </td>
                     <td className="hidden md:table-cell px-6 py-4 whitespace-nowrap">
-                      <span className={`inline-flex px-2 py-1 text-xs font-medium rounded-full ${getPriorityColor(workOrder.priority)}`}>
-                        {workOrder.priority.toUpperCase()}
-                      </span>
+                      <div className="text-sm text-gray-900">
+                        {workOrder.approved_hours && workOrder.approved_hours > 0 ? (
+                          <div>
+                            <div className="font-medium text-green-600">
+                              {formatHours(workOrder.approved_hours)} approved
+                            </div>
+                            {workOrder.total_hours && workOrder.total_hours > workOrder.approved_hours && (
+                              <div className="text-xs text-gray-500">
+                                {formatHours(workOrder.total_hours)} total
+                              </div>
+                            )}
+                          </div>
+                        ) : workOrder.total_hours && workOrder.total_hours > 0 ? (
+                          <div className="text-yellow-600">
+                            {formatHours(workOrder.total_hours)} pending
+                          </div>
+                        ) : (
+                          <span className="text-gray-500">No hours logged</span>
+                        )}
+                      </div>
                     </td>
                     <td className="hidden md:table-cell px-6 py-4 whitespace-nowrap text-sm text-gray-900">
-                      {workOrder.scheduled_date ? new Date(workOrder.scheduled_date).toLocaleDateString() : 'Not scheduled'}
+                      {workOrder.scheduled_date ? 
+                        new Date(workOrder.scheduled_date).toLocaleDateString() : 
+                        'Not scheduled'
+                      }
                     </td>
                     <td className="px-6 py-4 whitespace-nowrap text-sm font-medium">
                       <div className="flex space-x-2">
-                        {!workOrder.assigned_to && (!workOrder.assignments || workOrder.assignments.length === 0) && (
-                          <>
-                            <button
-                              onClick={(e) => {
-                                e.stopPropagation()
-                                openAssignmentModal(workOrder, 'single')
-                              }}
-                              className="text-blue-600 hover:text-blue-800 p-1.5 transition-all duration-200 hover:bg-blue-100 rounded-full hover:shadow-sm transform hover:scale-110"
-                              title="Assign Technician"
-                            >
-                              <UserPlus className="w-4 h-4" />
-                            </button>
-                            <button
-                              onClick={(e) => {
-                                e.stopPropagation()
-                                openAssignmentModal(workOrder, 'team')
-                              }}
-                              className="text-purple-600 hover:text-purple-800 p-1.5 transition-all duration-200 hover:bg-purple-100 rounded-full hover:shadow-sm transform hover:scale-110"
-                              title="Assign Team"
-                            >
-                              <Users className="w-4 h-4" />
-                            </button>
-                          </>
-                        )}
-                        {workOrder.status === 'completed' && (
+                        {(currentUser?.profile?.role === 'admin' || currentUser?.profile?.role === 'manager' || currentUser?.profile?.role === 'office') && (
                           <button
                             onClick={(e) => {
                               e.stopPropagation()
-                              convertToInvoice(workOrder)
+                              openAssignmentModal(workOrder)
                             }}
-                            className="text-green-600 hover:text-green-800 p-1.5 transition-all duration-200 hover:bg-green-100 rounded-full hover:shadow-sm transform hover:scale-110"
-                            title="Convert to Invoice"
+                            className="text-purple-600 hover:text-purple-800 p-1.5 transition-all duration-200 hover:bg-purple-100 rounded-full hover:shadow-sm transform hover:scale-110"
+                            title="Multi-Assign"
                           >
-                            <DollarSign className="w-4 h-4" />
+                            <Users className="w-4 h-4" />
                           </button>
                         )}
                         <button
@@ -753,73 +763,53 @@ export default function WorkOrders({ selectedRecordId, onRecordViewed }: WorkOrd
                       </div>
                     )}
                     
-                    {workOrder.assigned_technician && (
-                      <div className="flex items-center text-sm text-gray-600">
-                        <User className="w-4 h-4 mr-3" />
-                        <span>{workOrder.assigned_technician.first_name} {workOrder.assigned_technician.last_name}</span>
-                      </div>
-                    )}
+                    <div className="flex items-center text-sm text-gray-600">
+                      <User className="w-4 h-4 mr-3" />
+                      <span>
+                        {workOrder.assignments && workOrder.assignments.length > 0 ? (
+                          workOrder.assignments.map((assignment, index) => (
+                            <span key={assignment.id}>
+                              {assignment.technician?.first_name} {assignment.technician?.last_name}
+                              {assignment.is_primary && ' (Primary)'}
+                              {index < workOrder.assignments.length - 1 && ', '}
+                            </span>
+                          ))
+                        ) : workOrder.assigned_technician ? (
+                          `${workOrder.assigned_technician.first_name} ${workOrder.assigned_technician.last_name}`
+                        ) : (
+                          'Unassigned'
+                        )}
+                      </span>
+                    </div>
                     
-                    {workOrder.actual_hours && workOrder.actual_hours > 0 && (
-                      <div className="flex items-center text-sm text-gray-600">
-                        <Clock className="w-4 h-4 mr-3" />
-                        <span>{workOrder.actual_hours}h logged</span>
-                      </div>
-                    )}
-                    
-                    {workOrder.resolution_notes && (
-                      <div className="flex items-start text-sm text-gray-600">
-                        <CheckCircle className="w-4 h-4 mr-3 mt-0.5" />
-                        <span className="text-xs">{workOrder.resolution_notes}</span>
-                      </div>
-                    )}
+                    <div className="flex items-center text-sm text-gray-600">
+                      <Clock className="w-4 h-4 mr-3" />
+                      <span>
+                        {workOrder.approved_hours && workOrder.approved_hours > 0 ? (
+                          <span className="text-green-600 font-medium">
+                            {formatHours(workOrder.approved_hours)} approved
+                          </span>
+                        ) : workOrder.total_hours && workOrder.total_hours > 0 ? (
+                          <span className="text-yellow-600">
+                            {formatHours(workOrder.total_hours)} pending
+                          </span>
+                        ) : (
+                          'No hours logged'
+                        )}
+                      </span>
+                    </div>
                     
                     {workOrder.scheduled_date && (
                       <div className="flex items-center text-sm text-gray-600">
                         <Calendar className="w-4 h-4 mr-3" />
-                        <span>{new Date(workOrder.scheduled_date).toLocaleDateString()}</span>
+                        <span>Scheduled: {new Date(workOrder.scheduled_date).toLocaleDateString()}</span>
                       </div>
                     )}
                   </div>
                   
                   <div className="flex justify-between items-center pt-4 border-t border-gray-200">
-                    <div className="flex space-x-2">
-                      {!workOrder.assigned_to && (!workOrder.assignments || workOrder.assignments.length === 0) && (
-                        <>
-                          <button
-                            onClick={(e) => {
-                              e.stopPropagation()
-                              openAssignmentModal(workOrder, 'single')
-                            }}
-                            className="inline-flex items-center px-3 py-1 bg-blue-100 text-blue-700 rounded-md hover:bg-blue-200 transition-colors text-sm"
-                          >
-                            <UserPlus className="w-4 h-4 mr-1" />
-                            Assign
-                          </button>
-                          <button
-                            onClick={(e) => {
-                              e.stopPropagation()
-                              openAssignmentModal(workOrder, 'team')
-                            }}
-                            className="inline-flex items-center px-3 py-1 bg-purple-100 text-purple-700 rounded-md hover:bg-purple-200 transition-colors text-sm"
-                          >
-                            <Users className="w-4 h-4 mr-1" />
-                            Team
-                          </button>
-                        </>
-                      )}
-                      {workOrder.status === 'completed' && (
-                        <button
-                          onClick={(e) => {
-                            e.stopPropagation()
-                            convertToInvoice(workOrder)
-                          }}
-                          className="inline-flex items-center px-3 py-1 bg-green-100 text-green-700 rounded-md hover:bg-green-200 transition-colors text-sm"
-                        >
-                          <DollarSign className="w-4 h-4 mr-1" />
-                          Invoice
-                        </button>
-                      )}
+                    <div className="text-sm text-gray-500">
+                      {workOrder.project && `Project: ${workOrder.project.project_name}`}
                     </div>
                     <div className="text-blue-600 text-sm font-medium">
                       Click to view →
@@ -833,69 +823,35 @@ export default function WorkOrders({ selectedRecordId, onRecordViewed }: WorkOrd
       </div>
 
       {/* Assignment Modal */}
-      {showAssignmentModal && assignmentWorkOrder && (
+      {showAssignmentModal && selectedWorkOrderForAssignment && (
         <div className="fixed inset-0 bg-gray-600 bg-opacity-50 flex items-center justify-center p-4 z-50">
           <div className="bg-white rounded-xl shadow-xl max-w-md w-full">
             <div className="p-6 border-b border-gray-200">
-              <div className="flex items-center justify-between">
-                <h3 className="text-lg font-semibold text-gray-900">
-                  {assignmentType === 'single' ? 'Assign Technician' : 'Assign Team'}
-                </h3>
-                <button
-                  onClick={() => setShowAssignmentModal(false)}
-                  className="text-gray-400 hover:text-gray-600"
-                >
-                  <X className="w-6 h-6" />
-                </button>
-              </div>
-              <p className="text-sm text-gray-600 mt-2">
-                Work Order: {assignmentWorkOrder.wo_number} - {assignmentWorkOrder.title}
-              </p>
+              <h3 className="text-lg font-semibold text-gray-900">
+                Assign Technicians to {selectedWorkOrderForAssignment.wo_number}
+              </h3>
             </div>
             
             <div className="p-6">
               <div className="space-y-3 max-h-64 overflow-y-auto">
                 {technicians.map((tech) => (
-                  <div
-                    key={tech.id}
-                    onClick={() => {
-                      if (assignmentType === 'single') {
-                        setSelectedTechnicians([tech.id])
-                      } else {
-                        setSelectedTechnicians(prev => 
-                          prev.includes(tech.id) 
-                            ? prev.filter(id => id !== tech.id)
-                            : [...prev, tech.id]
-                        )
-                      }
-                    }}
-                    className={`flex items-center justify-between p-3 border rounded-lg cursor-pointer transition-colors ${
-                      selectedTechnicians.includes(tech.id)
-                        ? 'border-blue-300 bg-blue-50'
-                        : 'border-gray-200 hover:bg-gray-50'
-                    }`}
-                  >
-                    <div className="flex items-center space-x-3">
-                      <div className="w-8 h-8 bg-blue-100 rounded-full flex items-center justify-center">
-                        <span className="text-blue-600 font-medium text-sm">
-                          {tech.first_name[0]}{tech.last_name[0]}
-                        </span>
-                      </div>
-                      <div>
-                        <p className="text-sm font-medium text-gray-900">
-                          {tech.first_name} {tech.last_name}
-                        </p>
-                        <p className="text-xs text-gray-500 capitalize">{tech.role}</p>
-                      </div>
-                    </div>
-                    {assignmentType === 'team' && (
-                      <input
-                        type="checkbox"
-                        checked={selectedTechnicians.includes(tech.id)}
-                        onChange={() => {}}
-                        className="h-4 w-4 text-blue-600 focus:ring-blue-500 border-gray-300 rounded"
-                      />
-                    )}
+                  <div key={tech.id} className="flex items-center">
+                    <input
+                      type="checkbox"
+                      id={`tech-${tech.id}`}
+                      checked={selectedTechnicians.includes(tech.id)}
+                      onChange={(e) => {
+                        if (e.target.checked) {
+                          setSelectedTechnicians([...selectedTechnicians, tech.id])
+                        } else {
+                          setSelectedTechnicians(selectedTechnicians.filter(id => id !== tech.id))
+                        }
+                      }}
+                      className="h-4 w-4 text-blue-600 focus:ring-blue-500 border-gray-300 rounded"
+                    />
+                    <label htmlFor={`tech-${tech.id}`} className="ml-3 text-sm text-gray-900">
+                      {tech.first_name} {tech.last_name} ({tech.role})
+                    </label>
                   </div>
                 ))}
               </div>
@@ -908,11 +864,10 @@ export default function WorkOrders({ selectedRecordId, onRecordViewed }: WorkOrd
                   Cancel
                 </button>
                 <button
-                  onClick={handleAssignment}
-                  disabled={selectedTechnicians.length === 0}
-                  className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+                  onClick={handleMultiAssignment}
+                  className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors"
                 >
-                  Assign {assignmentType === 'single' ? 'Technician' : `${selectedTechnicians.length} Technician${selectedTechnicians.length !== 1 ? 's' : ''}`}
+                  Assign Technicians
                 </button>
               </div>
             </div>
@@ -923,7 +878,7 @@ export default function WorkOrders({ selectedRecordId, onRecordViewed }: WorkOrd
       {/* Form Modal */}
       {showForm && (
         <div className="fixed inset-0 bg-gray-600 bg-opacity-50 flex items-center justify-center p-4 z-50">
-          <div className="bg-white rounded-xl shadow-xl max-w-2xl w-full max-h-screen overflow-y-auto">
+          <div className="bg-white rounded-xl shadow-xl max-w-4xl w-full max-h-screen overflow-y-auto">
             <div className="p-6 border-b border-gray-200">
               <div className="flex items-center justify-between">
                 <h3 className="text-lg font-semibold text-gray-900">
@@ -991,7 +946,9 @@ export default function WorkOrders({ selectedRecordId, onRecordViewed }: WorkOrd
                           {site.site_name}
                         </option>
                       ))
-                    ) : null}
+                    ) : (
+                      formData.customer_id && <option disabled>No additional sites found</option>
+                    )}
                   </select>
                 </div>
 
@@ -1004,10 +961,10 @@ export default function WorkOrders({ selectedRecordId, onRecordViewed }: WorkOrd
                     onChange={(e) => setFormData({ ...formData, assigned_to: e.target.value })}
                     className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
                   >
-                    <option value="">Select Technician</option>
+                    <option value="">Unassigned</option>
                     {technicians.map((tech) => (
                       <option key={tech.id} value={tech.id}>
-                        {tech.first_name} {tech.last_name}
+                        {tech.first_name} {tech.last_name} ({tech.role})
                       </option>
                     ))}
                   </select>
@@ -1022,11 +979,25 @@ export default function WorkOrders({ selectedRecordId, onRecordViewed }: WorkOrd
                     onChange={(e) => setFormData({ ...formData, department_id: e.target.value })}
                     className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
                   >
-                    <option value="">Select Department</option>
+                    <option value="">No Department</option>
                     {departments.map((dept) => (
-                      <option key={dept.id} value={dept.id}>
-                        {dept.name}
-                      </option>
+                      <option key={dept.id} value={dept.id}>{dept.name}</option>
+                    ))}
+                  </select>
+                </div>
+
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-2">
+                    Project
+                  </label>
+                  <select
+                    value={formData.project_id}
+                    onChange={(e) => setFormData({ ...formData, project_id: e.target.value })}
+                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                  >
+                    <option value="">No Project</option>
+                    {projects.map((project) => (
+                      <option key={project.id} value={project.id}>{project.project_name}</option>
                     ))}
                   </select>
                 </div>
@@ -1069,10 +1040,23 @@ export default function WorkOrders({ selectedRecordId, onRecordViewed }: WorkOrd
                     Scheduled Date
                   </label>
                   <input
-                    type="date"
+                    type="datetime-local"
                     value={formData.scheduled_date}
                     onChange={(e) => setFormData({ ...formData, scheduled_date: e.target.value })}
                     className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-2">
+                    Work Type
+                  </label>
+                  <input
+                    type="text"
+                    value={formData.work_type}
+                    onChange={(e) => setFormData({ ...formData, work_type: e.target.value })}
+                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                    placeholder="e.g., HVAC, Plumbing, Electrical"
                   />
                 </div>
 
@@ -1161,20 +1145,11 @@ export default function WorkOrders({ selectedRecordId, onRecordViewed }: WorkOrd
                         {selectedWorkOrder.priority.toUpperCase()}
                       </span>
                     </div>
-                    <div className="flex justify-between">
-                      <span className="text-sm font-medium text-gray-700">Hours Logged:</span>
-                      <span className="text-sm text-gray-900">
-                        {selectedWorkOrder.actual_hours && selectedWorkOrder.actual_hours > 0 
-                          ? `${selectedWorkOrder.actual_hours} hours` 
-                          : 'No hours logged'
-                        }
-                      </span>
-                    </div>
                     {selectedWorkOrder.scheduled_date && (
                       <div className="flex justify-between">
                         <span className="text-sm font-medium text-gray-700">Scheduled:</span>
                         <span className="text-sm text-gray-900">
-                          {new Date(selectedWorkOrder.scheduled_date).toLocaleDateString()}
+                          {new Date(selectedWorkOrder.scheduled_date).toLocaleString()}
                         </span>
                       </div>
                     )}
@@ -1182,7 +1157,7 @@ export default function WorkOrders({ selectedRecordId, onRecordViewed }: WorkOrd
                       <div className="flex justify-between">
                         <span className="text-sm font-medium text-gray-700">Completed:</span>
                         <span className="text-sm text-gray-900">
-                          {new Date(selectedWorkOrder.completed_date).toLocaleDateString()}
+                          {new Date(selectedWorkOrder.completed_date).toLocaleString()}
                         </span>
                       </div>
                     )}
@@ -1193,15 +1168,6 @@ export default function WorkOrders({ selectedRecordId, onRecordViewed }: WorkOrd
                       <h5 className="text-md font-medium text-gray-900 mb-3">Description</h5>
                       <div className="bg-gray-50 rounded-lg p-4">
                         <p className="text-sm text-gray-700">{selectedWorkOrder.description}</p>
-                      </div>
-                    </div>
-                  )}
-
-                  {selectedWorkOrder.resolution_notes && (
-                    <div className="mt-6">
-                      <h5 className="text-md font-medium text-gray-900 mb-3">Resolution Notes</h5>
-                      <div className="bg-green-50 border border-green-200 rounded-lg p-4">
-                        <p className="text-sm text-green-800">{selectedWorkOrder.resolution_notes}</p>
                       </div>
                     </div>
                   )}
@@ -1228,18 +1194,26 @@ export default function WorkOrders({ selectedRecordId, onRecordViewed }: WorkOrd
                     <div className="flex justify-between">
                       <span className="text-sm font-medium text-gray-700">Assigned To:</span>
                       <span className="text-sm text-gray-900">
-                        {selectedWorkOrder.assigned_technician ? 
-                          `${selectedWorkOrder.assigned_technician.first_name} ${selectedWorkOrder.assigned_technician.last_name}` : 
-                          selectedWorkOrder.assignments && selectedWorkOrder.assignments.length > 0 ?
-                          `${selectedWorkOrder.assignments[0].tech.first_name} ${selectedWorkOrder.assignments[0].tech.last_name}${selectedWorkOrder.assignments.length > 1 ? ` +${selectedWorkOrder.assignments.length - 1}` : ''}` :
+                        {selectedWorkOrder.assignments && selectedWorkOrder.assignments.length > 0 ? (
+                          <div>
+                            {selectedWorkOrder.assignments.map((assignment) => (
+                              <div key={assignment.id}>
+                                {assignment.technician?.first_name} {assignment.technician?.last_name}
+                                {assignment.is_primary && ' (Primary)'}
+                              </div>
+                            ))}
+                          </div>
+                        ) : selectedWorkOrder.assigned_technician ? (
+                          `${selectedWorkOrder.assigned_technician.first_name} ${selectedWorkOrder.assigned_technician.last_name}`
+                        ) : (
                           'Unassigned'
-                        }
+                        )}
                       </span>
                     </div>
-                    {selectedWorkOrder.assigned_dept && (
+                    {selectedWorkOrder.project && (
                       <div className="flex justify-between">
-                        <span className="text-sm font-medium text-gray-700">Department:</span>
-                        <span className="text-sm text-gray-900">{selectedWorkOrder.assigned_dept.name}</span>
+                        <span className="text-sm font-medium text-gray-700">Project:</span>
+                        <span className="text-sm text-gray-900">{selectedWorkOrder.project.project_name}</span>
                       </div>
                     )}
                   </div>
@@ -1272,6 +1246,49 @@ export default function WorkOrders({ selectedRecordId, onRecordViewed }: WorkOrd
                 </div>
               </div>
 
+              {/* Time Entries Section */}
+              {selectedWorkOrder.time_entries && selectedWorkOrder.time_entries.length > 0 && (
+                <div className="mt-8">
+                  <h5 className="text-md font-medium text-gray-900 mb-4">Time Entries</h5>
+                  <div className="bg-gray-50 rounded-lg p-4">
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
+                      <div className="bg-white rounded-lg p-3">
+                        <div className="text-sm font-medium text-gray-700">Total Hours</div>
+                        <div className="text-lg font-bold text-blue-600">{formatHours(selectedWorkOrder.total_hours || 0)}</div>
+                      </div>
+                      <div className="bg-white rounded-lg p-3">
+                        <div className="text-sm font-medium text-gray-700">Approved Hours</div>
+                        <div className="text-lg font-bold text-green-600">{formatHours(selectedWorkOrder.approved_hours || 0)}</div>
+                      </div>
+                    </div>
+                    <div className="space-y-2">
+                      {selectedWorkOrder.time_entries.map((entry) => (
+                        <div key={entry.id} className="bg-white rounded-lg p-3 border border-gray-200">
+                          <div className="flex items-center justify-between">
+                            <div>
+                              <div className="text-sm font-medium text-gray-900">
+                                {entry.user?.first_name} {entry.user?.last_name}
+                              </div>
+                              <div className="text-xs text-gray-500">
+                                {new Date(entry.start_time).toLocaleDateString()} - {(entry.duration_minutes / 60).toFixed(1)}h
+                              </div>
+                            </div>
+                            <span className={`inline-flex px-2 py-1 text-xs font-medium rounded-full ${
+                              entry.status === 'approved' ? 'text-green-700 bg-green-100' :
+                              entry.status === 'rejected' ? 'text-red-700 bg-red-100' :
+                              'text-yellow-700 bg-yellow-100'
+                            }`}>
+                              {entry.status}
+                            </span>
+                          </div>
+                          <div className="text-sm text-gray-600 mt-1">{entry.description}</div>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                </div>
+              )}
+
               {selectedWorkOrder.notes && (
                 <div className="mt-8">
                   <h5 className="text-md font-medium text-gray-900 mb-3">Notes</h5>
@@ -1281,50 +1298,19 @@ export default function WorkOrders({ selectedRecordId, onRecordViewed }: WorkOrd
                 </div>
               )}
 
-              <div className="flex justify-between items-center mt-8 pt-6 border-t border-gray-200">
-                <div className="flex space-x-3">
-                  {!selectedWorkOrder.assigned_to && (!selectedWorkOrder.assignments || selectedWorkOrder.assignments.length === 0) && (
-                    <>
-                      <button
-                        onClick={() => openAssignmentModal(selectedWorkOrder, 'single')}
-                        className="inline-flex items-center px-4 py-2 bg-blue-100 text-blue-700 rounded-lg hover:bg-blue-200 transition-colors"
-                      >
-                        <UserPlus className="w-4 h-4 mr-2" />
-                        Assign Technician
-                      </button>
-                      <button
-                        onClick={() => openAssignmentModal(selectedWorkOrder, 'team')}
-                        className="inline-flex items-center px-4 py-2 bg-purple-100 text-purple-700 rounded-lg hover:bg-purple-200 transition-colors"
-                      >
-                        <Users className="w-4 h-4 mr-2" />
-                        Assign Team
-                      </button>
-                    </>
-                  )}
-                  {selectedWorkOrder.status === 'completed' && (
-                    <button
-                      onClick={() => convertToInvoice(selectedWorkOrder)}
-                      className="inline-flex items-center px-4 py-2 bg-green-100 text-green-700 rounded-lg hover:bg-green-200 transition-colors"
-                    >
-                      <DollarSign className="w-4 h-4 mr-2" />
-                      Convert to Invoice
-                    </button>
-                  )}
-                </div>
-                <div className="flex space-x-3">
-                  <button
-                    onClick={() => startEdit(selectedWorkOrder)}
-                    className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors"
-                  >
-                    Edit Work Order
-                  </button>
-                  <button
-                    onClick={() => setSelectedWorkOrder(null)}
-                    className="px-4 py-2 border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-50 transition-colors"
-                  >
-                    Close
-                  </button>
-                </div>
+              <div className="flex justify-end space-x-3 mt-8 pt-6 border-t border-gray-200">
+                <button
+                  onClick={() => startEdit(selectedWorkOrder)}
+                  className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors"
+                >
+                  Edit Work Order
+                </button>
+                <button
+                  onClick={() => setSelectedWorkOrder(null)}
+                  className="px-4 py-2 border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-50 transition-colors"
+                >
+                  Close
+                </button>
               </div>
             </div>
           </div>
