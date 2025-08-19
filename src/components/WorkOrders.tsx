@@ -952,18 +952,6 @@ export default function WorkOrders({ selectedRecordId, onRecordViewed }: WorkOrd
                             <UserPlus className="w-4 h-4 mr-1" />
                             Assign
                           </button>
-                          <button
-                            onClick={(e) => {
-                              e.stopPropagation()
-                              openAssignmentModal(workOrder, 'team')
-                            }}
-                            className="inline-flex items-center px-3 py-1 bg-purple-100 text-purple-700 rounded-md hover:bg-purple-200 transition-colors text-sm"
-                          >
-                            <Users className="w-4 h-4 mr-1" />
-                            Team
-                          </button>
-                        </>
-                      )}
                     </div>
                     <div className="text-blue-600 text-sm font-medium">
                       Click to view →
