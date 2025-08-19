@@ -749,7 +749,7 @@ export default function WorkOrders({ selectedRecordId, onRecordViewed }: WorkOrd
                           <button
                             onClick={(e) => {
                               e.stopPropagation()
-                              convertToInvoice(workOrder)
+                              convertToInvoice(order)
                             }}
                             className="text-green-600 hover:text-green-800 p-1.5 transition-all duration-200 hover:bg-green-100 rounded-full hover:shadow-sm transform hover:scale-110"
                             title="Convert to Invoice"
